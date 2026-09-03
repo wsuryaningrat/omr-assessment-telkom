@@ -42,9 +42,14 @@ from core.utils import (
 
 st.set_page_config(page_title="Telkom University - OMR Assessment System", page_icon="🎓", layout="wide")
 
-# Register custom interactive ROI editor component
-_roi_comp_dir = os.path.join(os.path.dirname(__file__), "frontend", "roi_editor")
-_roi_editor = components.declare_component("roi_editor", path=_roi_comp_dir)
+# Register custom interactive ROI editor component safely
+_roi_editor = None
+try:
+    _roi_comp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "roi_editor")
+    if os.path.exists(_roi_comp_dir):
+        _roi_editor = components.declare_component("roi_editor", path=_roi_comp_dir)
+except Exception as _e:
+    _roi_editor = None
 
 def get_telkom_logo_b64():
     logo_path = os.path.join(os.path.dirname(__file__), "assets", "telkom_logo.png")
@@ -67,21 +72,26 @@ def render_roi_editor(image_bgr, box, label="Area Scan", key=None):
     """
     Renders an interactive live canvas where the user can drag and resize the ROI box directly.
     """
-    h, w = image_bgr.shape[:2]
-    preview_w = 850
-    preview_h = int(preview_w * (h / w))
-    small_bgr = cv2.resize(image_bgr, (preview_w, preview_h))
-    _, buffer = cv2.imencode(".jpg", small_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
-    img_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
+    if _roi_editor is None:
+        return None
+    try:
+        h, w = image_bgr.shape[:2]
+        preview_w = 850
+        preview_h = int(preview_w * (h / w))
+        small_bgr = cv2.resize(image_bgr, (preview_w, preview_h))
+        _, buffer = cv2.imencode(".jpg", small_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
+        img_b64 = "data:image/jpeg;base64," + base64.b64encode(buffer).decode("utf-8")
 
-    return _roi_editor(
-        image_b64=img_b64,
-        box=box,
-        label=label,
-        orig_w=w,
-        orig_h=h,
-        key=key
-    )
+        return _roi_editor(
+            image_b64=img_b64,
+            box=box,
+            label=label,
+            orig_w=w,
+            orig_h=h,
+            key=key
+        )
+    except Exception:
+        return None
 
 def cv_to_pil(img_bgr):
     if len(img_bgr.shape) == 2:
