@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    #editorCanvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+      cursor: crosshair;
+    }
+    #tooltip {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(15, 23, 42, 0.88);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      backdrop-filter: blur(4px);
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="tooltip">🖱️ <b>Tarik tengah untuk geser</b> | Tarik 8 titik sudut/tepi untuk ubah ukuran | Posisi terkunci otomatis</div>
+    <canvas id="editorCanvas"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("editorCanvas");
+    const ctx = canvas.getContext("2d");
+    const tooltip = document.getElementById("tooltip");
+
+    let img = new Image();
+    let imgLoaded = false;
+    let origW = 1700;
+    let origH = 2400;
+
+    // Box in original image coordinates
+    let box = { x: 120, y: 360, w: 750, h: 750 };
+    let sectionLabel = "Area Scan";
+    let lastBoxKey = "";
+
+    // Interaction state
+    let isDragging = false;
+    let dragMode = null; // 'move', 'nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w'
+    let startX = 0, startY = 0;
+    let initialBox = { ...box };
+    const handleRadius = 9;
+
+    function sendValue(newBox) {
+      const val = {
+        x: Math.round(newBox.x),
+        y: Math.round(newBox.y),
+        w: Math.max(20, Math.round(newBox.w)),
+        h: Math.max(20, Math.round(newBox.h))
+      };
+      lastBoxKey = `${val.x}_${val.y}_${val.w}_${val.h}`;
+      window.parent.postMessage({
+        isStreamlitMessage: true,
+        type: "streamlit:setComponentValue",
+        value: val
+      }, "*");
+    }
+
+    function setFrameHeight() {
+      const height = document.getElementById("container").scrollHeight;
+      window.parent.postMessage({
+        isStreamlitMessage: true,
+        type: "streamlit:setFrameHeight",
+        height: height + 20
+      }, "*");
+    }
+
+    function getScale() {
+      return canvas.width / origW;
+    }
+
+    function getMousePos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function getHandles(bx, by, bw, bh) {
+      return {
+        nw: { x: bx, y: by },
+        ne: { x: bx + bw, y: by },
+        sw: { x: bx, y: by + bh },
+        se: { x: bx + bw, y: by + bh },
+        n:  { x: bx + bw / 2, y: by },
+        s:  { x: bx + bw / 2, y: by + bh },
+        w:  { x: bx, y: by + bh / 2 },
+        e:  { x: bx + bw, y: by + bh / 2 }
+      };
+    }
+
+    function draw() {
+      if (!imgLoaded) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      const scale = getScale();
+      const bx = box.x * scale;
+      const by = box.y * scale;
+      const bw = box.w * scale;
+      const bh = box.h * scale;
+
+      // Darken outside ROI slightly
+      ctx.fillStyle = "rgba(0, 0, 0, 0.40)";
+      ctx.fillRect(0, 0, canvas.width, by);
+      ctx.fillRect(0, by + bh, canvas.width, canvas.height - (by + bh));
+      ctx.fillRect(0, by, bx, bh);
+      ctx.fillRect(bx + bw, by, canvas.width - (bx + bw), bh);
+
+      // Box Highlight (Telkom Red tint)
+      ctx.fillStyle = "rgba(186, 12, 47, 0.14)";
+      ctx.fillRect(bx, by, bw, bh);
+
+      // Border matching Telkom University Red
+      ctx.strokeStyle = "#BA0C2F";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      // Crosshair lines inside box
+      ctx.strokeStyle = "rgba(186, 12, 47, 0.28)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx + bw / 2, by);
+      ctx.lineTo(bx + bw / 2, by + bh);
+      ctx.moveTo(bx, by + bh / 2);
+      ctx.lineTo(bx + bw, by + bh / 2);
+      ctx.stroke();
+
+      // Label badge
+      ctx.fillStyle = "#BA0C2F";
+      ctx.font = "bold 13px sans-serif";
+      const text = `${sectionLabel} [X:${Math.round(box.x)} Y:${Math.round(box.y)} W:${Math.round(box.w)} H:${Math.round(box.h)}]`;
+      const textWidth = ctx.measureText(text).width;
+      ctx.fillRect(bx, Math.max(0, by - 26), textWidth + 16, 24);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(text, bx + 8, Math.max(16, by - 9));
+
+      // Draw 8 interactive handles
+      const handles = getHandles(bx, by, bw, bh);
+      for (const [key, pos] of Object.entries(handles)) {
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#BA0C2F";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, handleRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    function hitTest(mx, my) {
+      const scale = getScale();
+      const bx = box.x * scale;
+      const by = box.y * scale;
+      const bw = box.w * scale;
+      const bh = box.h * scale;
+      const handles = getHandles(bx, by, bw, bh);
+
+      // Check handles first with generous touch target
+      for (const [key, pos] of Object.entries(handles)) {
+        const d = Math.hypot(mx - pos.x, my - pos.y);
+        if (d <= handleRadius + 6) {
+          return key;
+        }
+      }
+
+      // Check inside box
+      if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+        return "move";
+      }
+
+      // If clicked outside, do NOT delete or reset! Allow repositioning box center smoothly
+      return "jump_move";
+    }
+
+    function setCursor(mode) {
+      const cursorMap = {
+        nw: "nwse-resize",
+        se: "nwse-resize",
+        ne: "nesw-resize",
+        sw: "nesw-resize",
+        n:  "ns-resize",
+        s:  "ns-resize",
+        w:  "ew-resize",
+        e:  "ew-resize",
+        move: "grab",
+        jump_move: "crosshair"
+      };
+      canvas.style.cursor = cursorMap[mode] || "default";
+    }
+
+    function onPointerDown(e) {
+      const pos = getMousePos(e);
+      dragMode = hitTest(pos.x, pos.y);
+      isDragging = true;
+      startX = pos.x;
+      startY = pos.y;
+      initialBox = { ...box };
+
+      if (dragMode === "jump_move") {
+        // Move box center to clicked point, preserving width and height
+        const scale = getScale();
+        const clickX = pos.x / scale;
+        const clickY = pos.y / scale;
+        box.x = Math.max(0, Math.min(origW - box.w, clickX - box.w / 2));
+        box.y = Math.max(0, Math.min(origH - box.h, clickY - box.h / 2));
+        initialBox = { ...box };
+        dragMode = "move";
+      } else if (dragMode === "move") {
+        canvas.style.cursor = "grabbing";
+      }
+      draw();
+    }
+
+    function onPointerMove(e) {
+      const pos = getMousePos(e);
+      if (!isDragging) {
+        const mode = hitTest(pos.x, pos.y);
+        setCursor(mode);
+        return;
+      }
+
+      const scale = getScale();
+      const dx = (pos.x - startX) / scale;
+      const dy = (pos.y - startY) / scale;
+
+      let newBox = { ...initialBox };
+
+      if (dragMode === "move") {
+        newBox.x = Math.max(0, Math.min(origW - newBox.w, initialBox.x + dx));
+        newBox.y = Math.max(0, Math.min(origH - newBox.h, initialBox.y + dy));
+      } else if (dragMode === "se") {
+        newBox.w = Math.max(30, initialBox.w + dx);
+        newBox.h = Math.max(30, initialBox.h + dy);
+      } else if (dragMode === "nw") {
+        const nx = Math.min(initialBox.x + initialBox.w - 30, initialBox.x + dx);
+        const ny = Math.min(initialBox.y + initialBox.h - 30, initialBox.y + dy);
+        newBox.w = initialBox.w + (initialBox.x - nx);
+        newBox.h = initialBox.h + (initialBox.y - ny);
+        newBox.x = nx;
+        newBox.y = ny;
+      } else if (dragMode === "ne") {
+        newBox.w = Math.max(30, initialBox.w + dx);
+        const ny = Math.min(initialBox.y + initialBox.h - 30, initialBox.y + dy);
+        newBox.h = initialBox.h + (initialBox.y - ny);
+        newBox.y = ny;
+      } else if (dragMode === "sw") {
+        const nx = Math.min(initialBox.x + initialBox.w - 30, initialBox.x + dx);
+        newBox.w = initialBox.w + (initialBox.x - nx);
+        newBox.x = nx;
+        newBox.h = Math.max(30, initialBox.h + dy);
+      } else if (dragMode === "e") {
+        newBox.w = Math.max(30, initialBox.w + dx);
+      } else if (dragMode === "w") {
+        const nx = Math.min(initialBox.x + initialBox.w - 30, initialBox.x + dx);
+        newBox.w = initialBox.w + (initialBox.x - nx);
+        newBox.x = nx;
+      } else if (dragMode === "s") {
+        newBox.h = Math.max(30, initialBox.h + dy);
+      } else if (dragMode === "n") {
+        const ny = Math.min(initialBox.y + initialBox.h - 30, initialBox.y + dy);
+        newBox.h = initialBox.h + (initialBox.y - ny);
+        newBox.y = ny;
+      }
+
+      box = newBox;
+      draw();
+    }
+
+    function onPointerUp(e) {
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = "default";
+        // Send the updated box to Streamlit and record its key
+        sendValue(box);
+      }
+    }
+
+    // Attach mouse & touch listeners
+    canvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+
+    canvas.addEventListener("touchstart", (e) => { e.preventDefault(); onPointerDown(e); }, { passive: false });
+    window.addEventListener("touchmove", (e) => { onPointerMove(e); }, { passive: false });
+    window.addEventListener("touchend", (e) => { onPointerUp(e); }, { passive: false });
+
+    // Streamlit Message Protocol
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "streamlit:render") {
+        const args = event.data.args;
+        if (!args) return;
+
+        sectionLabel = args.label || "Area Scan";
+        origW = args.orig_w || 1700;
+        origH = args.orig_h || 2400;
+
+        if (args.box && (!isDragging)) {
+          const incomingKey = `${Math.round(args.box[0])}_${Math.round(args.box[1])}_${Math.round(args.box[2])}_${Math.round(args.box[3])}`;
+          // Only update if it's not the one we just sent (prevents snapping back!)
+          if (incomingKey !== lastBoxKey) {
+            box = {
+              x: args.box[0],
+              y: args.box[1],
+              w: args.box[2],
+              h: args.box[3]
+            };
+            lastBoxKey = incomingKey;
+          }
+        }
+
+        if (args.image_b64) {
+          if (img.src !== args.image_b64) {
+            img.src = args.image_b64;
+            img.onload = () => {
+              imgLoaded = true;
+              const containerWidth = document.getElementById("container").clientWidth || 800;
+              canvas.width = Math.min(containerWidth, 1000);
+              canvas.height = canvas.width * (origH / origW);
+              draw();
+              setFrameHeight();
+            };
+          } else {
+            draw();
+          }
+        }
+      }
+    });
+
+    window.parent.postMessage({
+      isStreamlitMessage: true,
+      type: "streamlit:componentReady",
+      apiVersion: 1
+    }, "*");
+
+    window.addEventListener("resize", () => {
+      if (imgLoaded) {
+        const containerWidth = document.getElementById("container").clientWidth || 800;
+        canvas.width = Math.min(containerWidth, 1000);
+        canvas.height = canvas.width * (origH / origW);
+        draw();
+        setFrameHeight();
+      }
+    });
+  </script>
+</body>
+</html>
