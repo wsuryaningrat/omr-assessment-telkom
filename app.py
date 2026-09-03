@@ -702,7 +702,16 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             except Exception as e:
                 err_msg = str(e)
                 st.session_state["last_gsheet_status"] = ("error", f"Gagal transfer Google Sheet: {err_msg}")
-                st.warning(f"⚠️ Gagal sinkronisasi Google Sheet: {err_msg}")
+                if "Public Spreadsheet cannot be written to" in err_msg:
+                    st.error(
+                        "⚠️ **Kredensial Service Account Belum Terpasang di Streamlit Cloud.**\n\n"
+                        "Untuk mengaktifkan sinkronisasi otomatis ke Google Sheet di Cloud:\n"
+                        "1. Di pojok kanan bawah, klik **Manage app** (atau menu **Settings** di share.streamlit.io).\n"
+                        "2. Pilih tab **Secrets**.\n"
+                        "3. Salin dan tempelkan konfigurasi `[connections.gsheets]` lengkap, lalu klik **Save**."
+                    )
+                else:
+                    st.warning(f"⚠️ Gagal sinkronisasi Google Sheet: {err_msg}")
 
     # Show results if available
     if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
