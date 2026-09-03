@@ -408,6 +408,138 @@ button[data-testid="baseButton-secondary"] * {
     color: #0F172A !important;
     font-weight: 700 !important;
 }
+
+/* ==============================================================================
+   RESPONSIVE MOBILE DESIGN SYSTEM (< 768px & < 480px)
+   ============================================================================== */
+@media (max-width: 768px) {
+    /* Responsive Container Margins */
+    .block-container {
+        padding-top: 0.75rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Stack and Reflow Header for Mobile */
+    .telkom-header-container {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 12px !important;
+        padding: 14px 16px !important;
+        border-radius: 10px !important;
+        margin-bottom: 16px !important;
+    }
+    .telkom-header-brand {
+        gap: 12px !important;
+        width: 100% !important;
+        align-items: center !important;
+    }
+    .telkom-header-logo {
+        height: 38px !important;
+        width: auto !important;
+    }
+    .telkom-header-unit {
+        font-size: 10px !important;
+        letter-spacing: 0.05em !important;
+    }
+    .telkom-header-title {
+        font-size: 16px !important;
+        line-height: 1.25 !important;
+    }
+    .telkom-header-desc {
+        font-size: 11px !important;
+    }
+    .telkom-header-badge {
+        font-size: 11px !important;
+        padding: 4px 10px !important;
+        border-radius: 6px !important;
+        width: fit-content !important;
+    }
+
+    /* Mobile Typography & Headings */
+    h1 { font-size: 20px !important; line-height: 1.3 !important; }
+    h2 { font-size: 18px !important; line-height: 1.3 !important; }
+    h3 { font-size: 16px !important; line-height: 1.3 !important; }
+    h4 { font-size: 14px !important; line-height: 1.3 !important; }
+
+    /* Touch-Friendly Buttons (Thumb-Optimized min 46px height) */
+    button, 
+    button[kind="primary"], 
+    button[kind="secondary"],
+    button[data-testid="baseButton-secondary"],
+    div[data-testid="stFileUploader"] button {
+        min-height: 46px !important;
+        font-size: 14px !important;
+        padding: 10px 16px !important;
+        border-radius: 8px !important;
+    }
+
+    /* Prevent iOS Safari 16px auto-zoom */
+    input, textarea, select, div[data-baseweb="input"] input {
+        font-size: 16px !important;
+        min-height: 44px !important;
+    }
+
+    /* Mobile Dropzone & Upload Box */
+    div[data-testid="stFileUploader"],
+    section[data-testid="stFileUploadDropzone"] {
+        padding: 14px 10px !important;
+        border-radius: 8px !important;
+    }
+    section[data-testid="stFileUploadDropzone"] button {
+        width: 100% !important;
+        margin-top: 10px !important;
+        justify-content: center !important;
+    }
+
+    /* Responsive Cards */
+    .telkom-card {
+        padding: 14px 14px !important;
+        border-radius: 10px !important;
+        margin-bottom: 14px !important;
+    }
+
+    /* Full-width Columns on Mobile Screens */
+    div[data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* Smooth Table Scrolling on Mobile */
+    div[data-testid="stDataFrame"] {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* Toast Notification Mobile Positioning */
+    div[data-testid="stToast"] {
+        width: 90% !important;
+        max-width: 360px !important;
+        margin: 0 auto !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .telkom-header-brand {
+        flex-direction: row !important;
+        align-items: center !important;
+    }
+    .telkom-header-logo {
+        height: 32px !important;
+    }
+    .telkom-header-title {
+        font-size: 15px !important;
+    }
+    .block-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
