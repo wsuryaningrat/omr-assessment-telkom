@@ -11,6 +11,7 @@ import pandas as pd
 import json
 import base64
 import os
+import re
 import time
 from PIL import Image
 import streamlit.components.v1 as components
@@ -58,14 +59,32 @@ def get_telkom_logo_b64():
             return "data:image/png;base64," + base64.b64encode(f.read()).decode("utf-8")
     return ""
 
+def get_default_template_path():
+    """Finds the default template path: checks templates/ folder first, then fallback to template-final.json."""
+    base_dir = os.path.dirname(__file__)
+    templates_dir = os.path.join(base_dir, "templates")
+    if os.path.isdir(templates_dir):
+        json_files = sorted(
+            [f for f in os.listdir(templates_dir) if f.endswith(".json") and not f.startswith(".")],
+            reverse=True
+        )
+        if json_files:
+            return os.path.join(templates_dir, json_files[0])
+    
+    for fallback in ["template-final.json", "templates/template_v1.json"]:
+        p = os.path.join(base_dir, fallback)
+        if os.path.exists(p):
+            return p
+    return os.path.join(base_dir, "template-final.json")
+
 def load_default_template():
-    tpl_path = os.path.join(os.path.dirname(__file__), "template-final.json")
+    tpl_path = get_default_template_path()
     if os.path.exists(tpl_path):
         try:
             with open(tpl_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print("Gagal membaca template-final.json:", e)
+            print(f"Gagal membaca {tpl_path}:", e)
     return None
 
 def render_roi_editor(image_bgr, box, label="Area Scan", key=None):
@@ -578,8 +597,8 @@ if "last_loaded_json_id" not in st.session_state:
 if "editing_field_name" not in st.session_state:
     st.session_state["editing_field_name"] = "NAMA"
 
-# Auto-load template-final.json by default on dashboard, refreshing automatically if updated on disk
-tpl_file_path = os.path.join(os.path.dirname(__file__), "template-final.json")
+# Auto-load template by default on dashboard, refreshing automatically if updated on disk
+tpl_file_path = get_default_template_path()
 cur_tpl_mtime = os.path.getmtime(tpl_file_path) if os.path.exists(tpl_file_path) else 0
 
 if "default_template_loaded" not in st.session_state or st.session_state.get("loaded_template_mtime") != cur_tpl_mtime:
@@ -612,15 +631,16 @@ mode = st.sidebar.radio(
 )
 
 # Quick badge for default template in sidebar
-st.sidebar.markdown("""
+active_tpl_name = os.path.basename(get_default_template_path())
+st.sidebar.markdown(f"""
 <div style="background-color: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 10px 12px; margin-top: 14px; margin-bottom: 12px;">
     <div style="font-size: 11px; font-weight: 700; color: #BA0C2F; text-transform: uppercase;">⭐ Template Default Aktif</div>
-    <div style="font-size: 12px; font-weight: 700; color: #0F172A; margin-top: 2px;">template-final.json</div>
-    <div style="font-size: 11px; color: #334155; margin-top: 2px;">11 Section &bull; 75 Soal Ujian Resmi</div>
+    <div style="font-size: 12px; font-weight: 700; color: #0F172A; margin-top: 2px;">templates/{active_tpl_name}</div>
+    <div style="font-size: 11px; color: #334155; margin-top: 2px;">12 Field Lengkap &bull; 75 Soal Ujian Resmi</div>
 </div>
 """, unsafe_allow_html=True)
 
-if st.sidebar.button("🔄 Muat Ulang template-final.json", use_container_width=True, help="Kembalikan konfigurasi field ke template-final.json bawaan"):
+if st.sidebar.button(f"🔄 Muat Ulang {active_tpl_name}", use_container_width=True, help="Kembalikan konfigurasi field ke template bawaan"):
     default_tpl = load_default_template()
     if default_tpl and "fields" in default_tpl:
         st.session_state["calibrated_fields"] = default_tpl["fields"]
@@ -630,7 +650,7 @@ if st.sidebar.button("🔄 Muat Ulang template-final.json", use_container_width=
         for k in list(st.session_state.keys()):
             if k.startswith("active_box_") or k.startswith("roi_editor_"):
                 del st.session_state[k]
-        st.toast("✅ template-final.json berhasil dimuat ulang!", icon="⭐")
+        st.toast(f"✅ {active_tpl_name} berhasil dimuat ulang!", icon="⭐")
         st.rerun()
 
 # ==============================================================================
@@ -734,7 +754,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
     if uploaded_files_dosen and do_periksa:
             template = load_default_template()
             if not template:
-                st.error("Template resmi 'template-final.json' tidak ditemukan.")
+                st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")
                 st.stop()
 
             canvas_w = template.get("canvas", {}).get("width", 1700)
@@ -779,16 +799,21 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 }
 
                 decoded_all = {}
+                soal_dict = {}
                 for fname, fdef in fields_dict.items():
                     fdef_copy = dict(fdef)
                     if "field_name" not in fdef_copy:
                         fdef_copy["field_name"] = fname
                     field_data = decode_field(gray_warped, fdef_copy, thresh=0.28, margin=0.08)
                     decoded_all.update(field_data)
+                    # Protect question sections (Soal-A s/d Soal-E) from other fields
+                    if "soal" in fname.lower() and "kode" not in fname.lower():
+                        soal_dict.update(field_data)
 
                 # Student Identity
                 student_record["NPM"] = decoded_all.get("NPM", "-")
                 student_record["Nama Mahasiswa"] = decoded_all.get("NAMA", "-")
+                student_record["Kode Soal"] = decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-"))
                 student_record["Fakultas (LJK)"] = decoded_all.get("FAKULTAS", "-")
 
                 # Kuisioner items (e.g. q01 .. q15)
@@ -796,18 +821,21 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 for k in sorted(kuis_keys):
                     student_record[k] = decoded_all[k]
 
-                # Question statistics (75 questions)
-                soal_keys = [k for k in decoded_all.keys() if k.startswith("soal_")]
-                soal_terisi = sum(1 for k in soal_keys if decoded_all[k] not in ["BLANK", "?", None, ""])
+                # Question statistics (strictly 75 exam questions)
+                if soal_dict:
+                    soal_keys = sorted(list(soal_dict.keys()))
+                else:
+                    soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
+                soal_terisi = sum(1 for k in soal_keys if soal_dict.get(k, decoded_all.get(k)) not in ["BLANK", "?", None, ""])
                 total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
                 student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
                 student_record["Persentase Terisi"] = f"{(soal_terisi / total_soal * 100):.1f}%"
 
-                # Append all questions
-                for k in sorted(soal_keys):
-                    student_record[k] = decoded_all[k]
+                # Append all questions strictly from soal_dict/soal_keys
+                for k in soal_keys:
+                    student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
 
-                overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28)
+                overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
                 dosen_previews.append((doc_name, overlay_img))
                 dosen_results.append(student_record)
                 prog.progress((idx + 1) / len(all_pages_to_process))
@@ -859,7 +887,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 st.warning(f"⚠️ {st_text}")
 
         df_full = pd.DataFrame(results)
-        primary_cols = ["NPM", "Nama Mahasiswa", "Fakultas (LJK)", "Pengawas / Dosen", "Jawaban Terisi", "Persentase Terisi", "Status LJK"]
+        primary_cols = ["NPM", "Nama Mahasiswa", "Kode Soal", "Fakultas (LJK)", "Pengawas / Dosen", "Jawaban Terisi", "Persentase Terisi", "Status LJK"]
         display_cols = [c for c in primary_cols if c in df_full.columns]
         st.dataframe(df_full[display_cols], use_container_width=True, hide_index=True)
 
@@ -956,7 +984,7 @@ elif mode == "⚙️ Kalibrasi Template LJK (Admin)":
     col_hdr1, col_hdr2 = st.columns([3, 2])
     with col_hdr1:
         st.subheader("🎯 Mode 1: Kalibrasi LJK & Editor Area Scan")
-        st.caption("Template aktif: **template-final.json** (11 Section)")
+        st.caption(f"Template aktif: **templates/{active_tpl_name}** ({len(st.session_state.get('calibrated_fields', {}))} Section)")
     with col_hdr2:
         shape_choice = st.radio(
             "Bentuk Bubble:",
@@ -968,7 +996,9 @@ elif mode == "⚙️ Kalibrasi Template LJK (Admin)":
         st.session_state["chosen_bubble_shape"] = chosen_shape
 
     # Quick sample PDF loader if user hasn't uploaded a file
-    sample_ljk_path = os.path.join(os.path.dirname(__file__), "LJK.pdf")
+    sample_ljk_path = os.path.join(os.path.dirname(__file__), "templates", "sample_1.pdf")
+    if not os.path.exists(sample_ljk_path):
+        sample_ljk_path = os.path.join(os.path.dirname(__file__), "LJK.pdf")
     has_sample = os.path.exists(sample_ljk_path)
 
     if not uploaded_file:
@@ -976,17 +1006,17 @@ elif mode == "⚙️ Kalibrasi Template LJK (Admin)":
         with col_inf1:
             st.info("👋 Silakan upload file LJK template (PDF, JPG, atau PNG) di sidebar kiri untuk kalibrasi visual, atau gunakan LJK contoh resmi.")
         with col_inf2:
-            if has_sample and st.button("📄 Muat LJK.pdf Contoh", type="primary", use_container_width=True):
+            if has_sample and st.button("📄 Muat LJK Contoh", type="primary", use_container_width=True):
                 st.session_state["use_sample_ljk"] = True
                 st.rerun()
 
         if st.session_state.get("use_sample_ljk") and has_sample:
             with open(sample_ljk_path, "rb") as f:
                 uploaded_file = f.read()
-                setattr(uploaded_file, "name", "LJK.pdf")
+                setattr(uploaded_file, "name", os.path.basename(sample_ljk_path))
         else:
             if st.session_state["calibrated_fields"]:
-                st.markdown("#### 📦 Rincian 11 Field dari template-final.json (Default Terpilih):")
+                st.markdown(f"#### 📦 Rincian {len(st.session_state['calibrated_fields'])} Field dari {active_tpl_name} (Default Terpilih):")
                 f_summary = []
                 for fn, fd in st.session_state["calibrated_fields"].items():
                     tot_b = sum(len(it["bubbles"]) for it in fd.get("items", []))
@@ -1832,21 +1862,21 @@ elif mode == "📊 OMR Reader & Batch Evaluator Lengkap (Admin)":
         tpl_source = st.radio(
             "Pilih Template OMR:",
             options=[
-                "⭐ template-final.json (Default Telkom University)",
+                f"⭐ {active_tpl_name} (Default)",
                 "📤 Upload Template JSON Kustom"
             ],
             index=0,
-            help="template-final.json adalah template resmi untuk ujian Telkom University (11 Section, 75 Soal)."
+            help=f"{active_tpl_name} adalah template resmi untuk ujian Telkom University (12 Section, 75 Soal)."
         )
 
         template = None
-        if tpl_source == "⭐ template-final.json (Default Telkom University)":
+        if tpl_source == f"⭐ {active_tpl_name} (Default)":
             template = load_default_template()
             if template:
                 sec_list = list(template.get("fields", {}).keys())
                 st.markdown(f"""
                 <div style="background-color: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 12px; margin-top: 6px;">
-                    <div style="font-weight: 700; color: #BA0C2F; font-size: 13px;">⭐ Terpilih: template-final.json</div>
+                    <div style="font-weight: 700; color: #BA0C2F; font-size: 13px;">⭐ Terpilih: {active_tpl_name}</div>
                     <div style="font-size: 12px; color: #334155; margin-top: 4px; line-height: 1.5;">
                         • <b>{len(sec_list)} Section Aktif</b>: {', '.join(sec_list[:5])}...<br>
                         • <b>75 Soal Pilihan Ganda</b> (Soal A s/d E)<br>
@@ -1855,7 +1885,7 @@ elif mode == "📊 OMR Reader & Batch Evaluator Lengkap (Admin)":
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.error("File template-final.json tidak ditemukan di direktori aplikasi.")
+                st.error("File template tidak ditemukan di direktori aplikasi.")
         else:
             template_file = st.file_uploader("Upload file template.json:", type=["json"])
             if template_file:
@@ -1875,12 +1905,14 @@ elif mode == "📊 OMR Reader & Batch Evaluator Lengkap (Admin)":
         )
 
         # Quick test helper if test file exists
-        test_pdf_path = os.path.join(os.path.dirname(__file__), "filled_LJK.xlsx.pdf")
+        test_pdf_path = os.path.join(os.path.dirname(__file__), "templates", "sample_1.pdf")
+        if not os.path.exists(test_pdf_path):
+            test_pdf_path = os.path.join(os.path.dirname(__file__), "filled_LJK.xlsx.pdf")
         if not uploaded_files and os.path.exists(test_pdf_path):
-            if st.button("📄 Uji Coba Cepat: Muat filled_LJK.xlsx.pdf", use_container_width=True):
+            if st.button(f"📄 Uji Coba Cepat: Muat {os.path.basename(test_pdf_path)}", use_container_width=True):
                 with open(test_pdf_path, "rb") as f:
                     pdf_bytes = f.read()
-                    setattr(pdf_bytes, "name", "filled_LJK.xlsx.pdf")
+                    setattr(pdf_bytes, "name", os.path.basename(test_pdf_path))
                     uploaded_files = [pdf_bytes]
                 st.session_state["quick_test_files"] = uploaded_files
                 st.rerun()
@@ -1972,7 +2004,7 @@ elif mode == "📊 OMR Reader & Batch Evaluator Lengkap (Admin)":
                     field_data = decode_field(gray_warped, fdef_copy, thresh=read_thresh, margin=ambig_margin)
                     row_result.update(field_data)
 
-                overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=read_thresh)
+                overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=read_thresh, margin=ambig_margin)
                 preview_images.append((doc_name, overlay_img))
 
                 all_results.append(row_result)

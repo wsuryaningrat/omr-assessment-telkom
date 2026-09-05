@@ -108,7 +108,7 @@ def draw_all_fields_overlay(image, fields_dict):
     return output
 
 
-def draw_reading_overlay(image, fields_dict, gray_img, thresh=0.28):
+def draw_reading_overlay(image, fields_dict, gray_img, thresh=0.28, margin=0.08):
     """
     High-visibility OMR reading overlay:
     - BOLD GREEN outline and center highlight for marked bubbles/boxes (Cross 'X' or Shading).
@@ -143,7 +143,7 @@ def draw_reading_overlay(image, fields_dict, gray_img, thresh=0.28):
                 ratios.append(ratio)
 
             # Evaluate which bubble is marked
-            marked_idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=0.08)
+            marked_idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=margin)
 
             # Find competitor indices if MULTIPLE
             multiple_indices = set()
