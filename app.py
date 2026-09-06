@@ -40,6 +40,12 @@ from core.utils import (
     export_to_csv,
     export_to_json
 )
+from core.evaluator import (
+    parse_kunci_jawaban_excel,
+    find_matching_kunci_sheet,
+    grade_student_record,
+    generate_sample_kunci_excel
+)
 
 st.set_page_config(page_title="Telkom University - OMR Assessment System", page_icon="🎓", layout="wide")
 
@@ -690,10 +696,62 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             help="Opsional: untuk dicatat pada laporan rekap penilaian peserta."
         )
 
-    # Google Sheets URL permanen (tanpa isian di antarmuka UI)
-    TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?usp=sharing"
+    # Google Sheets URL permanen
+    TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?gid=1945243931#gid=1945243931"
 
-    # 2. Layout Side-by-Side: Tombol Unggah di Kiri & Tombol Upload LJK di Kanan
+    # 2. Konfigurasi Kunci Jawaban Excel (Auto Nilai)
+    with st.expander("🔑 Konfigurasi Kunci Jawaban Excel (Auto Nilai)", expanded=True):
+        col_kj1, col_kj2 = st.columns([1.6, 1.0])
+        with col_kj1:
+            uploaded_kunci = st.file_uploader(
+                "Upload File Kunci Jawaban Excel (.xlsx / .xls):",
+                type=["xlsx", "xls"],
+                key="excel_kunci_input",
+                help="Setiap sheet di dalam file Excel mewakili satu kode soal (misal: sheet 'kj048' untuk kode soal 048). Format kolom: Kolom 1 = No Soal, Kolom 2 = Kunci Jawaban (A/B/C/D/E)."
+            )
+        with col_kj2:
+            st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+            sample_xlsx_bytes = generate_sample_kunci_excel()
+            st.download_button(
+                "📥 Unduh Format Kunci Excel",
+                data=sample_xlsx_bytes,
+                file_name="Format_Kunci_Jawaban.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Unduh file Excel contoh dengan sheet kj048 dan kj123.",
+                use_container_width=True
+            )
+
+        # Handle uploaded kunci file
+        if uploaded_kunci is not None:
+            file_sig = f"{uploaded_kunci.name}_{uploaded_kunci.size}"
+            if st.session_state.get("last_kunci_sig") != file_sig:
+                try:
+                    parsed_kunci = parse_kunci_jawaban_excel(uploaded_kunci)
+                    st.session_state["kunci_jawaban_cache"] = parsed_kunci
+                    st.session_state["kunci_filename"] = uploaded_kunci.name
+                    st.session_state["last_kunci_sig"] = file_sig
+                    st.toast(f"✅ Kunci jawaban '{uploaded_kunci.name}' berhasil dimuat ({len(parsed_kunci)} sheet)!", icon="🔑")
+                    # Auto-regrade current results if already processed
+                    if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
+                        for r in st.session_state["dosen_results"]:
+                            grade_student_record(r, parsed_kunci)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal membaca file Excel Kunci Jawaban: {e}")
+
+        # Show status badge if kunci is loaded
+        if st.session_state.get("kunci_jawaban_cache"):
+            k_cache = st.session_state["kunci_jawaban_cache"]
+            sheet_names_str = ", ".join([f"<code>{s}</code> ({len(k_cache[s])} soal)" for s in list(k_cache.keys())[:6]])
+            st.markdown(f"""
+            <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 6px 12px; margin-top: 4px; font-size: 12px; color: #166534;">
+                ✅ <b>Auto Nilai Aktif:</b> File <code>{st.session_state.get('kunci_filename', 'Kunci_Jawaban.xlsx')}</code> &bull; Sheet Terbaca: {sheet_names_str}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.caption("ℹ️ *Tips: Jika kunci jawaban diupload, sistem akan otomatis mencocokkan kode soal dengan nama sheet (misal: kode 048 ➜ sheet kj048) dan menghitung nilai peserta.*")
+
+    # 3. Layout Side-by-Side: Tombol Unggah di Kiri & Tombol Upload LJK di Kanan
     col_upload, col_action = st.columns([1.2, 1.0], gap="large")
 
     with col_upload:
@@ -835,6 +893,16 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 for k in soal_keys:
                     student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
 
+                # Auto Nilai if Kunci Jawaban loaded
+                if st.session_state.get("kunci_jawaban_cache"):
+                    grade_student_record(student_record, st.session_state["kunci_jawaban_cache"])
+                else:
+                    student_record["Nilai"] = "-"
+                    student_record["Jumlah Benar"] = "-"
+                    student_record["Jumlah Salah"] = "-"
+                    student_record["Jumlah Kosong"] = "-"
+                    student_record["Kunci Terpakai"] = "-"
+
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
                 dosen_previews.append((doc_name, overlay_img))
                 dosen_results.append(student_record)
@@ -877,7 +945,19 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
     if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
         results = st.session_state["dosen_results"]
         st.markdown("---")
-        st.markdown(f"### 📊 Rekap Hasil Penilaian ({len(results)} Mahasiswa)")
+        
+        col_res_t, col_res_b = st.columns([2.5, 1.2])
+        with col_res_t:
+            st.markdown(f"### 📊 Rekap Hasil Penilaian ({len(results)} Mahasiswa)")
+            st.caption("Pratinjau hanya menampilkan hasil lembar jawaban yang Anda unggah saat ini.")
+        with col_res_b:
+            st.link_button(
+                "🌐 Buka Google Sheet",
+                TARGET_GSHEET_URL,
+                type="secondary",
+                use_container_width=True,
+                help="Buka Google Spreadsheet penilaian di tab baru"
+            )
 
         if st.session_state.get("last_gsheet_status"):
             st_type, st_text = st.session_state["last_gsheet_status"]
@@ -887,16 +967,29 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 st.warning(f"⚠️ {st_text}")
 
         df_full = pd.DataFrame(results)
-        primary_cols = ["NPM", "Nama Mahasiswa", "Kode Soal", "Fakultas (LJK)", "Pengawas / Dosen", "Jawaban Terisi", "Persentase Terisi", "Status LJK"]
+        primary_cols = [
+            "NPM",
+            "Nama Mahasiswa",
+            "Kode Soal",
+            "Nilai",
+            "Jumlah Benar",
+            "Jumlah Salah",
+            "Jumlah Kosong",
+            "Fakultas (LJK)",
+            "Pengawas / Dosen",
+            "Jawaban Terisi",
+            "Persentase Terisi",
+            "Status LJK"
+        ]
         display_cols = [c for c in primary_cols if c in df_full.columns]
         st.dataframe(df_full[display_cols], use_container_width=True, hide_index=True)
 
-        col_dl1, col_dl2 = st.columns([1.2, 1.2])
+        col_dl1, col_dl2, col_dl3 = st.columns([1.2, 1.2, 1.3])
         with col_dl1:
             csv_bytes = df_full.to_csv(index=False).encode("utf-8")
             clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_")
             st.download_button(
-                "📥 Unduh Rekap Hasil Penilaian Lengkap (Excel / CSV)",
+                "📥 Unduh Rekap (CSV)",
                 data=csv_bytes,
                 file_name=f"Rekap_LJK_{clean_fak}_{time.strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
@@ -905,7 +998,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             )
 
         with col_dl2:
-            if st.button("🔄 Sinkronkan Ulang ke Google Sheet", use_container_width=True):
+            if st.button("🔄 Sinkronkan Ulang ke Sheet", use_container_width=True):
                 try:
                     with st.spinner("Mentransfer data ke Google Sheet..."):
                         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -916,14 +1009,14 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 except Exception as e:
                     st.error(f"Gagal transfer: {str(e)}")
 
-        # Dashboard / Pratinjau Google Sheets
-        with st.expander("📊 Pratinjau Langsung Data Google Sheets", expanded=False):
-            try:
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                df_sheets = conn.read(spreadsheet=TARGET_GSHEET_URL, ttl=60)
-                st.dataframe(df_sheets, use_container_width=True)
-            except Exception as e:
-                st.info(f"Belum dapat membaca data Google Sheet: {str(e)}.")
+        with col_dl3:
+            st.link_button(
+                "🌐 Buka Google Sheet Hasil",
+                TARGET_GSHEET_URL,
+                type="secondary",
+                use_container_width=True,
+                help="Buka Google Spreadsheet hasil penilaian di tab baru"
+            )
 
         with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Klik untuk Memeriksa Arsiran)", expanded=False):
             if st.session_state.get("dosen_previews"):
