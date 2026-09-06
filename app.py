@@ -271,34 +271,77 @@ p, span, label {
     color: #1E293B;
 }
 
-/* Primary Button Styling (Telkom Red) */
-button[kind="primary"] {
+/* Primary Button Styling (Telkom Red) & Solid White Text */
+button[kind="primary"],
+button[data-testid="stBaseButton-primary"],
+div[data-testid="stButton"] button[kind="primary"],
+div[data-testid="stLinkButton"] a[kind="primary"],
+div[data-testid="stLinkButton"] a[data-testid="stBaseButton-primary"] {
     background-color: #BA0C2F !important;
     color: #FFFFFF !important;
     border: none !important;
     border-radius: 8px !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
     transition: all 0.2s ease !important;
 }
-button[kind="primary"]:hover {
+
+button[kind="primary"] *,
+button[kind="primary"] p,
+button[kind="primary"] span,
+button[kind="primary"] div,
+button[data-testid="stBaseButton-primary"] *,
+button[data-testid="stBaseButton-primary"] p,
+button[data-testid="stBaseButton-primary"] span,
+div[data-testid="stButton"] button[kind="primary"] *,
+div[data-testid="stButton"] button[kind="primary"] p,
+div[data-testid="stButton"] button[kind="primary"] span,
+div[data-testid="stLinkButton"] a[kind="primary"] *,
+div[data-testid="stLinkButton"] a[kind="primary"] p,
+div[data-testid="stLinkButton"] a[kind="primary"] span,
+div[data-testid="stLinkButton"] a[data-testid="stBaseButton-primary"] *,
+div[data-testid="stLinkButton"] a[data-testid="stBaseButton-primary"] p,
+div[data-testid="stLinkButton"] a[data-testid="stBaseButton-primary"] span {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    fill: #FFFFFF !important;
+    font-weight: 700 !important;
+}
+
+button[kind="primary"]:hover,
+button[data-testid="stBaseButton-primary"]:hover,
+div[data-testid="stButton"] button[kind="primary"]:hover,
+div[data-testid="stLinkButton"] a[kind="primary"]:hover {
     background-color: #980925 !important;
+    color: #FFFFFF !important;
     box-shadow: 0 4px 8px -1px rgba(186, 12, 47, 0.3) !important;
 }
-button[kind="primary"]:active {
+
+button[kind="primary"]:hover *,
+button[data-testid="stBaseButton-primary"]:hover *,
+div[data-testid="stButton"] button[kind="primary"]:hover *,
+div[data-testid="stLinkButton"] a[kind="primary"]:hover * {
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+
+button[kind="primary"]:active,
+button[data-testid="stBaseButton-primary"]:active {
     background-color: #7B061D !important;
 }
 
 /* Secondary Button Styling */
-button[kind="secondary"] {
+button[kind="secondary"],
+div[data-testid="stLinkButton"] a[kind="secondary"] {
     border-radius: 8px !important;
     border: 1px solid #CBD5E1 !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     color: #1E293B !important;
     background-color: #FFFFFF !important;
     transition: all 0.2s ease !important;
 }
-button[kind="secondary"]:hover {
+button[kind="secondary"]:hover,
+div[data-testid="stLinkButton"] a[kind="secondary"]:hover {
     border-color: #BA0C2F !important;
     color: #BA0C2F !important;
     background-color: #FFF1F2 !important;
@@ -314,7 +357,7 @@ button[kind="secondary"]:hover {
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04) !important;
 }
 
-/* High Contrast for all Inputs, Textboxes, and Selectboxes */
+/* High Contrast & Compact Box Sizing for all Inputs & Selectboxes */
 input, textarea, select {
     background-color: #FFFFFF !important;
     color: #0F172A !important;
@@ -333,22 +376,100 @@ div[data-baseweb="input"] {
     background-color: #FFFFFF !important;
     border: 1.5px solid #94A3B8 !important;
     border-radius: 8px !important;
+    min-height: 38px !important;
+    height: 38px !important;
 }
 div[data-baseweb="input"] input {
     color: #0F172A !important;
     background-color: #FFFFFF !important;
     font-weight: 500 !important;
+    font-size: 13.5px !important;
+    padding: 6px 12px !important;
 }
 
 div[data-baseweb="select"] {
     background-color: #FFFFFF !important;
     border: 1.5px solid #94A3B8 !important;
     border-radius: 8px !important;
+    min-height: 38px !important;
+}
+div[data-baseweb="select"] > div {
+    min-height: 36px !important;
+    height: 36px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
 }
 div[data-baseweb="select"] * {
     color: #0F172A !important;
     background-color: #FFFFFF !important;
     font-weight: 600 !important;
+    font-size: 13px !important;
+}
+div[data-baseweb="select"] span {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Mobile Responsiveness & Form Box Adaptivity */
+@media (max-width: 768px) {
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+        gap: 10px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        width: 100% !important;
+    }
+
+    .telkom-header-container {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 12px 14px !important;
+        gap: 8px !important;
+        margin-bottom: 16px !important;
+    }
+
+    .telkom-header-brand {
+        gap: 10px !important;
+    }
+
+    .telkom-header-logo {
+        height: 32px !important;
+    }
+
+    .telkom-header-title {
+        font-size: 15px !important;
+        line-height: 1.3 !important;
+    }
+
+    .telkom-header-badge {
+        font-size: 11px !important;
+        padding: 3px 8px !important;
+    }
+
+    div[data-baseweb="input"],
+    div[data-baseweb="select"] > div {
+        min-height: 36px !important;
+        height: 36px !important;
+    }
+
+    div[data-baseweb="input"] input {
+        font-size: 13px !important;
+        padding: 4px 8px !important;
+    }
+
+    div[data-baseweb="select"] * {
+        font-size: 12px !important;
+    }
+
+    .block-container {
+        padding-left: 0.8rem !important;
+        padding-right: 0.8rem !important;
+        padding-top: 1.2rem !important;
+    }
 }
 
 /* Dropdown popover menu - Langsung menampilkan seluruh opsi fakultas ketika dibuka */
@@ -597,8 +718,7 @@ st.markdown(f"""
     <div class="telkom-header-brand">
         <img src="{logo_b64}" alt="Telkom University" class="telkom-header-logo"/>
         <div class="telkom-header-text">
-            <span class="telkom-header-unit">PUSAT MATEMATIKA &bull; PRE-TEST KEMAMPUAN DASAR</span>
-            <span class="telkom-header-title">Sistem Evaluasi OMR LJK Presisi Tinggi</span>
+            <span class="telkom-header-title">Evaluasi LJK Profiling Literasi Numerik</span>
         </div>
     </div>
     <div class="telkom-header-badge">
@@ -652,7 +772,7 @@ def render_sidebar_footer():
     st.sidebar.markdown("""
     <div style="margin-top: 28px; padding-top: 14px; border-top: 1px solid #E2E8F0; text-align: center;">
         <span style="font-size: 11px; color: #64748B; font-weight: 500;">
-            developed by <strong style="color: #0F172A;">Math Center - WHS</strong>
+            developed by <strong style="color: #0F172A;">WHS</strong>
         </span>
     </div>
     """, unsafe_allow_html=True)
