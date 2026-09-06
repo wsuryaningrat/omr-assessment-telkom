@@ -638,6 +638,25 @@ if "default_template_loaded" not in st.session_state or st.session_state.get("lo
         st.session_state["default_template_loaded"] = True
         st.session_state["loaded_template_mtime"] = cur_tpl_mtime
 
+# Google Sheets URL permanen (Master Nilai & Kunci Jawaban)
+TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?gid=1945243931#gid=1945243931"
+
+def render_sidebar_footer():
+    st.sidebar.markdown("---")
+    st.sidebar.link_button(
+        "🌐 View Google Sheet (Admin)",
+        TARGET_GSHEET_URL,
+        use_container_width=True,
+        help="Buka Google Sheet master (Sheet1 & Sheet Kunci Jawaban)"
+    )
+    st.sidebar.markdown("""
+    <div style="margin-top: 28px; padding-top: 14px; border-top: 1px solid #E2E8F0; text-align: center;">
+        <span style="font-size: 11px; color: #64748B; font-weight: 500;">
+            developed by <strong style="color: #0F172A;">Math Center - WHS</strong>
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
 # High-contrast, clean sidebar with ONLY logo
 st.sidebar.markdown(f"""
 <div style="display: flex; justify-content: center; align-items: center; padding: 6px 0 14px 0; margin-bottom: 12px; border-bottom: 1px solid #E2E8F0;">
@@ -736,6 +755,7 @@ def reorder_rekap_columns(df):
 # MODE UTAMA: PORTAL EVALUASI LJK
 # ==============================================================================
 if mode == "Portal Evaluasi LJK":
+    render_sidebar_footer()
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Tahap 1: Unggah & Periksa LJK</h2>
@@ -769,9 +789,6 @@ if mode == "Portal Evaluasi LJK":
             placeholder="Ketik Nama Pengawas...",
             help="Wajib diisi: Nama pengawas."
         )
-
-    # Google Sheets URL permanen
-    TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?gid=1945243931#gid=1945243931"
 
     # Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
     if "kunci_jawaban_cache" not in st.session_state or st.session_state["kunci_jawaban_cache"] is None:
@@ -940,7 +957,7 @@ if mode == "Portal Evaluasi LJK":
         
         st.markdown(f"### 📋 Tahap 2: Tinjau Hasil Evaluasi ({len(results)} Mahasiswa)")
         if not is_submitted:
-            st.info("💡 **Petunjuk Pengawas:** Periksa kolom nilai, identitas, dan jawaban terisi di bawah. Jika terdapat lembar yang terisi sedikit karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
+            st.info("💡 **Petunjuk Pengawas:** Periksa kolom identitas dan jawaban terisi di bawah. Jika terdapat lembar yang terisi sedikit karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
         else:
             st.success("✅ **Data LJK Berhasil Disubmit ke Google Sheet!** Anda dapat membuka spreadsheet hasil di bawah.")
 
@@ -949,12 +966,20 @@ if mode == "Portal Evaluasi LJK":
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
 
-        # Tabel Viewer: Cukup kolom Fakultas saja yang muncul (Fakultas (LJK) disembunyikan agar tidak redundan)
+        # Tabel Summary (Viewer): Sembunyikan Fakultas (LJK), Nilai, dan detail penilaian (Jumlah Benar, Jumlah Salah, Jumlah Kosong, Kunci Terpakai)
         primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
-        viewer_cols = [c for c in primary_cols if c != "Fakultas (LJK)"]
+        hidden_from_viewer = {
+            "Fakultas (LJK)",
+            "Nilai",
+            "Jumlah Benar",
+            "Jumlah Salah",
+            "Jumlah Kosong",
+            "Kunci Terpakai"
+        }
+        viewer_cols = [c for c in primary_cols if c not in hidden_from_viewer]
         st.dataframe(df_full[viewer_cols], use_container_width=True, hide_index=True)
 
-        col_act1, col_act2, col_act3 = st.columns([1.6, 1.2, 1.0])
+        col_act1, col_act2, col_act3, col_act4 = st.columns([1.5, 1.4, 1.1, 1.0])
         with col_act1:
             if not is_submitted:
                 if st.button("📤 Submit Hasil LJK ke Google Sheet", type="primary", use_container_width=True, help="Simpan dan transfer data hasil evaluasi ini secara permanen ke Google Sheet"):
@@ -978,14 +1003,18 @@ if mode == "Portal Evaluasi LJK":
                     except Exception as e:
                         st.error(f"Gagal transfer ke Google Sheet: {str(e)}")
             else:
-                st.link_button(
-                    "🌐 Buka Google Sheet Hasil",
-                    TARGET_GSHEET_URL,
-                    type="primary",
-                    use_container_width=True
-                )
+                st.button("✅ Data Berhasil Disubmit", disabled=True, use_container_width=True)
 
         with col_act2:
+            st.link_button(
+                "🌐 View Google Sheet (Admin)",
+                TARGET_GSHEET_URL,
+                type="primary" if is_submitted else "secondary",
+                use_container_width=True,
+                help="Buka Google Sheet master (Sheet1 & Kunci Jawaban)"
+            )
+
+        with col_act3:
             csv_bytes = df_full.to_csv(index=False).encode("utf-8")
             clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_") if fakultas_pilihan else "Fakultas"
             st.download_button(
@@ -996,7 +1025,7 @@ if mode == "Portal Evaluasi LJK":
                 use_container_width=True
             )
 
-        with col_act3:
+        with col_act4:
             if st.button("🗑️ Evaluasi LJK Baru", use_container_width=True, help="Bersihkan hasil saat ini untuk memeriksa berkas lembar jawaban baru"):
                 if "dosen_results" in st.session_state:
                     del st.session_state["dosen_results"]
@@ -1052,6 +1081,8 @@ elif mode == "Kalibrasi LJK" and sub_mode == "Editor Template":
                 st.rerun()
             except Exception as e:
                 st.error(f"Gagal memuat template JSON: {str(e)}")
+
+    render_sidebar_footer()
 
     # Internal automated defaults
     pref_method = "auto"
@@ -2021,6 +2052,7 @@ elif mode == "Kalibrasi LJK" and sub_mode == "OMR Reader":
                                     help="Batas ambang kepekatan tanda. Nilai lebih rendah (0.10-0.16) sangat sensitif untuk tanda silang tipis.")
     ambig_margin = st.sidebar.slider("Margin Ganda (Ambiguity Margin)", 0.03, 0.18, 0.08, 0.01,
                                      help="Selisih minimal antara opsi teratas dan opsi kedua untuk dianggap jawaban tunggal.")
+    render_sidebar_footer()
 
     if template and uploaded_files:
         canvas_w = template.get("canvas", {}).get("width", 1700)
