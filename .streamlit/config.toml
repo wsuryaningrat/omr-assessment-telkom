@@ -9,4 +9,4 @@ font = "sans serif"
 headless = true
 enableCORS = false
 enableXsrfProtection = false
-maxUploadSize = 200
+maxUploadSize = 10

@@ -790,13 +790,17 @@ if mode == "Portal Evaluasi LJK":
         accept_multiple_files=True
     )
 
-    # Validasi Mandatory Form
+    # Validasi Berkas & Form (Batas 10MB per berkas)
+    MAX_FILE_SIZE_MB = 10
+    MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+    oversized_files = [uf.name for uf in (uploaded_files_dosen or []) if getattr(uf, "size", 0) > MAX_FILE_SIZE_BYTES]
+
     is_form_complete = bool(fakultas_pilihan) and bool(nama_pengawas and nama_pengawas.strip())
-    has_files = bool(uploaded_files_dosen)
+    has_files = bool(uploaded_files_dosen) and len(oversized_files) == 0
 
     col_btn, col_info = st.columns([1.5, 2.5])
     with col_btn:
-        btn_label = f"🔍 1. Periksa LJK ({len(uploaded_files_dosen)} Berkas)" if has_files else "🔍 1. Periksa LJK"
+        btn_label = f"🔍 1. Periksa LJK ({len(uploaded_files_dosen)} Berkas)" if (uploaded_files_dosen and not oversized_files) else "🔍 1. Periksa LJK"
         do_periksa = st.button(
             btn_label,
             type="primary",
@@ -805,7 +809,9 @@ if mode == "Portal Evaluasi LJK":
         )
 
     with col_info:
-        if has_files and not is_form_complete:
+        if oversized_files:
+            st.error(f"⚠️ Berkas melebihi batas ukuran 10MB: **{', '.join(oversized_files)}**. Harap gunakan berkas maksimal 10MB per file.")
+        elif bool(uploaded_files_dosen) and not is_form_complete:
             missing_fields = []
             if not fakultas_pilihan:
                 missing_fields.append("Fakultas")
