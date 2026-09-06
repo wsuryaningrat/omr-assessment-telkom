@@ -719,8 +719,8 @@ def reorder_rekap_columns(df):
 if mode == "Portal Evaluasi LJK":
     st.markdown("""
     <div style="margin-bottom: 20px;">
-        <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Unggah & Penilaian Lembar Jawaban (LJK)</h2>
-        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk penilaian otomatis.</p>
+        <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Tahap 1: Unggah & Periksa LJK</h2>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk diperiksa.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -777,7 +777,7 @@ if mode == "Portal Evaluasi LJK":
 
     col_btn, col_info = st.columns([1.5, 2.5])
     with col_btn:
-        btn_label = f"🚀 Evaluasi {len(uploaded_files_dosen)} Berkas LJK" if has_files else "🚀 Evaluasi LJK"
+        btn_label = f"🔍 1. Periksa LJK ({len(uploaded_files_dosen)} Berkas)" if has_files else "🔍 1. Periksa LJK"
         do_periksa = st.button(
             btn_label,
             type="primary",
@@ -905,64 +905,64 @@ if mode == "Portal Evaluasi LJK":
 
             st.session_state["dosen_results"] = dosen_results
             st.session_state["dosen_previews"] = dosen_previews
+            st.session_state["dosen_submitted"] = False
+            st.toast(f"✅ Selesai memeriksa {len(dosen_results)} lembar LJK! Silakan tinjau hasil di bawah.", icon="🔍")
 
-            # SINKRONISASI OTOMATIS KE GOOGLE SHEETS (PERMANEN)
-            try:
-                with st.spinner("Mentransfer data hasil konversi ke Google Sheet..."):
-                    conn = st.connection("gsheets", type=GSheetsConnection)
-                    df_to_sync = pd.DataFrame(dosen_results)
-                    df_to_sync = reorder_rekap_columns(df_to_sync)
-                    try:
-                        existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
-                        if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
-                            combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
-                            combined_sheet_df = reorder_rekap_columns(combined_sheet_df)
-                            conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
-                        else:
-                            conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
-                    except Exception:
-                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
-                st.toast("✅ Data LJK berhasil ditransfer ke Google Sheet!", icon="📊")
-                st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(dosen_results)} Peserta).")
-            except Exception as e:
-                err_msg = str(e)
-                st.session_state["last_gsheet_status"] = ("error", f"Gagal transfer Google Sheet: {err_msg}")
-                if "Public Spreadsheet cannot be written to" in err_msg:
-                    st.error(
-                        "⚠️ **Kredensial Service Account Belum Terpasang di Streamlit Cloud.**\n\n"
-                        "Untuk mengaktifkan sinkronisasi otomatis ke Google Sheet di Cloud:\n"
-                        "1. Di pojok kanan bawah, klik **Manage app** (atau menu **Settings** di share.streamlit.io).\n"
-                        "2. Pilih tab **Secrets**.\n"
-                        "3. Salin dan tempelkan konfigurasi `[connections.gsheets]` lengkap, lalu klik **Save**."
-                    )
-                else:
-                    st.warning(f"⚠️ Gagal sinkronisasi Google Sheet: {err_msg}")
-
-    # Show results if available
+    # Show results if available (Tahap 2: Tinjau & Submit)
     if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
         results = st.session_state["dosen_results"]
         st.markdown("---")
         
-        st.markdown(f"### 📊 Rekap Hasil Penilaian ({len(results)} Mahasiswa)")
-        st.caption("Pratinjau hanya menampilkan hasil lembar jawaban yang Anda unggah saat ini.")
-
-        if st.session_state.get("last_gsheet_status"):
-            st_type, st_text = st.session_state["last_gsheet_status"]
-            if st_type == "success":
-                st.success(f"✅ {st_text}")
-            else:
-                st.warning(f"⚠️ {st_text}")
+        is_submitted = st.session_state.get("dosen_submitted", False)
+        
+        st.markdown(f"### 📋 Tahap 2: Tinjau Hasil Evaluasi ({len(results)} Mahasiswa)")
+        if not is_submitted:
+            st.info("💡 **Petunjuk Pengawas:** Periksa kolom nilai, identitas, dan persentase terisi di bawah. Jika terdapat lembar yang terisi kecil karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
+        else:
+            st.success("✅ **Data LJK Berhasil Disubmit ke Google Sheet!** Anda dapat membuka spreadsheet hasil di bawah.")
 
         df_full = pd.DataFrame(results)
         df_full = reorder_rekap_columns(df_full)
-        # Ensure all columns are string type to prevent PyArrow conversion errors on mixed numeric/symbol data
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
-        primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
-        st.dataframe(df_full[primary_cols], use_container_width=True, hide_index=True)
 
-        col_dl1, col_dl2, col_dl3 = st.columns([1.2, 1.2, 1.3])
-        with col_dl1:
+        # Tabel Viewer: Cukup kolom Fakultas Mahasiswa saja yang muncul (Fakultas (LJK) disembunyikan agar tidak redundan)
+        primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
+        viewer_cols = [c for c in primary_cols if c != "Fakultas (LJK)"]
+        st.dataframe(df_full[viewer_cols], use_container_width=True, hide_index=True)
+
+        col_act1, col_act2, col_act3 = st.columns([1.6, 1.2, 1.0])
+        with col_act1:
+            if not is_submitted:
+                if st.button("📤 Submit Hasil LJK ke Google Sheet", type="primary", use_container_width=True, help="Simpan dan transfer data hasil evaluasi ini secara permanen ke Google Sheet"):
+                    try:
+                        with st.spinner("Mentransfer data ke Google Sheet..."):
+                            conn = st.connection("gsheets", type=GSheetsConnection)
+                            df_to_sync = df_full.copy()
+                            try:
+                                existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
+                                if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
+                                    combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
+                                    combined_sheet_df = reorder_rekap_columns(combined_sheet_df)
+                                    conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
+                                else:
+                                    conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
+                            except Exception:
+                                conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
+                        st.session_state["dosen_submitted"] = True
+                        st.toast("✅ Data berhasil disubmit ke Google Sheet!", icon="📤")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal transfer ke Google Sheet: {str(e)}")
+            else:
+                st.link_button(
+                    "🌐 Buka Google Sheet Hasil",
+                    TARGET_GSHEET_URL,
+                    type="primary",
+                    use_container_width=True
+                )
+
+        with col_act2:
             csv_bytes = df_full.to_csv(index=False).encode("utf-8")
             clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_") if fakultas_pilihan else "Fakultas"
             st.download_button(
@@ -970,37 +970,17 @@ if mode == "Portal Evaluasi LJK":
                 data=csv_bytes,
                 file_name=f"Rekap_LJK_{clean_fak}_{time.strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv",
-                type="primary",
                 use_container_width=True
             )
 
-        with col_dl2:
-            if st.button("🔄 Sinkronkan Ulang ke Sheet", use_container_width=True, help="Muat ulang sheet acuan kunci dari Google Sheet, hitung ulang nilai seluruh peserta, dan sinkronkan ke Sheet1"):
-                try:
-                    with st.spinner("Menyinkronkan sheet acuan & mentransfer data ke Google Sheet..."):
-                        conn = st.connection("gsheets", type=GSheetsConnection)
-                        new_keys = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn)
-                        st.session_state["kunci_jawaban_cache"] = new_keys
-                        if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
-                            for r in st.session_state["dosen_results"]:
-                                grade_student_record(r, new_keys)
-                            df_full = pd.DataFrame(st.session_state["dosen_results"])
-                        df_sync_all = reorder_rekap_columns(df_full.copy())
-                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_sync_all)
-                    st.success("✅ Sheet acuan diperbarui & data berhasil disinkronkan ke Google Sheet!")
-                    st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(df_full)} Peserta).")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Gagal transfer: {str(e)}")
-
-        with col_dl3:
-            st.link_button(
-                "🌐 Buka Google Sheet Hasil",
-                TARGET_GSHEET_URL,
-                type="secondary",
-                use_container_width=True,
-                help="Buka Google Spreadsheet hasil penilaian di tab baru"
-            )
+        with col_act3:
+            if st.button("🗑️ Evaluasi LJK Baru", use_container_width=True, help="Bersihkan hasil saat ini untuk memeriksa berkas lembar jawaban baru"):
+                if "dosen_results" in st.session_state:
+                    del st.session_state["dosen_results"]
+                if "dosen_previews" in st.session_state:
+                    del st.session_state["dosen_previews"]
+                st.session_state["dosen_submitted"] = False
+                st.rerun()
 
         with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Klik untuk Memeriksa Arsiran)", expanded=False):
             if st.session_state.get("dosen_previews"):
