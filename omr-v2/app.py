@@ -698,18 +698,17 @@ def reorder_rekap_columns(df):
 # ==============================================================================
 if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
     st.markdown("""
-    <div class="telkom-card" style="border-left: 5px solid #BA0C2F; margin-bottom: 18px; padding: 14px 20px;">
-        <div style="font-size: 11px; font-weight: 700; color: #BA0C2F; text-transform: uppercase; letter-spacing: 0.08em;">PORTAL DOSEN PENGAWAS • EVALUASI LJK MAHASISWA</div>
-        <h2 style="font-size: 20px; font-weight: 800; color: #0F172A; margin: 2px 0 4px 0;">📋 Unggah & Penilaian Lembar Jawaban (LJK) Peserta</h2>
-        <p style="font-size: 12px; color: #334155; margin: 0;">Pilih fakultas dan unggah berkas LJK peserta untuk penilaian instan berbasis sistem visi komputer.</p>
+    <div style="margin-bottom: 20px;">
+        <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Unggah & Penilaian Lembar Jawaban (LJK)</h2>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk penilaian otomatis.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas / Kode Dosen (Opsional)
-    col_fak, col_dos = st.columns([1.3, 1.0])
+    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas (Wajib / Mandatory & Default Kosong)
+    col_fak, col_dos = st.columns(2)
     with col_fak:
         fakultas_pilihan = st.selectbox(
-            "🏛️ Fakultas Mahasiswa:",
+            "🏛️ Fakultas Mahasiswa *",
             options=[
                 "FIF - Fakultas Informatika",
                 "FRI - Fakultas Rekayasa Industri",
@@ -720,20 +719,22 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 "FIT - Fakultas Ilmu Terapan",
                 "Semua Fakultas / Gabungan"
             ],
-            index=0,
-            help="Pilih fakultas mahasiswa yang sedang dievaluasi lembar jawabannya."
+            index=None,
+            placeholder="-- Pilih Fakultas Mahasiswa --",
+            help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi lembar jawabannya."
         )
     with col_dos:
         nama_pengawas = st.text_input(
-            "👤 Nama Pengawas / Kode Dosen (Opsional):",
-            placeholder="Contoh: Dr. Budi / KODE123",
-            help="Opsional: untuk dicatat pada laporan rekap penilaian peserta."
+            "👤 Nama Pengawas / Kode Dosen *",
+            value="",
+            placeholder="Ketik Nama Pengawas atau Kode Dosen...",
+            help="Wajib diisi: Nama pengawas atau kode dosen penanggung jawab."
         )
 
     # Google Sheets URL permanen
     TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?gid=1945243931#gid=1945243931"
 
-    # 2. Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
+    # Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
     if "kunci_jawaban_cache" not in st.session_state or st.session_state["kunci_jawaban_cache"] is None:
         try:
             conn_kj = st.connection("gsheets", type=GSheetsConnection)
@@ -743,141 +744,41 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
 
     k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-    col_kj_info, col_kj_refresh, col_kj_sheet = st.columns([2.0, 1.0, 1.0])
-    with col_kj_info:
-        if k_cache:
-            sheet_badges = " ".join([f"<code style='background:#DCFCE7; color:#166534; padding:2px 6px; border-radius:4px; font-weight:600;'>{s} ({len(k_cache[s])} soal)</code>" for s in k_cache])
-            st.markdown(f"""
-            <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">
-                <div style="font-weight: 600; color: #166534; font-size: 13px; margin-bottom: 3px;">
-                    🔑 Kunci Jawaban Google Sheet (Admin):
-                </div>
-                <div style="font-size: 12px; color: #15803D;">
-                    Auto-Nilai Aktif &bull; Sheet Terdeteksi: {sheet_badges}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">
-                <div style="font-weight: 600; color: #92400E; font-size: 13px; margin-bottom: 3px;">
-                    ℹ️ Kunci Jawaban Belum Terdeteksi di Google Sheet
-                </div>
-                <div style="font-size: 12px; color: #B45309;">
-                    Admin dapat menambahkan tab kunci (misal <code>kj048</code>) di Google Sheet.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    # 2. Area Unggah Berkas LJK (Clean & Simple)
+    uploaded_files_dosen = st.file_uploader(
+        "📁 Unggah Berkas LJK (PDF Multi-Halaman / JPG / PNG / HEIC):",
+        type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
+        accept_multiple_files=True,
+        help="Mendukung berkas PDF multi-halaman maupun file foto/scan."
+    )
 
-    with col_kj_refresh:
-        st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Sinkronkan Acuan Kunci", use_container_width=True, help="Sinkronkan kunci jawaban terbaru dari tab Google Sheet & hitung ulang nilai seluruh peserta"):
-            with st.spinner("Mengambil kunci jawaban terbaru dari Google Sheet..."):
-                try:
-                    conn_kj = st.connection("gsheets", type=GSheetsConnection)
-                    new_keys = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
-                    st.session_state["kunci_jawaban_cache"] = new_keys
-                    if new_keys:
-                        # Recalculate already processed students if any
-                        if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
-                            for r in st.session_state["dosen_results"]:
-                                grade_student_record(r, new_keys)
-                        st.toast(f"✅ Berhasil memuat {len(new_keys)} sheet acuan ({', '.join(list(new_keys.keys()))})! Nilai otomatis diperbarui.", icon="🔑")
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ Tidak ditemukan sheet acuan kunci di Google Sheet.")
-                except Exception as e:
-                    st.error(f"Gagal memuat kunci dari Google Sheet: {e}")
+    # Validasi Mandatory Form
+    is_form_complete = bool(fakultas_pilihan) and bool(nama_pengawas and nama_pengawas.strip())
+    has_files = bool(uploaded_files_dosen)
 
-    with col_kj_sheet:
-        st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
-        st.link_button(
-            "🌐 Buka Google Sheet",
-            TARGET_GSHEET_URL,
-            type="secondary",
+    col_btn, col_info = st.columns([1.5, 2.5])
+    with col_btn:
+        btn_label = f"🚀 Evaluasi {len(uploaded_files_dosen)} Berkas LJK" if has_files else "🚀 Evaluasi LJK"
+        do_periksa = st.button(
+            btn_label,
+            type="primary",
             use_container_width=True,
-            help="Buka Google Spreadsheet untuk mengelola kunci jawaban atau melihat database hasil"
+            disabled=not (has_files and is_form_complete)
         )
 
-    with st.expander("ℹ️ Panduan Format Kunci Jawaban untuk Admin di Google Sheet", expanded=False):
-        st.markdown("""
-        **Cara Admin Menambahkan / Mengubah Kunci Jawaban di Google Sheet:**
-        1. Klik tombol **🌐 Buka Google Sheet** di atas.
-        2. Buat Sheet/Tab baru dengan nama berformat **`kj<Kode Soal>`** (contoh: **`kj048`** untuk Kode Soal `048`, atau **`kj123`** untuk Kode Soal `123`).
-        3. Isi sheet dengan 2 kolom:
-           - **Kolom A**: Nomor Soal (1, 2, 3, ..., 75)
-           - **Kolom B**: Huruf Kunci Jawaban (A / B / C / D / E)
-        4. Kembali ke aplikasi ini dan klik tombol **🔄 Muat Ulang Kunci**. Nilai peserta akan otomatis dihitung secara instan!
-        """)
-        sample_xlsx_bytes = generate_sample_kunci_excel()
-        st.download_button(
-            "📥 Unduh Template Kunci Excel (Sebagai Referensi Input Admin)",
-            data=sample_xlsx_bytes,
-            file_name="Format_Kunci_Jawaban.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Unduh file Excel contoh dengan sheet kj048 dan kj123.",
-            use_container_width=False
-        )
+    with col_info:
+        if has_files and not is_form_complete:
+            missing_fields = []
+            if not fakultas_pilihan:
+                missing_fields.append("Fakultas Mahasiswa")
+            if not (nama_pengawas and nama_pengawas.strip()):
+                missing_fields.append("Nama Pengawas")
+            st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
+        elif k_cache:
+            sheet_badges = ", ".join(list(k_cache.keys()))
+            st.caption(f"🔑 **Auto-Nilai Siap:** Acuan sheet kunci <code>{sheet_badges}</code>", unsafe_allow_html=True)
 
-    # 3. Layout Side-by-Side: Tombol Unggah di Kiri & Tombol Upload LJK di Kanan
-    col_upload, col_action = st.columns([1.2, 1.0], gap="large")
-
-    with col_upload:
-        uploaded_files_dosen = st.file_uploader(
-            "Upload Lembar Jawaban (PDF Multi-Halaman / JPG / PNG / HEIC iPhone):",
-            type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
-            accept_multiple_files=True,
-            help="Dukung berkas PDF multi-halaman, foto iPhone (HEIC/HEIF), maupun foto kamera/scan (JPG/PNG) sekaligus."
-        )
-
-        sample_filled_path = os.path.join(os.path.dirname(__file__), "filled_LJK.xlsx.pdf")
-        if not uploaded_files_dosen and os.path.exists(sample_filled_path):
-            if st.button("📄 Gunakan Berkas Contoh (filled_LJK.xlsx.pdf)", use_container_width=True):
-                with open(sample_filled_path, "rb") as f:
-                    pdf_bytes = f.read()
-                    setattr(pdf_bytes, "name", "filled_LJK.xlsx.pdf")
-                    st.session_state["dosen_test_files"] = [pdf_bytes]
-                st.rerun()
-
-        if not uploaded_files_dosen and st.session_state.get("dosen_test_files"):
-            uploaded_files_dosen = st.session_state["dosen_test_files"]
-
-    with col_action:
-        if uploaded_files_dosen:
-            total_berkas = len(uploaded_files_dosen)
-            daftar_nama = [getattr(f, "name", f"Berkas_{i+1}") for i, f in enumerate(uploaded_files_dosen)]
-
-            st.markdown(f"""
-            <div style="background-color: #ECFDF5; border: 1.5px solid #10B981; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px;">
-                <div style="font-size: 14px; font-weight: 800; color: #065F46;">
-                    ✅ {total_berkas} Berkas LJK Berhasil Terupload!
-                </div>
-                <div style="font-size: 11px; color: #047857; margin-top: 2px;">
-                    Fakultas: <b>{fakultas_pilihan.split(' - ')[0]}</b> {f'&bull; Pengawas: <b>{nama_pengawas}</b>' if nama_pengawas.strip() else ''} &bull; Siap dievaluasi.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Scrollable box: shows ~3 items at a time, scrollable for the rest
-            file_items_html = "".join([f"<div style='padding: 3px 0; border-bottom: 1px solid #F1F5F9; font-size: 12px;'>📄 {fn}</div>" for fn in daftar_nama])
-            st.markdown(f"""
-            <div style="font-size: 11px; font-weight: 600; color: #475569; margin-bottom: 4px;">Berkas Terunggah (Scroll jika &gt; 3 berkas):</div>
-            <div style="max-height: 85px; overflow-y: auto; border: 1.5px solid #CBD5E1; border-radius: 6px; padding: 6px 10px; background: #FFFFFF; color: #0F172A; margin-bottom: 12px;">
-                {file_items_html}
-            </div>
-            """, unsafe_allow_html=True)
-
-            do_periksa = st.button("🚀 Upload LJK", type="primary", use_container_width=True)
-        else:
-            st.markdown("""
-            <div style="background-color: #F8FAFC; border: 1.5px dashed #CBD5E1; border-radius: 8px; padding: 22px 14px; text-align: center; color: #64748B; font-size: 12px;">
-                📁 <b>Belum ada berkas terunggah.</b><br>
-                Silakan upload berkas LJK di sebelah kiri untuk mengaktifkan tombol pemeriksaan.
-            </div>
-            """, unsafe_allow_html=True)
-            do_periksa = False
-
-    if uploaded_files_dosen and do_periksa:
+    if uploaded_files_dosen and do_periksa and is_form_complete:
             template = load_default_template()
             if not template:
                 st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")
@@ -949,12 +850,12 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
 
                 student_record = {
                     "Submit Date": current_submit_time,
-                    "Pengawas / Dosen": nama_pengawas.strip() if nama_pengawas.strip() else "-",
+                    "Pengawas / Dosen": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
                     "File": doc_name,
                     "Status LJK": "Valid" if "DETECTED" in status else "Periksa Manual",
                     "NPM": decoded_all.get("NPM", "-"),
                     "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
-                    "Fakultas Mahasiswa": fakultas_pilihan.split(" - ")[0],
+                    "Fakultas Mahasiswa": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
                     "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
                     "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
                 }
@@ -1026,18 +927,8 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
         results = st.session_state["dosen_results"]
         st.markdown("---")
         
-        col_res_t, col_res_b = st.columns([2.5, 1.2])
-        with col_res_t:
-            st.markdown(f"### 📊 Rekap Hasil Penilaian ({len(results)} Mahasiswa)")
-            st.caption("Pratinjau hanya menampilkan hasil lembar jawaban yang Anda unggah saat ini.")
-        with col_res_b:
-            st.link_button(
-                "🌐 Buka Google Sheet",
-                TARGET_GSHEET_URL,
-                type="secondary",
-                use_container_width=True,
-                help="Buka Google Spreadsheet penilaian di tab baru"
-            )
+        st.markdown(f"### 📊 Rekap Hasil Penilaian ({len(results)} Mahasiswa)")
+        st.caption("Pratinjau hanya menampilkan hasil lembar jawaban yang Anda unggah saat ini.")
 
         if st.session_state.get("last_gsheet_status"):
             st_type, st_text = st.session_state["last_gsheet_status"]
@@ -1057,7 +948,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
         col_dl1, col_dl2, col_dl3 = st.columns([1.2, 1.2, 1.3])
         with col_dl1:
             csv_bytes = df_full.to_csv(index=False).encode("utf-8")
-            clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_")
+            clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_") if fakultas_pilihan else "Fakultas"
             st.download_button(
                 "📥 Unduh Rekap (CSV)",
                 data=csv_bytes,
