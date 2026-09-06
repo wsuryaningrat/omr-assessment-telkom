@@ -667,11 +667,11 @@ if st.sidebar.button(f"🔄 Muat Ulang {active_tpl_name}", use_container_width=T
 ORDERED_REKAP_PREFIX = [
     "Submit Date",
     "Pengawas / Dosen",
-    "Fakultas (Pengawas)",
     "File",
     "Status LJK",
     "NPM",
     "Nama Mahasiswa",
+    "Fakultas Mahasiswa",
     "Fakultas (LJK)",
     "Kode Soal",
     "Nilai",
@@ -684,6 +684,8 @@ ORDERED_REKAP_PREFIX = [
 ]
 
 def reorder_rekap_columns(df):
+    if "Fakultas (Pengawas)" in df.columns and "Fakultas Mahasiswa" not in df.columns:
+        df = df.rename(columns={"Fakultas (Pengawas)": "Fakultas Mahasiswa"})
     cols = list(df.columns)
     first_cols = [c for c in ORDERED_REKAP_PREFIX if c in cols]
     kuis_cols = sorted([c for c in cols if (c.lower().startswith("q") and len(c) <= 5) or "kuis" in c.lower()])
@@ -703,11 +705,11 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
     </div>
     """, unsafe_allow_html=True)
 
-    # 1. Pilihan Fakultas & Nama Pengawas / Kode Dosen (Opsional)
+    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas / Kode Dosen (Opsional)
     col_fak, col_dos = st.columns([1.3, 1.0])
     with col_fak:
         fakultas_pilihan = st.selectbox(
-            "🏛️ Pilih Fakultas Mahasiswa Peserta:",
+            "🏛️ Fakultas Mahasiswa:",
             options=[
                 "FIF - Fakultas Informatika",
                 "FRI - Fakultas Rekayasa Industri",
@@ -719,7 +721,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 "Semua Fakultas / Gabungan"
             ],
             index=0,
-            help="Pilih fakultas mahasiswa yang sedang Anda awasi."
+            help="Pilih fakultas mahasiswa yang sedang dievaluasi lembar jawabannya."
         )
     with col_dos:
         nama_pengawas = st.text_input(
@@ -941,11 +943,11 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 student_record = {
                     "Submit Date": current_submit_time,
                     "Pengawas / Dosen": nama_pengawas.strip() if nama_pengawas.strip() else "-",
-                    "Fakultas (Pengawas)": fakultas_pilihan.split(" - ")[0],
                     "File": doc_name,
                     "Status LJK": "Valid" if "DETECTED" in status else "Periksa Manual",
                     "NPM": decoded_all.get("NPM", "-"),
                     "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
+                    "Fakultas Mahasiswa": fakultas_pilihan.split(" - ")[0],
                     "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
                     "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
                 }
