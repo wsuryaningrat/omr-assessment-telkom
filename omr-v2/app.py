@@ -342,10 +342,10 @@ div[data-baseweb="select"] * {
     font-weight: 600 !important;
 }
 
-/* Dropdown popover menu - max 3 items visible, scrollable */
+/* Dropdown popover menu - Langsung menampilkan seluruh opsi fakultas ketika dibuka */
 div[data-baseweb="popover"] ul,
 div[data-baseweb="menu"] {
-    max-height: 135px !important;
+    max-height: 480px !important;
     overflow-y: auto !important;
     background-color: #FFFFFF !important;
     border: 1.5px solid #CBD5E1 !important;
@@ -357,9 +357,11 @@ div[data-baseweb="popover"] li,
 div[data-baseweb="menu"] li {
     color: #0F172A !important;
     background-color: #FFFFFF !important;
-    padding: 8px 14px !important;
-    font-size: 13px !important;
+    padding: 10px 14px !important;
+    font-size: 13.5px !important;
     font-weight: 500 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
 }
 
 div[data-baseweb="popover"] li:hover,
@@ -368,6 +370,13 @@ div[data-baseweb="menu"] li[aria-selected="true"] {
     background-color: #FFF1F2 !important;
     color: #BA0C2F !important;
     font-weight: 600 !important;
+}
+
+/* Sembunyikan teks instruksi panjang dan berbelit pada uploader */
+div[data-testid="stFileUploadDropzoneInstructions"],
+section[data-testid="stFileUploadDropzone"] small,
+div[data-testid="stFileUploader"] small {
+    display: none !important;
 }
 
 /* File Uploader Container & Dropzone: Background Putih/Cerah & Semua Teks Hitam */
@@ -744,12 +753,11 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
 
     k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-    # 2. Area Unggah Berkas LJK (Clean & Simple)
+    # 2. Area Unggah Berkas LJK (Intinya Aja: Gambar atau PDF)
     uploaded_files_dosen = st.file_uploader(
-        "📁 Unggah Berkas LJK (PDF Multi-Halaman / JPG / PNG / HEIC):",
+        "Upload LJK (Gambar atau PDF)",
         type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
-        accept_multiple_files=True,
-        help="Mendukung berkas PDF multi-halaman maupun file foto/scan."
+        accept_multiple_files=True
     )
 
     # Validasi Mandatory Form
@@ -774,9 +782,6 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             if not (nama_pengawas and nama_pengawas.strip()):
                 missing_fields.append("Nama Pengawas")
             st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
-        elif k_cache:
-            sheet_badges = ", ".join(list(k_cache.keys()))
-            st.caption(f"🔑 **Auto-Nilai Siap:** Acuan sheet kunci <code>{sheet_badges}</code>", unsafe_allow_html=True)
 
     if uploaded_files_dosen and do_periksa and is_form_complete:
             template = load_default_template()
