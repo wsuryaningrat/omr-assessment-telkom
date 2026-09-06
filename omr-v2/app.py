@@ -967,6 +967,9 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 st.warning(f"⚠️ {st_text}")
 
         df_full = pd.DataFrame(results)
+        # Ensure all columns are string type to prevent PyArrow conversion errors on mixed numeric/symbol data
+        for c in df_full.columns:
+            df_full[c] = df_full[c].astype(str)
         primary_cols = [
             "NPM",
             "Nama Mahasiswa",
