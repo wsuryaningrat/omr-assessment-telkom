@@ -196,6 +196,15 @@ section[data-testid="stSidebar"] div[data-testid="stFileUploader"] * {
     color: #0F172A !important;
 }
 
+/* Sembunyikan batas ukuran dan format berkas di seluruh file uploader */
+[data-testid="stFileUploaderDropzoneInstructions"] small,
+section[data-testid="stFileUploaderDropzone"] small,
+div[data-testid="stFileUploader"] section small,
+div[data-testid="stFileUploader"] small,
+.stFileUploader small {
+    display: none !important;
+}
+
 /* Telkom Header Banner Container */
 .telkom-header-container {
     background: #FFFFFF;
@@ -686,26 +695,36 @@ else:
 # ==============================================================================
 ORDERED_REKAP_PREFIX = [
     "Submit Date",
-    "Pengawas / Dosen",
+    "Nama Pengawas",
     "File",
-    "Status LJK",
     "NPM",
     "Nama Mahasiswa",
-    "Fakultas Mahasiswa",
+    "Fakultas",
     "Fakultas (LJK)",
     "Kode Soal",
+    "Jawaban Terisi",
     "Nilai",
     "Jumlah Benar",
     "Jumlah Salah",
     "Jumlah Kosong",
     "Kunci Terpakai",
-    "Jawaban Terisi",
-    "Persentase Terisi",
 ]
 
 def reorder_rekap_columns(df):
-    if "Fakultas (Pengawas)" in df.columns and "Fakultas Mahasiswa" not in df.columns:
-        df = df.rename(columns={"Fakultas (Pengawas)": "Fakultas Mahasiswa"})
+    rename_dict = {}
+    if "Pengawas / Dosen" in df.columns and "Nama Pengawas" not in df.columns:
+        rename_dict["Pengawas / Dosen"] = "Nama Pengawas"
+    if "Fakultas Mahasiswa" in df.columns and "Fakultas" not in df.columns:
+        rename_dict["Fakultas Mahasiswa"] = "Fakultas"
+    if "Fakultas (Pengawas)" in df.columns and "Fakultas" not in df.columns:
+        rename_dict["Fakultas (Pengawas)"] = "Fakultas"
+    if rename_dict:
+        df = df.rename(columns=rename_dict)
+
+    drop_cols = [c for c in ["Status LJK", "Persentase Terisi"] if c in df.columns]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+
     cols = list(df.columns)
     first_cols = [c for c in ORDERED_REKAP_PREFIX if c in cols]
     kuis_cols = sorted([c for c in cols if (c.lower().startswith("q") and len(c) <= 5) or "kuis" in c.lower()])
@@ -720,15 +739,15 @@ if mode == "Portal Evaluasi LJK":
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Tahap 1: Unggah & Periksa LJK</h2>
-        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk diperiksa.</p>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas, lalu unggah berkas LJK untuk diperiksa.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas (Wajib / Mandatory & Default Kosong)
+    # 1. Pilihan Fakultas & Nama Pengawas (Wajib / Mandatory & Default Kosong)
     col_fak, col_dos = st.columns(2)
     with col_fak:
         fakultas_pilihan = st.selectbox(
-            "🏛️ Fakultas Mahasiswa *",
+            "Fakultas",
             options=[
                 "FIF - Fakultas Informatika",
                 "FRI - Fakultas Rekayasa Industri",
@@ -740,15 +759,15 @@ if mode == "Portal Evaluasi LJK":
                 "Semua Fakultas / Gabungan"
             ],
             index=None,
-            placeholder="-- Pilih Fakultas Mahasiswa --",
+            placeholder="-- Pilih Fakultas --",
             help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi lembar jawabannya."
         )
     with col_dos:
         nama_pengawas = st.text_input(
-            "👤 Nama Pengawas / Kode Dosen *",
+            "Nama Pengawas",
             value="",
-            placeholder="Ketik Nama Pengawas atau Kode Dosen...",
-            help="Wajib diisi: Nama pengawas atau kode dosen penanggung jawab."
+            placeholder="Ketik Nama Pengawas...",
+            help="Wajib diisi: Nama pengawas."
         )
 
     # Google Sheets URL permanen
@@ -789,7 +808,7 @@ if mode == "Portal Evaluasi LJK":
         if has_files and not is_form_complete:
             missing_fields = []
             if not fakultas_pilihan:
-                missing_fields.append("Fakultas Mahasiswa")
+                missing_fields.append("Fakultas")
             if not (nama_pengawas and nama_pengawas.strip()):
                 missing_fields.append("Nama Pengawas")
             st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
@@ -842,7 +861,7 @@ if mode == "Portal Evaluasi LJK":
 
                 gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                 wib_tz = timezone(timedelta(hours=7))
-                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M:%S")
+                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d")
 
                 decoded_all = {}
                 soal_dict = {}
@@ -866,18 +885,16 @@ if mode == "Portal Evaluasi LJK":
 
                 student_record = {
                     "Submit Date": current_submit_time,
-                    "Pengawas / Dosen": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
+                    "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
                     "File": doc_name,
-                    "Status LJK": "Valid" if "DETECTED" in status else "Periksa Manual",
                     "NPM": decoded_all.get("NPM", "-"),
                     "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
-                    "Fakultas Mahasiswa": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
+                    "Fakultas": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
                     "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
                     "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
                 }
 
                 student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
-                student_record["Persentase Terisi"] = f"{(soal_terisi / total_soal * 100):.1f}%"
 
                 # Kuisioner items (e.g. q01 .. q15)
                 kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
@@ -917,7 +934,7 @@ if mode == "Portal Evaluasi LJK":
         
         st.markdown(f"### 📋 Tahap 2: Tinjau Hasil Evaluasi ({len(results)} Mahasiswa)")
         if not is_submitted:
-            st.info("💡 **Petunjuk Pengawas:** Periksa kolom nilai, identitas, dan persentase terisi di bawah. Jika terdapat lembar yang terisi kecil karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
+            st.info("💡 **Petunjuk Pengawas:** Periksa kolom nilai, identitas, dan jawaban terisi di bawah. Jika terdapat lembar yang terisi sedikit karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
         else:
             st.success("✅ **Data LJK Berhasil Disubmit ke Google Sheet!** Anda dapat membuka spreadsheet hasil di bawah.")
 
@@ -926,7 +943,7 @@ if mode == "Portal Evaluasi LJK":
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
 
-        # Tabel Viewer: Cukup kolom Fakultas Mahasiswa saja yang muncul (Fakultas (LJK) disembunyikan agar tidak redundan)
+        # Tabel Viewer: Cukup kolom Fakultas saja yang muncul (Fakultas (LJK) disembunyikan agar tidak redundan)
         primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
         viewer_cols = [c for c in primary_cols if c != "Fakultas (LJK)"]
         st.dataframe(df_full[viewer_cols], use_container_width=True, hide_index=True)
