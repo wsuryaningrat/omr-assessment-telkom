@@ -2,6 +2,32 @@ import pandas as pd
 import re
 import io
 
+def parse_kunci_jawaban_raw_rows(values):
+    """
+    Parses a list of rows (e.g. from Google Sheets or CSV) into a question-answer dict.
+    Format per row:
+      Col 0: Question number (e.g. '1', '1.0', 'soal_1')
+      Col 1: Key answer option (e.g. 'A', 'B', 'C', 'D', 'E')
+    Returns:
+      dict: {1: 'A', 2: 'B', ...}
+    """
+    q_dict = {}
+    for row in values:
+        if not row or len(row) < 2 or row[0] is None or row[1] is None:
+            continue
+        v0 = str(row[0]).strip()
+        v1 = str(row[1]).strip().upper()
+        # Find question number from first column
+        m = re.search(r'\d+', v0)
+        if m:
+            q_num = int(m.group())
+            # Extract valid answer options (A, B, C, D, E)
+            opts = re.findall(r'[A-E]', v1)
+            if opts:
+                q_dict[q_num] = ','.join(opts) if len(opts) > 1 else opts[0]
+    return q_dict
+
+
 def parse_kunci_jawaban_excel(file_source):
     """
     Parses an Excel file containing answer keys per sheet.
@@ -17,25 +43,84 @@ def parse_kunci_jawaban_excel(file_source):
     
     for sheet in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet, header=None)
-        q_dict = {}
-        for _, row in df.iterrows():
-            if len(row) < 2 or pd.isna(row.iloc[0]) or pd.isna(row.iloc[1]):
-                continue
-            v0 = str(row.iloc[0]).strip()
-            v1 = str(row.iloc[1]).strip().upper()
-            
-            # Find question number from first column (e.g. '1', '1.0', 'soal_1')
-            m = re.search(r'\d+', v0)
-            if m:
-                q_num = int(m.group())
-                # Extract valid answer options (A, B, C, D, E)
-                opts = re.findall(r'[A-E]', v1)
-                if opts:
-                    q_dict[q_num] = ','.join(opts) if len(opts) > 1 else opts[0]
+        q_dict = parse_kunci_jawaban_raw_rows(df.values.tolist())
         if q_dict:
             sheet_keys[sheet] = q_dict
             
     return sheet_keys
+
+
+def load_kunci_jawaban_from_gsheet(spreadsheet_url, conn=None, secrets_dict=None):
+    """
+    Loads all answer key sheets directly from Google Sheets.
+    Searches for sheets whose title begins with 'kj' or contains 'kunci' (e.g. 'kj048', 'kj123').
+    Returns:
+        dict: {sheet_name: {1: 'A', 2: 'B', ...}}
+    """
+    kunci_sheets = {}
+    gc = None
+    
+    # 1. Try extracting gspread client from Streamlit GSheetsConnection
+    if conn is not None:
+        try:
+            if hasattr(conn, "client") and hasattr(conn.client, "_client"):
+                gc = conn.client._client
+        except Exception:
+            pass
+            
+    # 2. Try loading credentials from streamlit.secrets
+    if gc is None:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+                cfg = dict(st.secrets["connections"]["gsheets"])
+                creds = {k: cfg[k] for k in ['type', 'project_id', 'private_key_id', 'private_key', 
+                                              'client_email', 'client_id', 'auth_uri', 'token_uri', 
+                                              'auth_provider_x509_cert_url', 'client_x509_cert_url'] if k in cfg}
+                import gspread
+                gc = gspread.service_account_from_dict(creds)
+        except Exception:
+            pass
+
+    # 3. Try secrets_dict if passed
+    if gc is None and secrets_dict:
+        try:
+            import gspread
+            creds = {k: secrets_dict[k] for k in ['type', 'project_id', 'private_key_id', 'private_key', 
+                                                  'client_email', 'client_id', 'auth_uri', 'token_uri', 
+                                                  'auth_provider_x509_cert_url', 'client_x509_cert_url'] if k in secrets_dict}
+            gc = gspread.service_account_from_dict(creds)
+        except Exception:
+            pass
+
+    # If gspread client is available, inspect and fetch all sheets
+    if gc is not None:
+        sh = gc.open_by_url(spreadsheet_url)
+        for ws in sh.worksheets():
+            title = ws.title.strip()
+            clean_title = title.lower().replace(' ', '').replace('_', '')
+            # Match sheets like kj048, kj123, kunci_048, etc.
+            if clean_title.startswith('kj') or 'kunci' in clean_title:
+                values = ws.get_all_values()
+                q_dict = parse_kunci_jawaban_raw_rows(values)
+                if q_dict:
+                    kunci_sheets[title] = q_dict
+        return kunci_sheets
+
+    # 4. Fallback if gc is None but GSheetsConnection conn is provided:
+    # Try reading common candidates
+    if conn is not None:
+        for cand in ["kj048", "kj123", "kj001", "Kunci"]:
+            try:
+                df = conn.read(spreadsheet=spreadsheet_url, worksheet=cand, ttl=0).dropna(how="all")
+                if not df.empty and df.shape[1] >= 2:
+                    q_dict = parse_kunci_jawaban_raw_rows(df.values.tolist())
+                    if q_dict:
+                        kunci_sheets[cand] = q_dict
+            except Exception:
+                continue
+
+    return kunci_sheets
 
 
 def find_matching_kunci_sheet(kode_soal, sheet_names):

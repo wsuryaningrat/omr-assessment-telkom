@@ -42,6 +42,7 @@ from core.utils import (
 )
 from core.evaluator import (
     parse_kunci_jawaban_excel,
+    load_kunci_jawaban_from_gsheet,
     find_matching_kunci_sheet,
     grade_student_record,
     generate_sample_kunci_excel
@@ -699,57 +700,91 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
     # Google Sheets URL permanen
     TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1vRpXz-w55XtX33WAx6b677yQXoM3oZ8jcQ_26m1XEYo/edit?gid=1945243931#gid=1945243931"
 
-    # 2. Konfigurasi Kunci Jawaban Excel (Auto Nilai)
-    with st.expander("🔑 Konfigurasi Kunci Jawaban Excel (Auto Nilai)", expanded=True):
-        col_kj1, col_kj2 = st.columns([1.6, 1.0])
-        with col_kj1:
-            uploaded_kunci = st.file_uploader(
-                "Upload File Kunci Jawaban Excel (.xlsx / .xls):",
-                type=["xlsx", "xls"],
-                key="excel_kunci_input",
-                help="Setiap sheet di dalam file Excel mewakili satu kode soal (misal: sheet 'kj048' untuk kode soal 048). Format kolom: Kolom 1 = No Soal, Kolom 2 = Kunci Jawaban (A/B/C/D/E)."
-            )
-        with col_kj2:
-            st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
-            sample_xlsx_bytes = generate_sample_kunci_excel()
-            st.download_button(
-                "📥 Unduh Format Kunci Excel",
-                data=sample_xlsx_bytes,
-                file_name="Format_Kunci_Jawaban.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help="Unduh file Excel contoh dengan sheet kj048 dan kj123.",
-                use_container_width=True
-            )
+    # 2. Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
+    if "kunci_jawaban_cache" not in st.session_state or st.session_state["kunci_jawaban_cache"] is None:
+        try:
+            conn_kj = st.connection("gsheets", type=GSheetsConnection)
+            st.session_state["kunci_jawaban_cache"] = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
+        except Exception:
+            st.session_state["kunci_jawaban_cache"] = {}
 
-        # Handle uploaded kunci file
-        if uploaded_kunci is not None:
-            file_sig = f"{uploaded_kunci.name}_{uploaded_kunci.size}"
-            if st.session_state.get("last_kunci_sig") != file_sig:
-                try:
-                    parsed_kunci = parse_kunci_jawaban_excel(uploaded_kunci)
-                    st.session_state["kunci_jawaban_cache"] = parsed_kunci
-                    st.session_state["kunci_filename"] = uploaded_kunci.name
-                    st.session_state["last_kunci_sig"] = file_sig
-                    st.toast(f"✅ Kunci jawaban '{uploaded_kunci.name}' berhasil dimuat ({len(parsed_kunci)} sheet)!", icon="🔑")
-                    # Auto-regrade current results if already processed
-                    if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
-                        for r in st.session_state["dosen_results"]:
-                            grade_student_record(r, parsed_kunci)
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Gagal membaca file Excel Kunci Jawaban: {e}")
+    k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-        # Show status badge if kunci is loaded
-        if st.session_state.get("kunci_jawaban_cache"):
-            k_cache = st.session_state["kunci_jawaban_cache"]
-            sheet_names_str = ", ".join([f"<code>{s}</code> ({len(k_cache[s])} soal)" for s in list(k_cache.keys())[:6]])
+    col_kj_info, col_kj_refresh, col_kj_sheet = st.columns([2.0, 1.0, 1.0])
+    with col_kj_info:
+        if k_cache:
+            sheet_badges = " ".join([f"<code style='background:#DCFCE7; color:#166534; padding:2px 6px; border-radius:4px; font-weight:600;'>{s} ({len(k_cache[s])} soal)</code>" for s in k_cache])
             st.markdown(f"""
-            <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 6px 12px; margin-top: 4px; font-size: 12px; color: #166534;">
-                ✅ <b>Auto Nilai Aktif:</b> File <code>{st.session_state.get('kunci_filename', 'Kunci_Jawaban.xlsx')}</code> &bull; Sheet Terbaca: {sheet_names_str}
+            <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">
+                <div style="font-weight: 600; color: #166534; font-size: 13px; margin-bottom: 3px;">
+                    🔑 Kunci Jawaban Google Sheet (Admin):
+                </div>
+                <div style="font-size: 12px; color: #15803D;">
+                    Auto-Nilai Aktif &bull; Sheet Terdeteksi: {sheet_badges}
+                </div>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.caption("ℹ️ *Tips: Jika kunci jawaban diupload, sistem akan otomatis mencocokkan kode soal dengan nama sheet (misal: kode 048 ➜ sheet kj048) dan menghitung nilai peserta.*")
+            st.markdown("""
+            <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;">
+                <div style="font-weight: 600; color: #92400E; font-size: 13px; margin-bottom: 3px;">
+                    ℹ️ Kunci Jawaban Belum Terdeteksi di Google Sheet
+                </div>
+                <div style="font-size: 12px; color: #B45309;">
+                    Admin dapat menambahkan tab kunci (misal <code>kj048</code>) di Google Sheet.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with col_kj_refresh:
+        st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Muat Ulang Kunci", use_container_width=True, help="Sinkronkan kunci jawaban terbaru dari tab Google Sheet"):
+            with st.spinner("Mengambil kunci jawaban terbaru dari Google Sheet..."):
+                try:
+                    conn_kj = st.connection("gsheets", type=GSheetsConnection)
+                    new_keys = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
+                    st.session_state["kunci_jawaban_cache"] = new_keys
+                    if new_keys:
+                        st.toast(f"✅ Berhasil memuat {len(new_keys)} sheet kunci ({', '.join(list(new_keys.keys()))})!", icon="🔑")
+                        # Recalculate already processed students if any
+                        if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
+                            for r in st.session_state["dosen_results"]:
+                                grade_student_record(r, new_keys)
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Tidak ditemukan sheet kunci (awalan 'kj') di Google Sheet.")
+                except Exception as e:
+                    st.error(f"Gagal memuat kunci dari Google Sheet: {e}")
+
+    with col_kj_sheet:
+        st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
+        st.link_button(
+            "🌐 Buka Google Sheet",
+            TARGET_GSHEET_URL,
+            type="secondary",
+            use_container_width=True,
+            help="Buka Google Spreadsheet untuk mengelola kunci jawaban atau melihat database hasil"
+        )
+
+    with st.expander("ℹ️ Panduan Format Kunci Jawaban untuk Admin di Google Sheet", expanded=False):
+        st.markdown("""
+        **Cara Admin Menambahkan / Mengubah Kunci Jawaban di Google Sheet:**
+        1. Klik tombol **🌐 Buka Google Sheet** di atas.
+        2. Buat Sheet/Tab baru dengan nama berformat **`kj<Kode Soal>`** (contoh: **`kj048`** untuk Kode Soal `048`, atau **`kj123`** untuk Kode Soal `123`).
+        3. Isi sheet dengan 2 kolom:
+           - **Kolom A**: Nomor Soal (1, 2, 3, ..., 75)
+           - **Kolom B**: Huruf Kunci Jawaban (A / B / C / D / E)
+        4. Kembali ke aplikasi ini dan klik tombol **🔄 Muat Ulang Kunci**. Nilai peserta akan otomatis dihitung secara instan!
+        """)
+        sample_xlsx_bytes = generate_sample_kunci_excel()
+        st.download_button(
+            "📥 Unduh Template Kunci Excel (Sebagai Referensi Input Admin)",
+            data=sample_xlsx_bytes,
+            file_name="Format_Kunci_Jawaban.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Unduh file Excel contoh dengan sheet kj048 dan kj123.",
+            use_container_width=False
+        )
 
     # 3. Layout Side-by-Side: Tombol Unggah di Kiri & Tombol Upload LJK di Kanan
     col_upload, col_action = st.columns([1.2, 1.0], gap="large")
@@ -917,14 +952,14 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     df_to_sync = pd.DataFrame(dosen_results)
                     try:
-                        existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, ttl=0).dropna(how="all")
+                        existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
                         if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
                             combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
-                            conn.update(spreadsheet=TARGET_GSHEET_URL, data=combined_sheet_df)
+                            conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
                         else:
-                            conn.update(spreadsheet=TARGET_GSHEET_URL, data=df_to_sync)
+                            conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
                     except Exception:
-                        conn.update(spreadsheet=TARGET_GSHEET_URL, data=df_to_sync)
+                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
                 st.toast("✅ Data LJK berhasil ditransfer ke Google Sheet!", icon="📊")
                 st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(dosen_results)} Peserta).")
             except Exception as e:
@@ -978,6 +1013,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             "Jumlah Benar",
             "Jumlah Salah",
             "Jumlah Kosong",
+            "Kunci Terpakai",
             "Fakultas (LJK)",
             "Pengawas / Dosen",
             "Jawaban Terisi",
@@ -1005,7 +1041,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 try:
                     with st.spinner("Mentransfer data ke Google Sheet..."):
                         conn = st.connection("gsheets", type=GSheetsConnection)
-                        conn.update(spreadsheet=TARGET_GSHEET_URL, data=df_full)
+                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_full)
                     st.success("✅ Data berhasil disinkronkan ke Google Sheet!")
                     st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(df_full)} Peserta).")
                     st.rerun()
