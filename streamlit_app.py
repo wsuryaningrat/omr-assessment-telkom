@@ -771,21 +771,21 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
 
     with col_kj_refresh:
         st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Muat Ulang Kunci", use_container_width=True, help="Sinkronkan kunci jawaban terbaru dari tab Google Sheet"):
+        if st.button("🔄 Sinkronkan Acuan Kunci", use_container_width=True, help="Sinkronkan kunci jawaban terbaru dari tab Google Sheet & hitung ulang nilai seluruh peserta"):
             with st.spinner("Mengambil kunci jawaban terbaru dari Google Sheet..."):
                 try:
                     conn_kj = st.connection("gsheets", type=GSheetsConnection)
                     new_keys = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
                     st.session_state["kunci_jawaban_cache"] = new_keys
                     if new_keys:
-                        st.toast(f"✅ Berhasil memuat {len(new_keys)} sheet kunci ({', '.join(list(new_keys.keys()))})!", icon="🔑")
                         # Recalculate already processed students if any
                         if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
                             for r in st.session_state["dosen_results"]:
                                 grade_student_record(r, new_keys)
+                        st.toast(f"✅ Berhasil memuat {len(new_keys)} sheet acuan ({', '.join(list(new_keys.keys()))})! Nilai otomatis diperbarui.", icon="🔑")
                         st.rerun()
                     else:
-                        st.warning("⚠️ Tidak ditemukan sheet kunci (awalan 'kj') di Google Sheet.")
+                        st.warning("⚠️ Tidak ditemukan sheet acuan kunci di Google Sheet.")
                 except Exception as e:
                     st.error(f"Gagal memuat kunci dari Google Sheet: {e}")
 
@@ -900,6 +900,13 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     except Exception as e:
                         st.error(f"Error memproses berkas {getattr(uf, 'name', 'LJK')}: {str(e)}")
 
+            # Pastikan kunci jawaban terbaru tersinkronisasi dari Google Sheet sebelum penilaian
+            try:
+                conn_kj = st.connection("gsheets", type=GSheetsConnection)
+                st.session_state["kunci_jawaban_cache"] = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
+            except Exception:
+                pass
+
             st.info(f"Memeriksa **{len(all_pages_to_process)} lembar jawaban** dari {len(uploaded_files_dosen)} berkas terupload...")
             prog = st.progress(0)
             dosen_results = []
@@ -952,16 +959,6 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
                 }
 
-                # Auto Nilai if Kunci Jawaban loaded
-                if st.session_state.get("kunci_jawaban_cache"):
-                    grade_student_record(student_record, st.session_state["kunci_jawaban_cache"])
-                else:
-                    student_record["Nilai"] = "-"
-                    student_record["Jumlah Benar"] = "-"
-                    student_record["Jumlah Salah"] = "-"
-                    student_record["Jumlah Kosong"] = "-"
-                    student_record["Kunci Terpakai"] = "-"
-
                 student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
                 student_record["Persentase Terisi"] = f"{(soal_terisi / total_soal * 100):.1f}%"
 
@@ -970,9 +967,19 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 for k in sorted(kuis_keys):
                     student_record[k] = decoded_all[k]
 
-                # Append all questions strictly from soal_dict/soal_keys
+                # Append all questions strictly from soal_dict/soal_keys (MUST BE BEFORE GRADING!)
                 for k in soal_keys:
                     student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
+
+                # Auto Nilai if Kunci Jawaban loaded (runs after answers are populated)
+                if st.session_state.get("kunci_jawaban_cache"):
+                    grade_student_record(student_record, st.session_state["kunci_jawaban_cache"])
+                else:
+                    student_record["Nilai"] = "-"
+                    student_record["Jumlah Benar"] = "-"
+                    student_record["Jumlah Salah"] = "-"
+                    student_record["Jumlah Kosong"] = "-"
+                    student_record["Kunci Terpakai"] = "-"
 
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
                 dosen_previews.append((doc_name, overlay_img))
@@ -1061,13 +1068,19 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
             )
 
         with col_dl2:
-            if st.button("🔄 Sinkronkan Ulang ke Sheet", use_container_width=True):
+            if st.button("🔄 Sinkronkan Ulang ke Sheet", use_container_width=True, help="Muat ulang sheet acuan kunci dari Google Sheet, hitung ulang nilai seluruh peserta, dan sinkronkan ke Sheet1"):
                 try:
-                    with st.spinner("Mentransfer data ke Google Sheet..."):
+                    with st.spinner("Menyinkronkan sheet acuan & mentransfer data ke Google Sheet..."):
                         conn = st.connection("gsheets", type=GSheetsConnection)
+                        new_keys = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn)
+                        st.session_state["kunci_jawaban_cache"] = new_keys
+                        if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
+                            for r in st.session_state["dosen_results"]:
+                                grade_student_record(r, new_keys)
+                            df_full = pd.DataFrame(st.session_state["dosen_results"])
                         df_sync_all = reorder_rekap_columns(df_full.copy())
                         conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_sync_all)
-                    st.success("✅ Data berhasil disinkronkan ke Google Sheet!")
+                    st.success("✅ Sheet acuan diperbarui & data berhasil disinkronkan ke Google Sheet!")
                     st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(df_full)} Peserta).")
                     st.rerun()
                 except Exception as e:

@@ -6,25 +6,50 @@ def parse_kunci_jawaban_raw_rows(values):
     """
     Parses a list of rows (e.g. from Google Sheets or CSV) into a question-answer dict.
     Format per row:
-      Col 0: Question number (e.g. '1', '1.0', 'soal_1')
-      Col 1: Key answer option (e.g. 'A', 'B', 'C', 'D', 'E')
+      Col 0 (or first number col): Question number (e.g. '1', '1.0', 'soal_1')
+      Col 1 (or subsequent col): Key answer option (e.g. 'A', 'B', 'C', 'D', 'E', or '*' for bonus)
     Returns:
       dict: {1: 'A', 2: 'B', ...}
     """
     q_dict = {}
     for row in values:
-        if not row or len(row) < 2 or row[0] is None or row[1] is None:
+        if not row:
             continue
-        v0 = str(row[0]).strip()
-        v1 = str(row[1]).strip().upper()
-        # Find question number from first column
-        m = re.search(r'\d+', v0)
-        if m:
-            q_num = int(m.group())
-            # Extract valid answer options (A, B, C, D, E)
-            opts = re.findall(r'[A-E]', v1)
-            if opts:
-                q_dict[q_num] = ','.join(opts) if len(opts) > 1 else opts[0]
+        # Extract non-empty trimmed cells
+        cells = [str(c).strip() for c in row if c is not None and str(c).strip() != ""]
+        if len(cells) < 2:
+            continue
+
+        q_num = None
+        ans_opt = None
+
+        # Case 1: First cell has question number
+        m0 = re.search(r'\b\d+\b', cells[0]) or re.search(r'\d+', cells[0])
+        if m0:
+            q_num = int(m0.group())
+            v_ans = cells[1].upper()
+            if v_ans in ["*", "ALL", "SEMUA", "BONUS"]:
+                ans_opt = "A,B,C,D,E"
+            else:
+                opts = re.findall(r'[A-E]', v_ans)
+                if opts:
+                    ans_opt = ','.join(opts) if len(opts) > 1 else opts[0]
+        elif len(cells) >= 3:
+            # Case 2: Second cell has question number (e.g. column A was an empty index or label)
+            m1 = re.search(r'\b\d+\b', cells[1]) or re.search(r'\d+', cells[1])
+            if m1:
+                q_num = int(m1.group())
+                v_ans = cells[2].upper()
+                if v_ans in ["*", "ALL", "SEMUA", "BONUS"]:
+                    ans_opt = "A,B,C,D,E"
+                else:
+                    opts = re.findall(r'[A-E]', v_ans)
+                    if opts:
+                        ans_opt = ','.join(opts) if len(opts) > 1 else opts[0]
+
+        if q_num is not None and ans_opt is not None:
+            q_dict[q_num] = ans_opt
+
     return q_dict
 
 
@@ -53,7 +78,8 @@ def parse_kunci_jawaban_excel(file_source):
 def load_kunci_jawaban_from_gsheet(spreadsheet_url, conn=None, secrets_dict=None):
     """
     Loads all answer key sheets directly from Google Sheets.
-    Searches for sheets whose title begins with 'kj' or contains 'kunci' (e.g. 'kj048', 'kj123').
+    Searches for sheets whose title begins with 'kj', 'kunci', digits ('048'), or any tab
+    containing at least 3 valid question-answer pairs (excluding main database sheets).
     Returns:
         dict: {sheet_name: {1: 'A', 2: 'B', ...}}
     """
@@ -95,27 +121,32 @@ def load_kunci_jawaban_from_gsheet(spreadsheet_url, conn=None, secrets_dict=None
 
     # If gspread client is available, inspect and fetch all sheets
     if gc is not None:
-        sh = gc.open_by_url(spreadsheet_url)
-        for ws in sh.worksheets():
-            title = ws.title.strip()
-            clean_title = title.lower().replace(' ', '').replace('_', '')
-            # Match sheets like kj048, kj123, kunci_048, etc.
-            if clean_title.startswith('kj') or 'kunci' in clean_title:
+        try:
+            sh = gc.open_by_url(spreadsheet_url)
+            for ws in sh.worksheets():
+                title = ws.title.strip()
+                clean_title = title.lower().replace(' ', '').replace('_', '').replace('-', '')
+                # Skip main result database sheets
+                if clean_title in ['sheet1', 'rekap', 'database', 'hasil', 'hasilpenilaian', 'mahasiswa', 'summary']:
+                    continue
                 values = ws.get_all_values()
+                if not values:
+                    continue
                 q_dict = parse_kunci_jawaban_raw_rows(values)
-                if q_dict:
+                if len(q_dict) >= 3:
                     kunci_sheets[title] = q_dict
-        return kunci_sheets
+            return kunci_sheets
+        except Exception:
+            pass
 
     # 4. Fallback if gc is None but GSheetsConnection conn is provided:
-    # Try reading common candidates
     if conn is not None:
-        for cand in ["kj048", "kj123", "kj001", "Kunci"]:
+        for cand in ["kj048", "kj123", "kj126", "kj001", "048", "123", "126", "Kunci"]:
             try:
                 df = conn.read(spreadsheet=spreadsheet_url, worksheet=cand, ttl=0).dropna(how="all")
                 if not df.empty and df.shape[1] >= 2:
                     q_dict = parse_kunci_jawaban_raw_rows(df.values.tolist())
-                    if q_dict:
+                    if len(q_dict) >= 3:
                         kunci_sheets[cand] = q_dict
             except Exception:
                 continue
@@ -130,7 +161,7 @@ def find_matching_kunci_sheet(kode_soal, sheet_names):
     """
     if not sheet_names:
         return None
-    if not kode_soal or str(kode_soal).strip() in ["-", ""]:
+    if not kode_soal or str(kode_soal).strip() in ["-", "", "None"]:
         return sheet_names[0] if len(sheet_names) == 1 else None
         
     cleaned_kode = str(kode_soal).strip().lower()
@@ -163,7 +194,7 @@ def find_matching_kunci_sheet(kode_soal, sheet_names):
     # 2. Substring match
     for sh in sheet_names:
         clean_sh = re.sub(r'[\s_\-]', '', sh.lower())
-        if int_str and int_str in clean_sh and "kj" in clean_sh:
+        if int_str and int_str in clean_sh and ("kj" in clean_sh or "kunci" in clean_sh):
             return sh
         if cleaned_kode and cleaned_kode in clean_sh:
             return sh
@@ -184,7 +215,7 @@ def grade_student_record(student_record, all_kunci_sheets):
       - Jumlah Kosong
       - Kunci Terpakai
     """
-    kode_soal = student_record.get("Kode Soal", "").strip()
+    kode_soal = str(student_record.get("Kode Soal", "")).strip()
     sheet_names = list(all_kunci_sheets.keys())
     matched_sheet = find_matching_kunci_sheet(kode_soal, sheet_names)
     
@@ -212,11 +243,12 @@ def grade_student_record(student_record, all_kunci_sheets):
     
     for q_num, correct_opt in kunci_dict.items():
         # Look for student answer with pad_zero (soal_01) or no-pad (soal_1)
-        ans = student_record.get(f"soal_{q_num:02d}", student_record.get(f"soal_{q_num}", "BLANK"))
-        if ans in ["BLANK", "?", None, ""]:
+        raw_ans = student_record.get(f"soal_{q_num:02d}", student_record.get(f"soal_{q_num}", "BLANK"))
+        ans = str(raw_ans).strip().upper() if raw_ans is not None else "BLANK"
+        if ans in ["BLANK", "?", "NONE", ""]:
             kosong += 1
         else:
-            allowed_opts = [x.strip() for x in correct_opt.split(",")]
+            allowed_opts = [x.strip().upper() for x in str(correct_opt).split(",")]
             if ans in allowed_opts:
                 benar += 1
             else:
