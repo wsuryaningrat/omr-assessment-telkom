@@ -662,6 +662,36 @@ if st.sidebar.button(f"🔄 Muat Ulang {active_tpl_name}", use_container_width=T
         st.rerun()
 
 # ==============================================================================
+# STRUKTUR KOLOM REKAPITULASI (DATE -> PENGAWAS -> MAHASISWA -> NILAI -> JAWABAN)
+# ==============================================================================
+ORDERED_REKAP_PREFIX = [
+    "Submit Date",
+    "Pengawas / Dosen",
+    "Fakultas (Pengawas)",
+    "File",
+    "Status LJK",
+    "NPM",
+    "Nama Mahasiswa",
+    "Fakultas (LJK)",
+    "Kode Soal",
+    "Nilai",
+    "Jumlah Benar",
+    "Jumlah Salah",
+    "Jumlah Kosong",
+    "Kunci Terpakai",
+    "Jawaban Terisi",
+    "Persentase Terisi",
+]
+
+def reorder_rekap_columns(df):
+    cols = list(df.columns)
+    first_cols = [c for c in ORDERED_REKAP_PREFIX if c in cols]
+    kuis_cols = sorted([c for c in cols if (c.lower().startswith("q") and len(c) <= 5) or "kuis" in c.lower()])
+    soal_cols = sorted([c for c in cols if c.startswith("soal_")])
+    other_cols = [c for c in cols if c not in first_cols and c not in kuis_cols and c not in soal_cols]
+    return df[first_cols + kuis_cols + soal_cols + other_cols]
+
+# ==============================================================================
 # MODE UTAMA: PORTAL DOSEN PENGAWAS (UPLOAD CEPAT & SUPER SIMPLE)
 # ==============================================================================
 if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
@@ -887,13 +917,6 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                 wib_tz = timezone(timedelta(hours=7))
                 current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M:%S")
-                student_record = {
-                    "Submit Date": current_submit_time,
-                    "File": doc_name,
-                    "Fakultas (Pengawas)": fakultas_pilihan.split(" - ")[0],
-                    "Pengawas / Dosen": nama_pengawas.strip() if nama_pengawas.strip() else "-",
-                    "Status LJK": "Valid" if "DETECTED" in status else "Periksa Manual"
-                }
 
                 decoded_all = {}
                 soal_dict = {}
@@ -907,17 +930,6 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     if "soal" in fname.lower() and "kode" not in fname.lower():
                         soal_dict.update(field_data)
 
-                # Student Identity
-                student_record["NPM"] = decoded_all.get("NPM", "-")
-                student_record["Nama Mahasiswa"] = decoded_all.get("NAMA", "-")
-                student_record["Kode Soal"] = decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-"))
-                student_record["Fakultas (LJK)"] = decoded_all.get("FAKULTAS", "-")
-
-                # Kuisioner items (e.g. q01 .. q15)
-                kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
-                for k in sorted(kuis_keys):
-                    student_record[k] = decoded_all[k]
-
                 # Question statistics (strictly 75 exam questions)
                 if soal_dict:
                     soal_keys = sorted(list(soal_dict.keys()))
@@ -925,12 +937,18 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
                 soal_terisi = sum(1 for k in soal_keys if soal_dict.get(k, decoded_all.get(k)) not in ["BLANK", "?", None, ""])
                 total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
-                student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
-                student_record["Persentase Terisi"] = f"{(soal_terisi / total_soal * 100):.1f}%"
 
-                # Append all questions strictly from soal_dict/soal_keys
-                for k in soal_keys:
-                    student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
+                student_record = {
+                    "Submit Date": current_submit_time,
+                    "Pengawas / Dosen": nama_pengawas.strip() if nama_pengawas.strip() else "-",
+                    "Fakultas (Pengawas)": fakultas_pilihan.split(" - ")[0],
+                    "File": doc_name,
+                    "Status LJK": "Valid" if "DETECTED" in status else "Periksa Manual",
+                    "NPM": decoded_all.get("NPM", "-"),
+                    "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
+                    "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
+                    "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
+                }
 
                 # Auto Nilai if Kunci Jawaban loaded
                 if st.session_state.get("kunci_jawaban_cache"):
@@ -941,6 +959,18 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                     student_record["Jumlah Salah"] = "-"
                     student_record["Jumlah Kosong"] = "-"
                     student_record["Kunci Terpakai"] = "-"
+
+                student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
+                student_record["Persentase Terisi"] = f"{(soal_terisi / total_soal * 100):.1f}%"
+
+                # Kuisioner items (e.g. q01 .. q15)
+                kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
+                for k in sorted(kuis_keys):
+                    student_record[k] = decoded_all[k]
+
+                # Append all questions strictly from soal_dict/soal_keys
+                for k in soal_keys:
+                    student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
 
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
                 dosen_previews.append((doc_name, overlay_img))
@@ -955,17 +985,12 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 with st.spinner("Mentransfer data hasil konversi ke Google Sheet..."):
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     df_to_sync = pd.DataFrame(dosen_results)
-                    if "Submit Date" in df_to_sync.columns:
-                        cols = ["Submit Date"] + [c for c in df_to_sync.columns if c != "Submit Date"]
-                        df_to_sync = df_to_sync[cols]
+                    df_to_sync = reorder_rekap_columns(df_to_sync)
                     try:
                         existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
                         if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
-                            if "Submit Date" not in existing_sheet_df.columns:
-                                existing_sheet_df.insert(0, "Submit Date", "-")
                             combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
-                            cols = ["Submit Date"] + [c for c in combined_sheet_df.columns if c != "Submit Date"]
-                            combined_sheet_df = combined_sheet_df[cols]
+                            combined_sheet_df = reorder_rekap_columns(combined_sheet_df)
                             conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
                         else:
                             conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
@@ -1013,27 +1038,12 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 st.warning(f"⚠️ {st_text}")
 
         df_full = pd.DataFrame(results)
+        df_full = reorder_rekap_columns(df_full)
         # Ensure all columns are string type to prevent PyArrow conversion errors on mixed numeric/symbol data
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
-        primary_cols = [
-            "Submit Date",
-            "NPM",
-            "Nama Mahasiswa",
-            "Kode Soal",
-            "Nilai",
-            "Jumlah Benar",
-            "Jumlah Salah",
-            "Jumlah Kosong",
-            "Kunci Terpakai",
-            "Fakultas (LJK)",
-            "Pengawas / Dosen",
-            "Jawaban Terisi",
-            "Persentase Terisi",
-            "Status LJK"
-        ]
-        display_cols = [c for c in primary_cols if c in df_full.columns]
-        st.dataframe(df_full[display_cols], use_container_width=True, hide_index=True)
+        primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
+        st.dataframe(df_full[primary_cols], use_container_width=True, hide_index=True)
 
         col_dl1, col_dl2, col_dl3 = st.columns([1.2, 1.2, 1.3])
         with col_dl1:
@@ -1053,10 +1063,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 try:
                     with st.spinner("Mentransfer data ke Google Sheet..."):
                         conn = st.connection("gsheets", type=GSheetsConnection)
-                        df_sync_all = df_full.copy()
-                        if "Submit Date" in df_sync_all.columns:
-                            cols = ["Submit Date"] + [c for c in df_sync_all.columns if c != "Submit Date"]
-                            df_sync_all = df_sync_all[cols]
+                        df_sync_all = reorder_rekap_columns(df_full.copy())
                         conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_sync_all)
                     st.success("✅ Data berhasil disinkronkan ke Google Sheet!")
                     st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(df_full)} Peserta).")
