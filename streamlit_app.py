@@ -637,38 +637,49 @@ st.sidebar.markdown(f"""
 """, unsafe_allow_html=True)
 
 mode = st.sidebar.radio(
-    "Pilih Portal / Tampilan:",
+    "Pilih Menu:",
     [
-        "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)",
-        "⚙️ Kalibrasi Template LJK (Admin)",
-        "📊 OMR Reader & Batch Evaluator Lengkap (Admin)"
+        "Portal Evaluasi LJK",
+        "Kalibrasi LJK"
     ],
-    index=0,
-    help="Dosen Pengawas: Pilih portal pertama untuk mengunggah dan menilai LJK mahasiswa dengan sangat mudah."
+    index=0
 )
 
-# Quick badge for default template in sidebar
-active_tpl_name = os.path.basename(get_default_template_path())
-st.sidebar.markdown(f"""
-<div style="background-color: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 10px 12px; margin-top: 14px; margin-bottom: 12px;">
-    <div style="font-size: 11px; font-weight: 700; color: #BA0C2F; text-transform: uppercase;">⭐ Template Default Aktif</div>
-    <div style="font-size: 12px; font-weight: 700; color: #0F172A; margin-top: 2px;">templates/{active_tpl_name}</div>
-    <div style="font-size: 11px; color: #334155; margin-top: 2px;">12 Field Lengkap &bull; 75 Soal Ujian Resmi</div>
-</div>
-""", unsafe_allow_html=True)
+sub_mode = "Editor Template"
+if mode == "Kalibrasi LJK":
+    sub_mode = st.sidebar.radio(
+        "Sub Menu:",
+        [
+            "Editor Template",
+            "OMR Reader"
+        ],
+        index=0
+    )
 
-if st.sidebar.button(f"🔄 Muat Ulang {active_tpl_name}", use_container_width=True, help="Kembalikan konfigurasi field ke template bawaan"):
-    default_tpl = load_default_template()
-    if default_tpl and "fields" in default_tpl:
-        st.session_state["calibrated_fields"] = default_tpl["fields"]
-        st.session_state["template_metadata"] = default_tpl.get("canvas", {"width": 1700, "height": 2400})
-        st.session_state["chosen_bubble_shape"] = default_tpl.get("bubble_shape", "square")
-        st.session_state["editing_field_name"] = list(default_tpl["fields"].keys())[0]
-        for k in list(st.session_state.keys()):
-            if k.startswith("active_box_") or k.startswith("roi_editor_"):
-                del st.session_state[k]
-        st.toast(f"✅ {active_tpl_name} berhasil dimuat ulang!", icon="⭐")
-        st.rerun()
+    # Quick badge for default template in sidebar
+    active_tpl_name = os.path.basename(get_default_template_path())
+    st.sidebar.markdown(f"""
+    <div style="background-color: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 10px 12px; margin-top: 14px; margin-bottom: 12px;">
+        <div style="font-size: 11px; font-weight: 700; color: #BA0C2F; text-transform: uppercase;">⭐ Template Default Aktif</div>
+        <div style="font-size: 12px; font-weight: 700; color: #0F172A; margin-top: 2px;">templates/{active_tpl_name}</div>
+        <div style="font-size: 11px; color: #334155; margin-top: 2px;">12 Field Lengkap &bull; 75 Soal Ujian Resmi</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.sidebar.button(f"🔄 Muat Ulang {active_tpl_name}", use_container_width=True, help="Kembalikan konfigurasi field ke template bawaan"):
+        default_tpl = load_default_template()
+        if default_tpl and "fields" in default_tpl:
+            st.session_state["calibrated_fields"] = default_tpl["fields"]
+            st.session_state["template_metadata"] = default_tpl.get("canvas", {"width": 1700, "height": 2400})
+            st.session_state["chosen_bubble_shape"] = default_tpl.get("bubble_shape", "square")
+            st.session_state["editing_field_name"] = list(default_tpl["fields"].keys())[0]
+            for k in list(st.session_state.keys()):
+                if k.startswith("active_box_") or k.startswith("roi_editor_"):
+                    del st.session_state[k]
+            st.toast(f"✅ {active_tpl_name} berhasil dimuat ulang!", icon="⭐")
+            st.rerun()
+else:
+    active_tpl_name = os.path.basename(get_default_template_path())
 
 # ==============================================================================
 # STRUKTUR KOLOM REKAPITULASI (DATE -> PENGAWAS -> MAHASISWA -> NILAI -> JAWABAN)
@@ -703,9 +714,9 @@ def reorder_rekap_columns(df):
     return df[first_cols + kuis_cols + soal_cols + other_cols]
 
 # ==============================================================================
-# MODE UTAMA: PORTAL DOSEN PENGAWAS (UPLOAD CEPAT & SUPER SIMPLE)
+# MODE UTAMA: PORTAL EVALUASI LJK
 # ==============================================================================
-if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
+if mode == "Portal Evaluasi LJK":
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Unggah & Penilaian Lembar Jawaban (LJK)</h2>
@@ -1000,9 +1011,9 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
 
 
 # ==============================================================================
-# MODE ADMIN 1: KALIBRASI TEMPLATE LJK (LIVE AREA EDITOR)
+# MODE 2: KALIBRASI LJK (SUB MENU: EDITOR TEMPLATE)
 # ==============================================================================
-elif mode == "⚙️ Kalibrasi Template LJK (Admin)":
+elif mode == "Kalibrasi LJK" and sub_mode == "Editor Template":
     # --------------------------------------------------------------------------
     # SIDEBAR: MINIMALIST UPLOAD ONLY
     # --------------------------------------------------------------------------
@@ -1911,14 +1922,13 @@ elif mode == "⚙️ Kalibrasi Template LJK (Admin)":
 
 
 # ==============================================================================
-# MODE ADMIN 2: OMR READER (BATCH EVALUATOR LENGKAP)
+# MODE 2: KALIBRASI LJK (SUB MENU: OMR READER)
 # ==============================================================================
-elif mode == "📊 OMR Reader & Batch Evaluator Lengkap (Admin)":
+elif mode == "Kalibrasi LJK" and sub_mode == "OMR Reader":
     st.markdown("""
-    <div style="margin-bottom: 12px;">
-        <span style="font-size: 11px; font-weight: 700; color: #BA0C2F; text-transform: uppercase; letter-spacing: 0.08em;">OMR READER & EVALUATOR (MODE ADMIN)</span>
-        <h2 style="font-size: 22px; font-weight: 800; color: #0F172A; margin: 2px 0 6px 0;">📑 Batch Evaluator & Deteksi Jawaban Lengkap (Silang 'X' & Arsiran)</h2>
-        <p style="font-size: 13px; color: #475569; margin: 0;">Evaluasi otomatis lembar jawaban komputer berkecepatan tinggi dengan analisis diferensial baseline tinta dan konfigurasi lanjutan.</p>
+    <div style="margin-bottom: 16px;">
+        <h2 style="font-size: 20px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📊 OMR Reader</h2>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Pengujian pembacaan batch lembar jawaban dengan analisis detail deteksi optik.</p>
     </div>
     """, unsafe_allow_html=True)
 
