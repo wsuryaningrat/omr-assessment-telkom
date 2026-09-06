@@ -759,15 +759,15 @@ if mode == "Portal Evaluasi LJK":
     st.markdown("""
     <div style="margin-bottom: 20px;">
         <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Tahap 1: Unggah & Periksa LJK</h2>
-        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas, lalu unggah berkas LJK untuk diperiksa.</p>
+        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk diperiksa.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # 1. Pilihan Fakultas & Nama Pengawas (Wajib / Mandatory & Default Kosong)
+    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas (Wajib / Mandatory & Default Kosong)
     col_fak, col_dos = st.columns(2)
     with col_fak:
         fakultas_pilihan = st.selectbox(
-            "Fakultas",
+            "Fakultas Mahasiswa",
             options=[
                 "FIF - Fakultas Informatika",
                 "FRI - Fakultas Rekayasa Industri",
@@ -779,7 +779,7 @@ if mode == "Portal Evaluasi LJK":
                 "Semua Fakultas / Gabungan"
             ],
             index=None,
-            placeholder="-- Pilih Fakultas --",
+            placeholder="-- Pilih Fakultas Mahasiswa --",
             help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi lembar jawabannya."
         )
     with col_dos:
@@ -831,7 +831,7 @@ if mode == "Portal Evaluasi LJK":
         elif bool(uploaded_files_dosen) and not is_form_complete:
             missing_fields = []
             if not fakultas_pilihan:
-                missing_fields.append("Fakultas")
+                missing_fields.append("Fakultas Mahasiswa")
             if not (nama_pengawas and nama_pengawas.strip()):
                 missing_fields.append("Nama Pengawas")
             st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
@@ -884,7 +884,7 @@ if mode == "Portal Evaluasi LJK":
 
                 gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
                 wib_tz = timezone(timedelta(hours=7))
-                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d")
+                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M")
 
                 decoded_all = {}
                 soal_dict = {}
