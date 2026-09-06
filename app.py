@@ -13,6 +13,7 @@ import base64
 import os
 import re
 import time
+from datetime import datetime, timezone, timedelta
 from PIL import Image
 import streamlit.components.v1 as components
 from core.alignment import (
@@ -884,7 +885,10 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 )
 
                 gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+                wib_tz = timezone(timedelta(hours=7))
+                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M:%S")
                 student_record = {
+                    "Submit Date": current_submit_time,
                     "File": doc_name,
                     "Fakultas (Pengawas)": fakultas_pilihan.split(" - ")[0],
                     "Pengawas / Dosen": nama_pengawas.strip() if nama_pengawas.strip() else "-",
@@ -951,10 +955,17 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 with st.spinner("Mentransfer data hasil konversi ke Google Sheet..."):
                     conn = st.connection("gsheets", type=GSheetsConnection)
                     df_to_sync = pd.DataFrame(dosen_results)
+                    if "Submit Date" in df_to_sync.columns:
+                        cols = ["Submit Date"] + [c for c in df_to_sync.columns if c != "Submit Date"]
+                        df_to_sync = df_to_sync[cols]
                     try:
                         existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
                         if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
+                            if "Submit Date" not in existing_sheet_df.columns:
+                                existing_sheet_df.insert(0, "Submit Date", "-")
                             combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
+                            cols = ["Submit Date"] + [c for c in combined_sheet_df.columns if c != "Submit Date"]
+                            combined_sheet_df = combined_sheet_df[cols]
                             conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
                         else:
                             conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
@@ -1006,6 +1017,7 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
         primary_cols = [
+            "Submit Date",
             "NPM",
             "Nama Mahasiswa",
             "Kode Soal",
@@ -1041,7 +1053,11 @@ if mode == "📋 Portal Dosen Pengawas (Upload & Evaluasi LJK)":
                 try:
                     with st.spinner("Mentransfer data ke Google Sheet..."):
                         conn = st.connection("gsheets", type=GSheetsConnection)
-                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_full)
+                        df_sync_all = df_full.copy()
+                        if "Submit Date" in df_sync_all.columns:
+                            cols = ["Submit Date"] + [c for c in df_sync_all.columns if c != "Submit Date"]
+                            df_sync_all = df_sync_all[cols]
+                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_sync_all)
                     st.success("✅ Data berhasil disinkronkan ke Google Sheet!")
                     st.session_state["last_gsheet_status"] = ("success", f"Data berhasil disinkronkan ke Google Sheet ({len(df_full)} Peserta).")
                     st.rerun()
