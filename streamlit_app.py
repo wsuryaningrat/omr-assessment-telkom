@@ -1018,14 +1018,6 @@ if mode == "Portal Evaluasi LJK":
                     if "soal" in fname.lower() and "kode" not in fname.lower():
                         soal_dict.update(field_data)
 
-                # Question statistics (strictly 75 exam questions)
-                if soal_dict:
-                    soal_keys = sorted(list(soal_dict.keys()))
-                else:
-                    soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
-                soal_terisi = sum(1 for k in soal_keys if soal_dict.get(k, decoded_all.get(k)) not in ["BLANK", "?", None, ""])
-                total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
-
                 student_record = {
                     "Submit Date": current_submit_time,
                     "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
@@ -1037,20 +1029,47 @@ if mode == "Portal Evaluasi LJK":
                     "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
                 }
 
-                student_record["Jawaban Terisi"] = f"{soal_terisi} / {total_soal}"
-
                 # Kuisioner items (e.g. q01 .. q15)
                 kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
                 for k in sorted(kuis_keys):
                     student_record[k] = decoded_all[k]
 
                 # Append all questions strictly from soal_dict/soal_keys (MUST BE BEFORE GRADING!)
+                if soal_dict:
+                    soal_keys = sorted(list(soal_dict.keys()))
+                else:
+                    soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
                 for k in soal_keys:
                     student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
 
+                # Tentukan total soal & hitung jawaban terisi dinamis dari kunci jawaban
+                k_cache = st.session_state.get("kunci_jawaban_cache", {})
+                detected_kode = student_record["Kode Soal"]
+                matched_sh = find_matching_kunci_sheet(detected_kode, list(k_cache.keys())) if k_cache else None
+
+                if matched_sh and matched_sh in k_cache and len(k_cache[matched_sh]) > 0:
+                    kunci_for_doc = k_cache[matched_sh]
+                    dyn_total_soal = len(kunci_for_doc)
+                    soal_terisi = sum(
+                        1 for q in kunci_for_doc.keys()
+                        if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
+                    )
+                elif len(k_cache) > 0 and len(list(k_cache.values())[0]) > 0:
+                    first_kunci = list(k_cache.values())[0]
+                    dyn_total_soal = len(first_kunci)
+                    soal_terisi = sum(
+                        1 for q in first_kunci.keys()
+                        if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
+                    )
+                else:
+                    dyn_total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
+                    soal_terisi = sum(1 for k in soal_keys if student_record.get(k, "BLANK") not in ["BLANK", "?", None, "", "NONE"])
+
+                student_record["Jawaban Terisi"] = f"{soal_terisi} / {dyn_total_soal}"
+
                 # Auto Nilai if Kunci Jawaban loaded (runs after answers are populated)
-                if st.session_state.get("kunci_jawaban_cache"):
-                    grade_student_record(student_record, st.session_state["kunci_jawaban_cache"])
+                if k_cache:
+                    grade_student_record(student_record, k_cache)
                 else:
                     student_record["Nilai"] = "-"
                     student_record["Jumlah Benar"] = "-"

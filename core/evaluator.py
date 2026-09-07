@@ -6,49 +6,81 @@ def parse_kunci_jawaban_raw_rows(values):
     """
     Parses a list of rows (e.g. from Google Sheets or CSV) into a question-answer dict.
     Format per row:
-      Col 0 (or first number col): Question number (e.g. '1', '1.0', 'soal_1')
-      Col 1 (or subsequent col): Key answer option (e.g. 'A', 'B', 'C', 'D', 'E', or '*' for bonus)
+      Format A: 2 columns -> Col 0: Question number, Col 1: Key answer option (A, B, C, D, E or *)
+      Format B: 1 column  -> Col 0: Key answer option (sequential question 1..N)
     Returns:
       dict: {1: 'A', 2: 'B', ...}
     """
     q_dict = {}
+    raw_valid_rows = []
+    
     for row in values:
         if not row:
             continue
-        # Extract non-empty trimmed cells
         cells = [str(c).strip() for c in row if c is not None and str(c).strip() != ""]
-        if len(cells) < 2:
+        if not cells:
             continue
+        raw_valid_rows.append(cells)
 
-        q_num = None
-        ans_opt = None
+    if not raw_valid_rows:
+        return q_dict
 
-        # Case 1: First cell has question number
-        m0 = re.search(r'\b\d+\b', cells[0]) or re.search(r'\d+', cells[0])
-        if m0:
-            q_num = int(m0.group())
-            v_ans = cells[1].upper()
-            if v_ans in ["*", "ALL", "SEMUA", "BONUS"]:
-                ans_opt = "A,B,C,D,E"
-            else:
-                opts = re.findall(r'[A-E]', v_ans)
-                if opts:
-                    ans_opt = ','.join(opts) if len(opts) > 1 else opts[0]
-        elif len(cells) >= 3:
-            # Case 2: Second cell has question number (e.g. column A was an empty index or label)
-            m1 = re.search(r'\b\d+\b', cells[1]) or re.search(r'\d+', cells[1])
-            if m1:
-                q_num = int(m1.group())
-                v_ans = cells[2].upper()
+    # Check if this sheet uses 2-column format with question numbers in first or second column
+    has_numbered_cells = False
+    for cells in raw_valid_rows:
+        if len(cells) >= 2 and (re.search(r'\d+', cells[0]) or re.search(r'\d+', cells[1])):
+            has_numbered_cells = True
+            break
+
+    if has_numbered_cells:
+        for cells in raw_valid_rows:
+            if len(cells) < 2:
+                continue
+
+            q_num = None
+            ans_opt = None
+
+            # Case 1: First cell has question number
+            m0 = re.search(r'\b\d+\b', cells[0]) or re.search(r'\d+', cells[0])
+            if m0:
+                q_num = int(m0.group())
+                v_ans = cells[1].upper()
                 if v_ans in ["*", "ALL", "SEMUA", "BONUS"]:
                     ans_opt = "A,B,C,D,E"
                 else:
                     opts = re.findall(r'[A-E]', v_ans)
                     if opts:
                         ans_opt = ','.join(opts) if len(opts) > 1 else opts[0]
+            elif len(cells) >= 3:
+                # Case 2: Second cell has question number
+                m1 = re.search(r'\b\d+\b', cells[1]) or re.search(r'\d+', cells[1])
+                if m1:
+                    q_num = int(m1.group())
+                    v_ans = cells[2].upper()
+                    if v_ans in ["*", "ALL", "SEMUA", "BONUS"]:
+                        ans_opt = "A,B,C,D,E"
+                    else:
+                        opts = re.findall(r'[A-E]', v_ans)
+                        if opts:
+                            ans_opt = ','.join(opts) if len(opts) > 1 else opts[0]
 
-        if q_num is not None and ans_opt is not None:
-            q_dict[q_num] = ans_opt
+            if q_num is not None and ans_opt is not None:
+                q_dict[q_num] = ans_opt
+    else:
+        # Sequential 1-column options (row 1 is Q1, row 2 is Q2, etc.)
+        q_idx = 1
+        for cells in raw_valid_rows:
+            val = cells[0].upper()
+            if val in ["NO", "NOMOR", "SOAL", "KUNCI", "KEY", "JAWABAN", "ANSWER"]:
+                continue
+            if val in ["*", "ALL", "SEMUA", "BONUS"]:
+                q_dict[q_idx] = "A,B,C,D,E"
+                q_idx += 1
+            else:
+                opts = re.findall(r'[A-E]', val)
+                if opts:
+                    q_dict[q_idx] = ','.join(opts) if len(opts) > 1 else opts[0]
+                    q_idx += 1
 
     return q_dict
 
@@ -240,6 +272,7 @@ def grade_student_record(student_record, all_kunci_sheets):
     benar = 0
     salah = 0
     kosong = 0
+    terisi = 0
     
     for q_num, correct_opt in kunci_dict.items():
         # Look for student answer with pad_zero (soal_01) or no-pad (soal_1)
@@ -248,12 +281,14 @@ def grade_student_record(student_record, all_kunci_sheets):
         if ans in ["BLANK", "?", "NONE", ""]:
             kosong += 1
         else:
+            terisi += 1
             allowed_opts = [x.strip().upper() for x in str(correct_opt).split(",")]
             if ans in allowed_opts:
                 benar += 1
             else:
                 salah += 1
                 
+    # Pembagi nilai dinamis berdasarkan total baris di kunci jawaban (misal 50 soal -> pembagi 50)
     skor = round((benar / total_soal) * 100, 1)
     skor_str = f"{skor:.1f}" if skor != int(skor) else f"{int(skor)}"
     
@@ -262,6 +297,9 @@ def grade_student_record(student_record, all_kunci_sheets):
     student_record["Jumlah Salah"] = salah
     student_record["Jumlah Kosong"] = kosong
     student_record["Kunci Terpakai"] = matched_sheet
+    # Total soal & pembagi pada Jawaban Terisi membaca dinamis dari kunci jawaban
+    student_record["Jawaban Terisi"] = f"{terisi} / {total_soal}"
+    student_record["Total Soal"] = total_soal
     return student_record
 
 
