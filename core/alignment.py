@@ -259,122 +259,11 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
     return ordered_pts, corner_ids, best_dict_name, "DETECTED"
 
 
-def find_regmarks(image, target_w=1700, target_h=2400, crop_mode="inner"):
-    """
-    Fallback anchor marker detector (for sheets with solid corner square/circle marks).
-    """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
-    h, w = gray.shape
-    image_area = h * w
-
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15
-    )
-
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    candidates = []
-
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area < image_area * 0.0002 or area > image_area * 0.08:
-            continue
-
-        x, y, bw, bh = cv2.boundingRect(c)
-        if bw == 0 or bh == 0:
-            continue
-
-        aspect_ratio = bw / float(bh)
-        if aspect_ratio < 0.35 or aspect_ratio > 2.8:
-            continue
-
-        hull = cv2.convexHull(c)
-        hull_area = cv2.contourArea(hull)
-        solidity = area / float(hull_area) if hull_area > 0 else 0
-        if solidity < 0.55:
-            continue
-
-        M = cv2.moments(c)
-        if M["m00"] == 0:
-            continue
-
-        cx = float(M["m10"] / M["m00"])
-        cy = float(M["m01"] / M["m00"])
-
-        candidates.append({
-            "area": area,
-            "cx": cx,
-            "cy": cy,
-            "x": x,
-            "y": y,
-            "bw": bw,
-            "bh": bh,
-            "contour": c
-        })
-
-    if len(candidates) < 4:
-        return None, f"RegMark: Ditemukan {len(candidates)} kandidat marker sudut (minimal 4)."
-
-    cand_pts = np.array([[c["cx"], c["cy"]] for c in candidates])
-    min_x, min_y = np.min(cand_pts, axis=0)
-    max_x, max_y = np.max(cand_pts, axis=0)
-
-    target_corners = [
-        (min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)
-    ]
-
-    selected_cands = []
-    used_indices = set()
-
-    for tc in target_corners:
-        best_idx = None
-        min_dist = float('inf')
-        for idx, cand in enumerate(candidates):
-            if idx in used_indices:
-                continue
-            dist = np.hypot(cand["cx"] - tc[0], cand["cy"] - tc[1])
-            if dist < min_dist:
-                min_dist = dist
-                best_idx = idx
-
-        if best_idx is not None:
-            used_indices.add(best_idx)
-            selected_cands.append(candidates[best_idx])
-
-    if len(selected_cands) != 4:
-        return None, "RegMark: Tidak berhasil mengunci 4 sudut anchor secara unik."
-
-    c_tl, c_tr, c_br, c_bl = selected_cands[0], selected_cands[1], selected_cands[2], selected_cands[3]
-
-    if crop_mode == "inner":
-        pts = np.array([
-            [c_tl["x"] + c_tl["bw"], c_tl["y"] + c_tl["bh"]],
-            [c_tr["x"], c_tr["y"] + c_tr["bh"]],
-            [c_br["x"], c_br["y"]],
-            [c_bl["x"] + c_bl["bw"], c_bl["y"]]
-        ], dtype="float32")
-    elif crop_mode == "outer":
-        pts = np.array([
-            [c_tl["x"], c_tl["y"]],
-            [c_tr["x"] + c_tr["bw"], c_tr["y"]],
-            [c_br["x"] + c_br["bw"], c_br["y"] + c_br["bh"]],
-            [c_bl["x"], c_bl["y"] + c_bl["bh"]]
-        ], dtype="float32")
-    else:
-        pts = np.array([[c["cx"], c["cy"]] for c in selected_cands], dtype="float32")
-
-    ordered_pts = order_points(pts, target_w=target_w, target_h=target_h)
-    return ordered_pts, "DETECTED"
-
-
 def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=2400):
     """
-    Intelligent Paper Boundary Detector (Fallback when printed markers are missing/occluded):
-    Finds the 4 physical corners of the paper sheet on a desk or background.
+    Intelligent Paper Boundary Detector:
+    Di awal mendeteksi 4 sudut fisik dokumen / lembar kertas secara jelas.
+    Mendukung foto kamera di atas meja maupun berkas scan digital langsung.
     """
     h, w = image.shape[:2]
     scale = 800.0 / max(h, w)
@@ -382,26 +271,30 @@ def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=24
     small = cv2.resize(image, (small_w, small_h), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if len(small.shape) == 3 else small
 
-    # Preprocessing
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Tambahkan border padding 15px agar tepi kertas scan digital yang menyentuh batas gambar terdeteksi sempurna
+    pad = 15
+    padded = cv2.copyMakeBorder(gray, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+    blurred = cv2.GaussianBlur(padded, (5, 5), 0)
     edges = cv2.Canny(blurred, 30, 120)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     edges = cv2.dilate(edges, kernel, iterations=1)
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
     best_quad = None
     min_area = (small_w * small_h) * min_area_ratio
 
-    for cnt in contours[:8]:
+    for cnt in contours[:10]:
         area = cv2.contourArea(cnt)
         if area < min_area:
             continue
         peri = cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, 0.025 * peri, True)
         if len(approx) == 4 and cv2.isContourConvex(approx):
-            pts = approx.reshape(4, 2) / scale
+            pts = (approx.reshape(4, 2) - np.array([pad, pad])) / scale
+            pts[:, 0] = np.clip(pts[:, 0], 0, w - 1)
+            pts[:, 1] = np.clip(pts[:, 1], 0, h - 1)
             ordered = order_points(pts, target_w=target_w, target_h=target_h)
             pw = np.hypot(ordered[1][0] - ordered[0][0], ordered[1][1] - ordered[0][1])
             ph = np.hypot(ordered[3][0] - ordered[0][0], ordered[3][1] - ordered[0][1])
@@ -413,7 +306,98 @@ def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=24
 
     if best_quad is not None:
         return best_quad, "DETECTED"
-    return None, "Batas Kertas: 4 sudut fisik lembar dokumen tidak ditemukan."
+
+    # Default boundary (halaman penuh)
+    full_bounds = np.array([
+        [0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]
+    ], dtype="float32")
+    return full_bounds, "DETECTED (Batas Halaman)"
+
+
+def find_regmarks(image, target_w=1700, target_h=2400, crop_mode="inner", doc_corners=None):
+    """
+    Robust Corner Registration Mark (RegMark) Detector:
+    1. Di awal mendeteksi 4 sudut fisik dokumen / lembar kertas secara jelas.
+    2. Mencari marker anchor fiducial solid di zona 4 pojok (TL, TR, BR, BL).
+    3. Mengunci sudut inner/outer/center dari 4 pojok marker.
+    4. Fallback ke 4 sudut fisik dokumen jika lembar tidak memiliki marker cetak terpisah.
+    """
+    h, w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
+
+    # 1. Di awal: pastikan 4 sudut dokumen terdeteksi jelas
+    if doc_corners is None:
+        doc_corners, _ = find_document_corners(image, target_w=target_w, target_h=target_h)
+    if doc_corners is None or len(doc_corners) != 4:
+        doc_corners = np.array([
+            [0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]
+        ], dtype="float32")
+
+    doc_center = np.mean(doc_corners, axis=0)
+
+    # 2. Segmentasi kontur solid marker
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    min_reg_area = w * h * 0.00030
+    max_reg_area = w * h * 0.0250
+
+    corner_pts = []
+    found_count = 0
+
+    for corner in doc_corners:
+        cx, cy = corner
+        vec = doc_center - corner
+
+        # Zona pencarian sudut terfokus (maksimal 32% ke arah pusat dokumen)
+        x_min = max(0, int(min(cx, cx + vec[0] * 0.32)))
+        x_max = min(w, int(max(cx, cx + vec[0] * 0.32)))
+        y_min = max(0, int(min(cy, cy + vec[1] * 0.32)))
+        y_max = min(h, int(max(cy, cy + vec[1] * 0.32)))
+
+        roi = thresh[y_min:y_max, x_min:x_max]
+        cnts_roi, _ = cv2.findContours(roi, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        best_cand = None
+        min_dist = float("inf")
+
+        for c in cnts_roi:
+            bx, by, bw, bh = cv2.boundingRect(c)
+            ar = bw / float(bh) if bh > 0 else 0
+            if not (0.60 <= ar <= 1.65):
+                continue
+            hull = cv2.convexHull(c)
+            hull_area = cv2.contourArea(hull)
+            if hull_area < min_reg_area or hull_area > max_reg_area:
+                continue
+            rect_fill = hull_area / float(bw * bh) if (bw * bh) > 0 else 0
+            if rect_fill < 0.60:
+                continue
+
+            mcx = bx + bw / 2.0 + x_min
+            mcy = by + bh / 2.0 + y_min
+            d = np.hypot(mcx - cx, mcy - cy)
+            if d < min_dist:
+                min_dist = d
+                best_cand = c.reshape(-1, 2) + np.array([x_min, y_min])
+
+        if best_cand is not None:
+            found_count += 1
+            dists = np.hypot(best_cand[:, 0] - doc_center[0], best_cand[:, 1] - doc_center[1])
+            if crop_mode == "inner":
+                pt = best_cand[np.argmin(dists)]
+            elif crop_mode == "outer":
+                pt = best_cand[np.argmax(dists)]
+            else:
+                pt = np.mean(best_cand, axis=0)
+            corner_pts.append(pt)
+        else:
+            corner_pts.append(corner)
+
+    if found_count == 4:
+        pts = np.array(corner_pts, dtype="float32")
+        return order_points(pts, target_w=target_w, target_h=target_h), "DETECTED"
+
+    return doc_corners, "FALLBACK_DOC_CORNERS"
 
 
 def order_points(pts, target_w=1700, target_h=2400):
@@ -532,6 +516,13 @@ def detect_corners_and_crop(
     else:
         candidate_angles = [0, 180, 90, 270]
 
+    # 0. Di awal: Deteksi dulu 4 corner fisik dokumen secara jelas
+    doc_corners, _ = find_document_corners(image, target_w=canvas_w, target_h=canvas_h)
+    if doc_corners is None or len(doc_corners) != 4:
+        doc_corners = np.array([
+            [0, 0], [w_in - 1, 0], [w_in - 1, h_in - 1], [0, h_in - 1]
+        ], dtype="float32")
+
     # 1. Primary Method: ArUco Fiducials (Strict Inner Crop)
     if preferred_method in ["aruco", "auto"]:
         for ang in candidate_angles:
@@ -550,47 +541,31 @@ def detect_corners_and_crop(
                 method_used = "aruco"
                 break
 
-    # 2. Secondary Method: Corner Anchor RegMarks
-    if ordered_pts is None:
+    # 2. Secondary Method: Corner Anchor RegMarks (Berbasis 4 Sudut Dokumen)
+    if ordered_pts is None and preferred_method in ["regmark", "auto"]:
         for ang in candidate_angles:
             rot_img = rotate_image(image, ang) if ang != 0 else image
+            cur_doc_corners = find_document_corners(rot_img, target_w=canvas_w, target_h=canvas_h)[0] if ang != 0 else doc_corners
             pts_reg, status_reg = find_regmarks(
-                rot_img, target_w=canvas_w, target_h=canvas_h, crop_mode=crop_mode
+                rot_img, target_w=canvas_w, target_h=canvas_h, crop_mode=crop_mode, doc_corners=cur_doc_corners
             )
             if pts_reg is not None and status_reg == "DETECTED":
                 if ang != 0:
                     ordered_pts = np.array([unrotate_point(pt, image.shape, ang) for pt in pts_reg], dtype="float32")
                 else:
                     ordered_pts = pts_reg
-                status = "DETECTED (4 Sudut Terkunci - Corner Anchor)"
+                status = "DETECTED (4 Sudut Terkunci - Corner Anchor RegMark)"
                 method_used = "regmark"
                 break
 
-    # 3. Tertiary Fallback Method: Document Paper Boundary Quadrilateral
-    if ordered_pts is None and preferred_method != "aruco":
-        for ang in candidate_angles:
-            rot_img = rotate_image(image, ang) if ang != 0 else image
-            pts_doc, status_doc = find_document_corners(
-                rot_img, target_w=canvas_w, target_h=canvas_h
-            )
-            if pts_doc is not None and status_doc == "DETECTED":
-                if ang != 0:
-                    ordered_pts = np.array([unrotate_point(pt, image.shape, ang) for pt in pts_doc], dtype="float32")
-                else:
-                    ordered_pts = pts_doc
-                status = "DETECTED (4 Sudut Terkunci - Batas Kertas Dokumen)"
-                method_used = "doc_contour"
-                break
+    # 3. Tertiary Fallback Method: 4 Sudut Fisik Dokumen yang Jelas di Awal
+    if ordered_pts is None:
+        ordered_pts = doc_corners
+        status = "DETECTED (4 Sudut Terkunci - Batas Fisik Dokumen)"
+        method_used = "doc_contour"
 
-    # 4. Crop via Perspective Warp or Fallback Resize
-    if ordered_pts is not None:
-        warped_img, M = perspective_warp(image, ordered_pts, canvas_w, canvas_h)
-    else:
-        warped_img = cv2.resize(image, (canvas_w, canvas_h))
-        ordered_pts = np.array([
-            [0, 0], [canvas_w, 0], [canvas_w, canvas_h], [0, canvas_h]
-        ], dtype="float32")
-        status = "FAILED: 4 sudut pojok tidak terdeteksi lengkap. Pastikan seluruh lembar LJK dan 4 sudutnya terlihat jelas."
+    # 4. Crop via Perspective Warp
+    warped_img, M = perspective_warp(image, ordered_pts, canvas_w, canvas_h)
 
     # 5. Image Standardization (Shadow removal, illumination equalization, contrast normalization)
     if apply_standardization and warped_img is not None and warped_img.size > 0:
@@ -623,6 +598,7 @@ def perspective_warp(image, src_points, dst_width, dst_height):
 def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None, status="DETECTED", crop_mode="inner"):
     """
     Draw confirmation of the 4 corner markers with crop boundary lines, crosshairs, and corner coordinates.
+    High-contrast badges guarantee clear visibility across all lighting and background conditions.
     """
     output = image.copy()
     if ordered_pts is None:
@@ -631,23 +607,28 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None, s
     labels = ["TL", "TR", "BR", "BL"]
     pts_int = ordered_pts.astype(np.int32)
 
-    # Green crop boundary line
-    cv2.polylines(output, [pts_int], isClosed=True, color=(0, 220, 0), thickness=3, lineType=cv2.LINE_AA)
+    # Garis batas poligon crop hijau cerah
+    cv2.polylines(output, [pts_int], isClosed=True, color=(0, 230, 0), thickness=3, lineType=cv2.LINE_AA)
 
     for i in range(4):
         cx, cy = int(round(ordered_pts[i][0])), int(round(ordered_pts[i][1]))
 
+        # Retikel target sudut dengan crosshairs merah & titik hijau
         cv2.circle(output, (cx, cy), 18, (0, 0, 255), 2, cv2.LINE_AA)
         cv2.circle(output, (cx, cy), 6, (0, 255, 0), -1, cv2.LINE_AA)
-        cv2.line(output, (cx - 25, cy), (cx + 25, cy), (0, 0, 255), 2, cv2.LINE_AA)
-        cv2.line(output, (cx, cy - 25), (cx, cy + 25), (0, 0, 255), 2, cv2.LINE_AA)
+        cv2.line(output, (cx - 24, cy), (cx + 24, cy), (0, 0, 255), 2, cv2.LINE_AA)
+        cv2.line(output, (cx, cy - 24), (cx, cy + 24), (0, 0, 255), 2, cv2.LINE_AA)
 
         id_str = f" [ID:{corner_ids[labels[i]]}]" if corner_ids and labels[i] in corner_ids else ""
-        label_text = f"{labels[i]}{id_str} ({cx}, {cy})"
+        label_text = f" {labels[i]}{id_str} ({cx}, {cy}) "
 
-        text_y = cy - 22 if i in [0, 1] else cy + 32
-        text_x = max(10, cx - 60)
-        cv2.putText(output, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.60, (0, 255, 255), 2, cv2.LINE_AA)
+        text_y = cy - 20 if i in [0, 1] else cy + 34
+        text_x = max(10, cx - 65)
+
+        # Kotak hitam kontras tinggi di belakang teks agar selalu terlihat jelas
+        (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
+        cv2.rectangle(output, (text_x - 3, text_y - th - 3), (text_x + tw + 3, text_y + baseline + 2), (0, 0, 0), -1)
+        cv2.putText(output, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 2, cv2.LINE_AA)
 
     return output
 

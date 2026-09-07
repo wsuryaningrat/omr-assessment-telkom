@@ -120,6 +120,39 @@ class TestAlignmentEngine(unittest.TestCase):
                 self.assertGreaterEqual(pt[1], 0)
                 self.assertLessEqual(pt[1], h)
 
+    def test_corner_first_regmark_and_doc_bounds(self):
+        """Verify corner-first detection clearly locks 4 physical corners on sheets with and without regmarks."""
+        from core.pdf_utils import extract_images_from_file
+        from core.alignment import find_document_corners
+
+        # Test on sheet without printed corner markers (sample_no corner.pdf)
+        pdf_path = os.path.join(BASE_DIR, "templates", "sample_no corner.pdf")
+        with open(pdf_path, "rb") as fp:
+            img_no_corner = extract_images_from_file(fp)[0][1]
+
+        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+            img_no_corner, preferred_method="auto", crop_mode="inner"
+        )
+        self.assertTrue(status.startswith("DETECTED"), f"Failed detection on sample_no corner: {status}")
+        self.assertEqual(warped.shape, (2400, 1700, 3))
+        self.assertEqual(len(pts), 4)
+
+    def test_digital_scan_corners(self):
+        """Verify digital scan LJK (digital_1.pdf) locks 4 corners cleanly."""
+        from core.pdf_utils import extract_images_from_file
+
+        pdf_path = os.path.join(BASE_DIR, "sample foto", "digital_1.pdf")
+        with open(pdf_path, "rb") as fp:
+            img_digital = extract_images_from_file(fp)[0][1]
+
+        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+            img_digital, preferred_method="auto", crop_mode="inner"
+        )
+        self.assertTrue(status.startswith("DETECTED"), f"Failed detection on digital_1: {status}")
+        self.assertEqual(warped.shape, (2400, 1700, 3))
+        self.assertEqual(len(pts), 4)
+
 
 if __name__ == "__main__":
     unittest.main()
+

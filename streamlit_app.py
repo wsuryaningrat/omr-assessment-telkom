@@ -992,7 +992,7 @@ if mode == "Portal Evaluasi LJK":
             dosen_previews = []
 
             for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-                warped, pts, method, _, _, status = detect_corners_and_crop(
+                warped, pts, method, c_ids, _, status = detect_corners_and_crop(
                     img_bgr,
                     canvas_w=canvas_w,
                     canvas_h=canvas_h,
@@ -1078,10 +1078,12 @@ if mode == "Portal Evaluasi LJK":
                     student_record["Kunci Terpakai"] = "-"
 
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
+                regmarks_overlay = draw_regmarks_overlay(img_bgr, pts, method=method, corner_ids=c_ids, status=status, crop_mode=crop_m)
                 dosen_previews.append({
                     "name": doc_name,
                     "overlay": overlay_img,
                     "warped": warped,
+                    "regmarks_overlay": regmarks_overlay,
                     "status": status,
                     "method": method
                 })
@@ -1196,11 +1198,16 @@ if mode == "Portal Evaluasi LJK":
                             st.success(f"📐 Status Ujung Pojok: **{st_status}**")
                         else:
                             st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
-                        c_prev1, c_prev2 = st.columns(2)
+                        c_prev1, c_prev2, c_prev3 = st.columns(3)
                         with c_prev1:
-                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"Deteksi Jawaban: {sel_doc}")
+                            if "regmarks_overlay" in sel_item:
+                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Posisi 4 Pojok Sudut: {sel_doc}")
+                            else:
+                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"1. Hasil Sudut: {sel_doc}")
                         with c_prev2:
-                            st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Crop & Standarisasi: {sel_doc}")
+                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"2. Deteksi Jawaban: {sel_doc}")
+                        with c_prev3:
+                            st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"3. Hasil Crop Bersih: {sel_doc}")
                     else:
                         st.image(cv_to_pil(sel_item[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
 
