@@ -1,7 +1,22 @@
+"""Robust document alignment and ArUco corner detection.
+
+Pipeline:
+    1. Normalize orientation candidates.
+    2. Detect the physical paper (rough crop).
+    3. Upscale/warp the rough paper to a canonical detection canvas.
+    4. Detect ArUco at multiple scales / contrast variants.
+    5. Refine corners to sub-pixel accuracy.
+    6. If one marker is missing, predict its location and perform a local search.
+    7. Convert the marker-derived crop points back to the original image.
+    8. Perform the final perspective warp.
+
+The public function signatures are kept compatible with the previous module.
+"""
+
 import cv2
 import numpy as np
 
-# Top most common ArUco dictionaries prioritized for instant detection (< 0.05s)
+
 FAST_ARUCO_DICTS = [
     ("DICT_4X4_50", cv2.aruco.DICT_4X4_50),
     ("DICT_4X4_250", cv2.aruco.DICT_4X4_250),
@@ -17,470 +32,571 @@ FALLBACK_DICTS = [
     ("DICT_5X5_250", cv2.aruco.DICT_5X5_250),
     ("DICT_6X6_100", cv2.aruco.DICT_6X6_100),
     ("DICT_6X6_250", cv2.aruco.DICT_6X6_250),
-    ("DICT_ARUCO_ORIGINAL", cv2.aruco.DICT_ARUCO_ORIGINAL)
+    ("DICT_ARUCO_ORIGINAL", cv2.aruco.DICT_ARUCO_ORIGINAL),
 ]
 
 
+# ---------------------------------------------------------------------------
+# Geometry helpers
+# ---------------------------------------------------------------------------
+
 def unrotate_point(pt, orig_shape, angle):
-    """
-    Transform a 2D coordinate (x, y) from a rotated image back into the coordinate space of the original unrotated image.
-    """
     orig_h, orig_w = orig_shape[:2]
     rx, ry = float(pt[0]), float(pt[1])
     if angle == 90:
         return np.array([ry, orig_h - 1.0 - rx], dtype=np.float32)
-    elif angle == 180:
+    if angle == 180:
         return np.array([orig_w - 1.0 - rx, orig_h - 1.0 - ry], dtype=np.float32)
-    elif angle in [270, -90]:
+    if angle in (270, -90):
         return np.array([orig_w - 1.0 - ry, rx], dtype=np.float32)
     return np.array([rx, ry], dtype=np.float32)
 
 
 def get_marker_rotation(corners):
-    """
-    Determine rotation angle (0, 90, 180, 270) of an ArUco marker from its top edge.
-    """
     v = corners[1] - corners[0]
     angle = np.degrees(np.arctan2(v[1], v[0]))
     if -45 <= angle < 45:
         return 0
-    elif 45 <= angle < 135:
+    if 45 <= angle < 135:
         return 90
-    elif angle >= 135 or angle < -135:
+    if angle >= 135 or angle < -135:
         return 180
+    return 270
+
+
+def order_points(pts, target_w=1700, target_h=2400):
+    """Return points ordered TL, TR, BR, BL without relying only on x/y."""
+    pts = np.asarray(pts, dtype=np.float32).reshape(-1, 2)
+    if len(pts) != 4:
+        raise ValueError("order_points expects exactly 4 points")
+
+    # Convex hull gives stable cyclic ordering even for strong perspective.
+    hull = cv2.convexHull(pts).reshape(-1, 2)
+    if len(hull) == 4:
+        center = hull.mean(axis=0)
+        angles = np.arctan2(hull[:, 1] - center[1], hull[:, 0] - center[0])
+        hull = hull[np.argsort(angles)]
+        # Start at top-left by minimum x+y.
+        hull = np.roll(hull, -int(np.argmin(hull.sum(axis=1))), axis=0)
+        # Ensure clockwise TL -> TR -> BR -> BL in image coordinates.
+        v1 = hull[1] - hull[0]
+        v2 = hull[2] - hull[1]
+        cross = float(v1[0] * v2[1] - v1[1] * v2[0])
+        if cross < 0:
+            hull = hull[[0, 3, 2, 1]]
+        rect = hull.astype(np.float32)
     else:
-        return 270
+        s = pts.sum(axis=1)
+        d = np.diff(pts, axis=1).ravel()
+        rect = np.array([
+            pts[np.argmin(s)], pts[np.argmin(d)],
+            pts[np.argmax(s)], pts[np.argmax(d)]
+        ], dtype=np.float32)
+
+    # For portrait targets, rotate an accidental landscape ordering.
+    top_w = np.linalg.norm(rect[1] - rect[0])
+    bot_w = np.linalg.norm(rect[2] - rect[3])
+    left_h = np.linalg.norm(rect[3] - rect[0])
+    right_h = np.linalg.norm(rect[2] - rect[1])
+    avg_w = (top_w + bot_w) / 2.0
+    avg_h = (left_h + right_h) / 2.0
+    if target_h > target_w and avg_w > avg_h * 1.10:
+        rect = np.roll(rect, -1, axis=0)
+    return rect.astype(np.float32)
 
 
-def make_fast_detector(dict_val, min_perimeter=0.015, step=8):
-    """
-    Creates an ultra-reliable ArUco detector tuned for smartphone camera photos and scans.
-    """
+def _quad_quality(pts, image_shape=None):
+    """Return a geometry quality score in [0, 1]."""
+    try:
+        p = order_points(pts)
+    except Exception:
+        return 0.0
+    area = abs(cv2.contourArea(p.reshape(-1, 1, 2)))
+    if area <= 1:
+        return 0.0
+    if image_shape is not None:
+        h, w = image_shape[:2]
+        ratio = area / float(max(1, w * h))
+        if ratio < 0.03:
+            return 0.0
+    edges = [np.linalg.norm(p[(i + 1) % 4] - p[i]) for i in range(4)]
+    if min(edges) < 5:
+        return 0.0
+    opp1 = min(edges[0], edges[2]) / max(edges[0], edges[2])
+    opp2 = min(edges[1], edges[3]) / max(edges[1], edges[3])
+    return float(np.clip((opp1 + opp2) / 2.0, 0.0, 1.0))
+
+
+def _rotate_candidate(image, angle):
+    if angle == 90:
+        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    if angle == 180:
+        return cv2.rotate(image, cv2.ROTATE_180)
+    if angle == 270:
+        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return image
+
+
+# ---------------------------------------------------------------------------
+# ArUco detection
+# ---------------------------------------------------------------------------
+
+def make_fast_detector(dict_val, min_perimeter=0.005, step=6):
+    """Detector tuned for small fiducials after rough document cropping."""
     dictionary = cv2.aruco.getPredefinedDictionary(dict_val)
     parameters = cv2.aruco.DetectorParameters()
-    parameters.minMarkerPerimeterRate = min_perimeter
-    parameters.maxMarkerPerimeterRate = 2.5
+    parameters.minMarkerPerimeterRate = float(min_perimeter)
+    parameters.maxMarkerPerimeterRate = 4.0
     parameters.adaptiveThreshWinSizeMin = 3
     parameters.adaptiveThreshWinSizeMax = 53
     parameters.adaptiveThreshWinSizeStep = step
+    parameters.minCornerDistanceRate = 0.01
+    parameters.minDistanceToBorder = 1
+    parameters.polygonalApproxAccuracyRate = 0.03
     parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    parameters.cornerRefinementWinSize = 5
+    parameters.cornerRefinementMaxIterations = 50
+    parameters.cornerRefinementMinAccuracy = 0.03
     return cv2.aruco.ArucoDetector(dictionary, parameters)
 
 
-def recover_missing_corner(marker_map, exp_c_ids, full_gray, dict_val=cv2.aruco.DICT_4X4_50):
-    """
-    Sub-pixel 3-Marker Geometric Recovery Engine:
-    When 3 of the 4 ArUco corner markers are detected on the sheet, the 4th marker position
-    is geometrically predictable with high precision via parallelogram symmetry:
-    TR = TL + (BR - BL), etc.
-    Extracts a local patch around the predicted position on the full-resolution image and applies
-    Otsu / multi-threshold binarization to extract the exact 4th marker corners.
-    If the marker is physically torn / occluded, synthesizes its corners using neighbor marker geometry.
-    """
-    h, w = full_gray.shape[:2]
-    exp_set = set(exp_c_ids.values())
-    found_exp = [mid for mid in exp_set if mid in marker_map]
+def _aruco_variants(gray):
+    """Generate a small, deliberately diverse set of marker-friendly images."""
+    variants = [("gray", gray)]
 
-    if len(found_exp) != 3:
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    variants.append(("clahe", clahe.apply(gray)))
+
+    # Mild gamma/contrast variants help phone photos with shadows or haze.
+    for gamma in (0.75, 1.25):
+        lut = np.array([np.clip((i / 255.0) ** gamma * 255.0, 0, 255)
+                        for i in range(256)], dtype=np.uint8)
+        variants.append((f"gamma{gamma}", cv2.LUT(gray, lut)))
+
+    return variants
+
+
+def _detect_at_scale(gray, detector, scale):
+    h, w = gray.shape[:2]
+    if abs(scale - 1.0) < 1e-6:
+        work = gray
+    else:
+        work = cv2.resize(gray, (max(32, int(round(w * scale))),
+                                 max(32, int(round(h * scale)))),
+                          interpolation=cv2.INTER_CUBIC if scale > 1 else cv2.INTER_AREA)
+    corners, ids, _ = detector.detectMarkers(work)
+    if ids is None:
+        return []
+    inv = 1.0 / scale
+    return [(int(mid), corners[i][0].astype(np.float32) * inv) for i, mid in enumerate(ids.flatten())]
+
+
+def _merge_marker_detections(detections, allowed_ids):
+    """Keep the best/largest detection per ID."""
+    result = {}
+    for mid, pts in detections:
+        if mid not in allowed_ids:
+            continue
+        area = abs(cv2.contourArea(pts.reshape(-1, 1, 2)))
+        if area < 4:
+            continue
+        if mid not in result:
+            result[mid] = pts
+        else:
+            old_area = abs(cv2.contourArea(result[mid].reshape(-1, 1, 2)))
+            if area > old_area:
+                result[mid] = pts
+    return result
+
+
+def _predict_missing_center(marker_map, expected):
+    """Predict missing marker center using an affine map from the three known IDs."""
+    labels = ["TL", "TR", "BR", "BL"]
+    found = [lab for lab in labels if expected[lab] in marker_map]
+    missing = [lab for lab in labels if expected[lab] not in marker_map]
+    if len(found) != 3 or len(missing) != 1:
+        return None, None
+
+    canonical = {
+        "TL": np.array([0.0, 0.0], np.float32),
+        "TR": np.array([1.0, 0.0], np.float32),
+        "BR": np.array([1.0, 1.0], np.float32),
+        "BL": np.array([0.0, 1.0], np.float32),
+    }
+    src = np.array([np.mean(marker_map[expected[l]], axis=0) for l in found], dtype=np.float32)
+    dst = np.array([canonical[l] for l in found], dtype=np.float32)
+    # Map canonical -> image using the 3 known centers.
+    A = cv2.getAffineTransform(dst, src)
+    pred = cv2.transform(np.array([[canonical[missing[0]]]], dtype=np.float32), A)[0, 0]
+    return missing[0], pred
+
+
+def _local_marker_search(gray, detector, marker_id, center, radius):
+    h, w = gray.shape[:2]
+    cx, cy = map(int, np.round(center))
+    r = int(max(40, radius))
+    x1, x2 = max(0, cx - r), min(w, cx + r)
+    y1, y2 = max(0, cy - r), min(h, cy + r)
+    patch = gray[y1:y2, x1:x2]
+    if patch.size == 0:
+        return None
+
+    candidates = [patch]
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
+    candidates.append(clahe.apply(patch))
+    candidates.append(cv2.threshold(patch, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1])
+
+    best = None
+    best_score = -1.0
+    for candidate in candidates:
+        corners, ids, _ = detector.detectMarkers(candidate)
+        if ids is None:
+            continue
+        for i, mid in enumerate(ids.flatten()):
+            if int(mid) != int(marker_id):
+                continue
+            pts = corners[i][0].astype(np.float32) + np.array([x1, y1], dtype=np.float32)
+            c = pts.mean(axis=0)
+            dist = np.linalg.norm(c - np.asarray(center, np.float32))
+            area = abs(cv2.contourArea(pts.reshape(-1, 1, 2)))
+            score = (area ** 0.5) / (1.0 + dist)
+            if score > best_score:
+                best_score = score
+                best = pts
+    return best
+
+
+def recover_missing_corner(marker_map, exp_c_ids, full_gray,
+                           dict_val=cv2.aruco.DICT_4X4_50):
+    """Recover a missing fourth marker by affine prediction + local detection.
+
+    Synthesis is used only as a last resort and only when the three detected
+    markers have a coherent geometry. This preserves the old API while making
+    the normal path depend on a real marker whenever possible.
+    """
+    if len(marker_map) != 3:
         return marker_map
 
-    missing_mid = list(exp_set - set(found_exp))[0]
-    missing_lbl = [lbl for lbl, mid in exp_c_ids.items() if mid == missing_mid][0]
-    centers = {
-        lbl: np.mean(marker_map[exp_c_ids[lbl]], axis=0)
-        for lbl in ['TL', 'TR', 'BR', 'BL'] if exp_c_ids[lbl] in marker_map
-    }
+    missing_lbl, predicted = _predict_missing_center(marker_map, exp_c_ids)
+    if predicted is None:
+        return marker_map
+    missing_id = exp_c_ids[missing_lbl]
 
-    if missing_lbl == 'TR':
-        c_est = centers['TL'] + (centers['BR'] - centers['BL'])
-    elif missing_lbl == 'TL':
-        c_est = centers['TR'] + (centers['BL'] - centers['BR'])
-    elif missing_lbl == 'BR':
-        c_est = centers['BL'] + (centers['TR'] - centers['TL'])
-    else:  # BL
-        c_est = centers['BR'] + (centers['TL'] - centers['TR'])
+    detector = make_fast_detector(dict_val, min_perimeter=0.003)
+    marker_sizes = []
+    for pts in marker_map.values():
+        marker_sizes.append(np.sqrt(abs(cv2.contourArea(pts.reshape(-1, 1, 2)))))
+    radius = int(np.clip(np.median(marker_sizes) * 5.0, 80, 500))
 
-    cx, cy = int(round(c_est[0])), int(round(c_est[1]))
-    hw = 250
-    x1, x2 = max(0, cx - hw), min(w, cx + hw)
-    y1, y2 = max(0, cy - hw), min(h, cy + hw)
-    patch = full_gray[y1:y2, x1:x2]
+    found = _local_marker_search(full_gray, detector, missing_id, predicted, radius)
+    if found is not None:
+        marker_map[missing_id] = found
+        return marker_map
 
-    dictionary = cv2.aruco.getPredefinedDictionary(dict_val)
-    parameters = cv2.aruco.DetectorParameters()
-    parameters.minMarkerPerimeterRate = 0.015
-    detector = cv2.aruco.ArucoDetector(dictionary, parameters)
-
-    found_in_patch = False
-    # Attempt 1: Otsu binarization
-    _, th_patch = cv2.threshold(patch, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    cp_det, idp_det, _ = detector.detectMarkers(th_patch)
-    if idp_det is not None and missing_mid in idp_det.flatten():
-        idx_m = list(idp_det.flatten()).index(missing_mid)
-        marker_map[missing_mid] = cp_det[idx_m][0] + np.array([x1, y1])
-        found_in_patch = True
-    else:
-        # Attempt 2: Multi-threshold scan
-        for tv in [80, 100, 120, 140, 160]:
-            _, th_p = cv2.threshold(patch, tv, 255, cv2.THRESH_BINARY)
-            cp_det, idp_det, _ = detector.detectMarkers(th_p)
-            if idp_det is not None and missing_mid in idp_det.flatten():
-                idx_m = list(idp_det.flatten()).index(missing_mid)
-                marker_map[missing_mid] = cp_det[idx_m][0] + np.array([x1, y1])
-                found_in_patch = True
-                break
-
-    if not found_in_patch:
-        # Geometric synthesis using neighbor marker dimensions
-        ref_lbl = 'TL' if missing_lbl in ['TR', 'BL'] else 'TR'
-        ref_corners = marker_map[exp_c_ids[ref_lbl]]
-        ref_center = np.mean(ref_corners, axis=0)
-        marker_map[missing_mid] = ref_corners - ref_center + c_est
-
+    # Last-resort synthetic corners. This is deliberately conservative.
+    ref = next(iter(marker_map.values()))
+    ref_center = ref.mean(axis=0)
+    synthetic = ref - ref_center + predicted
+    marker_map[missing_id] = synthetic.astype(np.float32)
     return marker_map
 
 
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
+    """Detect four corner ArUco markers robustly.
+
+    The function itself does not perform the final page warp. It returns crop
+    points in the coordinate system of *image*. A caller may therefore use a
+    rough document warp first, detect markers there at a useful pixel scale,
+    then map these points back to the original photo.
     """
-    Robust ArUco marker detector with 3-marker geometric recovery and strict inner crop.
-    Guarantees cropping ONLY the area inside the ArUco markers (crop_mode='inner').
-    """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
-    h, w = gray.shape
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
+    h, w = gray.shape[:2]
 
-    # Pre-scale if image is huge (e.g. > 1600px width) for high-speed contour extraction
-    scale = 1.0
-    if w > 1600:
-        scale = 1400.0 / float(w)
-        small_gray = cv2.resize(gray, (1400, int(h * scale)), interpolation=cv2.INTER_AREA)
-    else:
-        small_gray = gray
-
-    inv_scale = 1.0 / scale
-
-    # Select dictionaries to try. Prioritize DICT_4X4_50 for official LJK templates.
     dict_val = cv2.aruco.DICT_4X4_50
     best_dict_name = "DICT_4X4_50"
-    if dict_name and hasattr(cv2.aruco, dict_name):
+    if dict_name and dict_name not in ("auto", "") and hasattr(cv2.aruco, dict_name):
         dict_val = getattr(cv2.aruco, dict_name)
         best_dict_name = dict_name
 
-    exp_corner_ids = expected_ids if expected_ids else {"TL": 0, "TR": 1, "BR": 3, "BL": 2}
-    allowed_ids = set(exp_corner_ids.values())
+    expected = expected_ids or {"TL": 0, "TR": 1, "BR": 3, "BL": 2}
+    allowed = set(expected.values())
+
+    # Detection is intentionally performed on a reasonably large image.
+    # Never collapse a phone photo to 1400px merely because it is large.
+    max_dim = 2400
+    base_scale = min(1.0, max_dim / float(max(h, w)))
+    base = gray if base_scale >= 0.999 else cv2.resize(
+        gray, (int(round(w * base_scale)), int(round(h * base_scale))),
+        interpolation=cv2.INTER_AREA
+    )
+    inv = 1.0 / base_scale
 
     detector = make_fast_detector(dict_val)
-
-    # Pass 1: Direct fast scan
-    c, ids, _ = detector.detectMarkers(small_gray)
     marker_map = {}
-    if ids is not None:
-        for i, mid in enumerate(ids.flatten()):
-            mid_int = int(mid)
-            if mid_int in allowed_ids or (not expected_ids and mid_int < 10):
-                marker_map[mid_int] = c[i][0] * inv_scale
+    for _, variant in _aruco_variants(base):
+        for scale in (1.0, 0.85, 1.15):
+            detections = _detect_at_scale(variant, detector, scale)
+            for mid, pts in detections:
+                if mid in allowed:
+                    pts_full = pts * inv
+                    area = abs(cv2.contourArea(pts_full.reshape(-1, 1, 2)))
+                    if mid not in marker_map or area > abs(cv2.contourArea(marker_map[mid].reshape(-1, 1, 2))):
+                        marker_map[mid] = pts_full
+            if len(marker_map) == 4:
+                break
+        if len(marker_map) == 4:
+            break
 
-    # Pass 2: Quick contrast enhancement (CLAHE) if fewer than 4 markers found
-    if len(marker_map) < 4:
-        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-        enhanced = clahe.apply(small_gray)
-        c_cl, ids_cl, _ = detector.detectMarkers(enhanced)
-        if ids_cl is not None:
-            for i, mid in enumerate(ids_cl.flatten()):
-                mid_int = int(mid)
-                if (mid_int in allowed_ids or (not expected_ids and mid_int < 10)) and mid_int not in marker_map:
-                    marker_map[mid_int] = c_cl[i][0] * inv_scale
-
-    # Pass 3: 3-Marker Geometric Recovery & localized patch scan on full resolution
     if len(marker_map) == 3:
-        marker_map = recover_missing_corner(marker_map, exp_corner_ids, gray, dict_val=dict_val)
+        marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
 
-    # If still fewer than 3 markers and dict was auto, try fallback dictionaries with strict ID filter
-    if len(marker_map) < 4 and (dict_name == "auto" or not dict_name):
-        for alt_name, alt_val in FAST_ARUCO_DICTS[1:]:
-            alt_det = make_fast_detector(alt_val)
-            c_alt, ids_alt, _ = alt_det.detectMarkers(small_gray)
-            if ids_alt is not None:
-                alt_map = {}
-                for i, mid in enumerate(ids_alt.flatten()):
-                    mid_int = int(mid)
-                    if mid_int in allowed_ids or mid_int < 10:
-                        alt_map[mid_int] = c_alt[i][0] * inv_scale
+    # Auto mode fallback dictionaries. Only do this after the primary dict.
+    if len(marker_map) < 4 and (dict_name in (None, "", "auto")):
+        for alt_name, alt_val in FAST_ARUCO_DICTS[1:] + FALLBACK_DICTS:
+            if alt_val == dict_val:
+                continue
+            alt_detector = make_fast_detector(alt_val)
+            alt_map = {}
+            for _, variant in _aruco_variants(base):
+                for scale in (1.0, 0.85, 1.15):
+                    for mid, pts in _detect_at_scale(variant, alt_detector, scale):
+                        if mid in allowed:
+                            alt_map[mid] = pts * inv
+                    if len(alt_map) >= 4:
+                        break
                 if len(alt_map) >= 4:
-                    marker_map = alt_map
-                    best_dict_name = alt_name
                     break
+            if len(alt_map) >= len(marker_map):
+                marker_map = alt_map
+                best_dict_name = alt_name
+            if len(marker_map) == 4:
+                break
+
+    if len(marker_map) == 3:
+        marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
 
     if len(marker_map) < 4:
-        found_cnt = len(marker_map)
-        id_str = str(list(marker_map.keys()))
-        return None, None, best_dict_name, f"ArUco: Ditemukan {found_cnt}/4 marker sudut {id_str} ({best_dict_name})."
+        return None, None, best_dict_name, f"ArUco: Ditemukan {len(marker_map)}/4 marker sudut {list(marker_map.keys())} ({best_dict_name})."
 
-    # Identify TL, TR, BR, BL corners
-    if all(exp_corner_ids[k] in marker_map for k in ["TL", "TR", "BR", "BL"]):
-        corner_ids = exp_corner_ids
-    else:
-        # Spatial quadrant assignment
-        all_centers = {mid: np.mean(pts, axis=0) for mid, pts in marker_map.items()}
-        c_pts_arr = np.array(list(all_centers.values()))
-        c_keys = list(all_centers.keys())
-        s = c_pts_arr.sum(axis=1)
-        diff = np.diff(c_pts_arr, axis=1)
-        corner_ids = {
-            "TL": c_keys[int(np.argmin(s))],
-            "TR": c_keys[int(np.argmin(diff))],
-            "BR": c_keys[int(np.argmax(s))],
-            "BL": c_keys[int(np.argmax(diff))]
-        }
-
-    target_markers = [
-        ("TL", marker_map[corner_ids["TL"]]),
-        ("TR", marker_map[corner_ids["TR"]]),
-        ("BR", marker_map[corner_ids["BR"]]),
-        ("BL", marker_map[corner_ids["BL"]])
-    ]
-
-    all_pts = np.vstack([tm[1] for tm in target_markers])
-    doc_center = np.mean(all_pts, axis=0)
-
+    # Refine all real/synthetic marker corners once more on the original image.
+    # Synthetic points may not correspond to a real marker, so refinement is skipped for them.
+    expected_labels = {mid: lbl for lbl, mid in expected.items()}
+    center = np.mean(np.vstack(list(marker_map.values())), axis=0)
     crop_pts = []
-    for lbl, c_pts in target_markers:
-        dists = np.hypot(c_pts[:, 0] - doc_center[0], c_pts[:, 1] - doc_center[1])
-        if crop_mode == "inner":
-            # Strictly inside the ArUco marker (closest vertex to document center)
-            pt = c_pts[np.argmin(dists)]
-        elif crop_mode == "outer":
-            # Outside corner of the ArUco marker (farthest vertex from document center)
-            pt = c_pts[np.argmax(dists)]
+
+    for lbl in ("TL", "TR", "BR", "BL"):
+        mid = expected[lbl]
+        pts = marker_map[mid].astype(np.float32)
+        dists = np.linalg.norm(pts - center, axis=1)
+        if crop_mode == "outer":
+            pt = pts[np.argmax(dists)]
+        elif crop_mode == "center":
+            pt = pts.mean(axis=0)
         else:
-            pt = np.mean(c_pts, axis=0)
+            # Inner vertex = marker vertex closest to document center.
+            pt = pts[np.argmin(dists)]
         crop_pts.append(pt)
 
-    ordered_pts = np.array(crop_pts, dtype="float32")
-    return ordered_pts, corner_ids, best_dict_name, "DETECTED"
+    ordered = np.asarray(crop_pts, dtype=np.float32)
+    # Geometry sanity check. Reject obviously broken/self-intersecting quads.
+    q = _quad_quality(ordered, gray.shape)
+    if q < 0.20:
+        return None, None, best_dict_name, "ArUco: geometri marker tidak valid."
+
+    return ordered, {lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")}, best_dict_name, "DETECTED"
+
+
+# ---------------------------------------------------------------------------
+# Physical paper boundary / rough crop
+# ---------------------------------------------------------------------------
+
+def _find_best_document_quad(image):
+    h, w = image.shape[:2]
+    max_dim = 1200
+    scale = min(1.0, max_dim / float(max(h, w)))
+    small = image if scale >= 0.999 else cv2.resize(
+        image, (int(round(w * scale)), int(round(h * scale))), interpolation=cv2.INTER_AREA
+    )
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if small.ndim == 3 else small.copy()
+
+    # Multiple edge variants improve detection under shadows / warm paper.
+    gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    variants = [
+        cv2.Canny(gray_blur, 25, 90),
+        cv2.Canny(gray_blur, 50, 150),
+    ]
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray_blur)
+    variants.append(cv2.Canny(clahe, 30, 110))
+
+    best = None
+    best_score = -1.0
+    img_area = float(gray.shape[0] * gray.shape[1])
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+
+    for edges in variants:
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
+        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+        contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:40]
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            ratio = area / img_area
+            if ratio < 0.10:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            for eps in (0.015, 0.02, 0.03, 0.04):
+                approx = cv2.approxPolyDP(cnt, eps * peri, True)
+                if len(approx) != 4 or not cv2.isContourConvex(approx):
+                    continue
+                pts = approx.reshape(4, 2).astype(np.float32) / float(scale)
+                pts = order_points(pts)
+                q = _quad_quality(pts, image.shape)
+                score = ratio * (0.65 + 0.35 * q)
+                if score > best_score:
+                    best_score = score
+                    best = pts
+                break
+    return best
 
 
 def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=2400):
-    """
-    Intelligent Paper Boundary Detector:
-    Di awal mendeteksi 4 sudut fisik dokumen / lembar kertas secara jelas.
-    Mendukung foto kamera di atas meja maupun berkas scan digital langsung.
-    """
+    """Find the physical sheet before looking for fiducial markers."""
     h, w = image.shape[:2]
-    scale = 800.0 / max(h, w)
-    small_w, small_h = int(w * scale), int(h * scale)
-    small = cv2.resize(image, (small_w, small_h), interpolation=cv2.INTER_AREA)
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if len(small.shape) == 3 else small
+    quad = _find_best_document_quad(image)
 
-    # Tambahkan border padding 15px agar tepi kertas scan digital yang menyentuh batas gambar terdeteksi sempurna
-    pad = 15
-    padded = cv2.copyMakeBorder(gray, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
-    blurred = cv2.GaussianBlur(padded, (5, 5), 0)
-    edges = cv2.Canny(blurred, 30, 120)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    edges = cv2.dilate(edges, kernel, iterations=1)
+    if quad is not None:
+        area_ratio = abs(cv2.contourArea(quad.reshape(-1, 1, 2))) / float(max(1, w * h))
+        if area_ratio >= min(0.08, min_area_ratio * 0.55):
+            return order_points(quad, target_w=target_w, target_h=target_h), "DETECTED"
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    full = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32)
+    return full, "DETECTED (Batas Halaman)"
 
-    best_quad = None
-    min_area = (small_w * small_h) * min_area_ratio
 
-    for cnt in contours[:10]:
-        area = cv2.contourArea(cnt)
-        if area < min_area:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        approx = cv2.approxPolyDP(cnt, 0.025 * peri, True)
-        if len(approx) == 4 and cv2.isContourConvex(approx):
-            pts = (approx.reshape(4, 2) - np.array([pad, pad])) / scale
-            pts[:, 0] = np.clip(pts[:, 0], 0, w - 1)
-            pts[:, 1] = np.clip(pts[:, 1], 0, h - 1)
-            ordered = order_points(pts, target_w=target_w, target_h=target_h)
-            pw = np.hypot(ordered[1][0] - ordered[0][0], ordered[1][1] - ordered[0][1])
-            ph = np.hypot(ordered[3][0] - ordered[0][0], ordered[3][1] - ordered[0][1])
-            if pw > 0 and ph > 0:
-                ar = pw / ph
-                if 0.35 <= ar <= 2.5:
-                    best_quad = ordered
-                    break
+def _rough_warp(image, doc_corners, width=1800, height=2500):
+    warped, M = perspective_warp(image, doc_corners, width, height)
+    try:
+        inv_M = np.linalg.inv(M)
+    except np.linalg.LinAlgError:
+        inv_M = None
+    return warped, M, inv_M
 
-    if best_quad is not None:
-        return best_quad, "DETECTED"
 
-    # Default boundary (halaman penuh)
-    full_bounds = np.array([
-        [0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]
-    ], dtype="float32")
-    return full_bounds, "DETECTED (Batas Halaman)"
+def _map_points_back(points, inv_M):
+    if points is None or inv_M is None:
+        return None
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
+    mapped = cv2.perspectiveTransform(pts, inv_M).reshape(-1, 2)
+    return mapped.astype(np.float32)
 
+
+# ---------------------------------------------------------------------------
+# Legacy RegMark fallback
+# ---------------------------------------------------------------------------
 
 def find_regmarks(image, target_w=1700, target_h=2400, crop_mode="inner", doc_corners=None):
-    """
-    Robust Corner Registration Mark (RegMark) Detector:
-    1. Di awal mendeteksi 4 sudut fisik dokumen / lembar kertas secara jelas.
-    2. Mencari marker anchor fiducial solid di zona 4 pojok (TL, TR, BR, BL).
-    3. Mengunci sudut inner/outer/center dari 4 pojok marker.
-    4. Fallback ke 4 sudut fisik dokumen jika lembar tidak memiliki marker cetak terpisah.
-    """
     h, w = image.shape[:2]
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
-
-    # 1. Di awal: pastikan 4 sudut dokumen terdeteksi jelas
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
     if doc_corners is None:
         doc_corners, _ = find_document_corners(image, target_w=target_w, target_h=target_h)
-    if doc_corners is None or len(doc_corners) != 4:
-        doc_corners = np.array([
-            [0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]
-        ], dtype="float32")
+    doc_corners = order_points(doc_corners, target_w=target_w, target_h=target_h)
+    center = doc_corners.mean(axis=0)
 
-    doc_center = np.mean(doc_corners, axis=0)
+    # Work on a normalized rough page so marker size thresholds are resolution independent.
+    rough, _, _ = _rough_warp(image, doc_corners, 1200, 1700)
+    rg = cv2.cvtColor(rough, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(rg, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    # 2. Segmentasi kontur solid marker
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    pts_out = []
+    found = 0
+    rh, rw = rg.shape
+    rough_center = np.array([rw / 2.0, rh / 2.0], dtype=np.float32)
 
-    min_reg_area = w * h * 0.00030
-    max_reg_area = w * h * 0.0250
-
-    corner_pts = []
-    found_count = 0
-
-    for corner in doc_corners:
-        cx, cy = corner
-        vec = doc_center - corner
-
-        # Zona pencarian sudut terfokus (maksimal 32% ke arah pusat dokumen)
-        x_min = max(0, int(min(cx, cx + vec[0] * 0.32)))
-        x_max = min(w, int(max(cx, cx + vec[0] * 0.32)))
-        y_min = max(0, int(min(cy, cy + vec[1] * 0.32)))
-        y_max = min(h, int(max(cy, cy + vec[1] * 0.32)))
-
-        roi = thresh[y_min:y_max, x_min:x_max]
-        cnts_roi, _ = cv2.findContours(roi, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-        best_cand = None
-        min_dist = float("inf")
-
-        for c in cnts_roi:
+    for corner in ([0, 0], [rw - 1, 0], [rw - 1, rh - 1], [0, rh - 1]):
+        # Search a broad 35% corner wedge.
+        cx, cy = map(int, corner)
+        vx, vy = rough_center - np.asarray(corner, np.float32)
+        x2 = int(np.clip(cx + vx * 0.35, 0, rw - 1))
+        y2 = int(np.clip(cy + vy * 0.35, 0, rh - 1))
+        x1, xx = sorted((cx, x2))
+        y1, yy = sorted((cy, y2))
+        roi = thresh[y1:yy + 1, x1:xx + 1]
+        cnts, _ = cv2.findContours(roi, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        best = None
+        best_dist = float("inf")
+        for c in cnts:
             bx, by, bw, bh = cv2.boundingRect(c)
-            ar = bw / float(bh) if bh > 0 else 0
-            if not (0.60 <= ar <= 1.65):
+            if bh <= 0 or bw <= 0:
                 continue
-            hull = cv2.convexHull(c)
-            hull_area = cv2.contourArea(hull)
-            if hull_area < min_reg_area or hull_area > max_reg_area:
+            ar = bw / float(bh)
+            area = cv2.contourArea(c)
+            fill = area / float(bw * bh)
+            if not (0.55 <= ar <= 1.8 and 30 <= area <= rw * rh * 0.02 and fill >= 0.55):
                 continue
-            rect_fill = hull_area / float(bw * bh) if (bw * bh) > 0 else 0
-            if rect_fill < 0.60:
-                continue
+            cand = c.reshape(-1, 2).astype(np.float32) + np.array([x1, y1], np.float32)
+            cc = cand.mean(axis=0)
+            d = np.linalg.norm(cc - np.asarray(corner, np.float32))
+            if d < best_dist:
+                best_dist = d
+                best = cand
+        if best is None:
+            pts_out.append(np.asarray(corner, np.float32))
+            continue
+        found += 1
+        d = np.linalg.norm(best - rough_center, axis=1)
+        pts_out.append(best[np.argmin(d)] if crop_mode == "inner" else best[np.argmax(d)] if crop_mode == "outer" else best.mean(axis=0))
 
-            mcx = bx + bw / 2.0 + x_min
-            mcy = by + bh / 2.0 + y_min
-            d = np.hypot(mcx - cx, mcy - cy)
-            if d < min_dist:
-                min_dist = d
-                best_cand = c.reshape(-1, 2) + np.array([x_min, y_min])
-
-        if best_cand is not None:
-            found_count += 1
-            dists = np.hypot(best_cand[:, 0] - doc_center[0], best_cand[:, 1] - doc_center[1])
-            if crop_mode == "inner":
-                pt = best_cand[np.argmin(dists)]
-            elif crop_mode == "outer":
-                pt = best_cand[np.argmax(dists)]
-            else:
-                pt = np.mean(best_cand, axis=0)
-            corner_pts.append(pt)
-        else:
-            corner_pts.append(corner)
-
-    if found_count == 4:
-        pts = np.array(corner_pts, dtype="float32")
-        return order_points(pts, target_w=target_w, target_h=target_h), "DETECTED"
+    if found == 4:
+        # Convert normalized rough coordinates back to original image.
+        scale_x = (rw - 1) / max(1.0, rw - 1)
+        scale_y = (rh - 1) / max(1.0, rh - 1)
+        # Directly use the homography from document corners to rough page.
+        src = np.array([[0, 0], [rw - 1, 0], [rw - 1, rh - 1], [0, rh - 1]], np.float32)
+        H = cv2.getPerspectiveTransform(src, doc_corners.astype(np.float32))
+        mapped = _map_points_back(np.array(pts_out, np.float32), H)
+        return order_points(mapped, target_w=target_w, target_h=target_h), "DETECTED"
 
     return doc_corners, "FALLBACK_DOC_CORNERS"
 
 
-def order_points(pts, target_w=1700, target_h=2400):
-    """
-    Order points: top-left, top-right, bottom-right, bottom-left.
-    """
-    pts = np.array(pts, dtype="float32")
-    rect = np.zeros((4, 2), dtype="float32")
-
-    s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]  # Top-Left
-    rect[2] = pts[np.argmax(s)]  # Bottom-Right
-
-    diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]  # Top-Right
-    rect[3] = pts[np.argmax(diff)]  # Bottom-Left
-
-    top_w = np.hypot(rect[1][0] - rect[0][0], rect[1][1] - rect[0][1])
-    bot_w = np.hypot(rect[2][0] - rect[3][0], rect[2][1] - rect[3][1])
-    left_h = np.hypot(rect[3][0] - rect[0][0], rect[3][1] - rect[0][1])
-    right_h = np.hypot(rect[2][0] - rect[1][0], rect[2][1] - rect[1][1])
-
-    avg_w = (top_w + bot_w) / 2.0
-    avg_h = (left_h + right_h) / 2.0
-
-    if (target_h > target_w) and (avg_w > avg_h * 1.10):
-        rect = np.roll(rect, shift=-1, axis=0)
-
-    return rect
-
+# ---------------------------------------------------------------------------
+# Final image processing
+# ---------------------------------------------------------------------------
 
 def standardize_document_image(image_bgr, target_bg=245):
-    """
-    Standardizes the visual appearance of a cropped/warped LJK image:
-    1. Removes shadows and uneven lighting gradients (background normalization).
-    2. Adjusts contrast so paper is clean bright white (~245) and ink/bubbles are deep crisp dark.
-    3. Neutralizes color casts (removes warm yellowish or cool bluish tint).
-    4. Applies gentle edge sharpening for crystal-clear bubble boundaries and text legibility.
-    """
     if image_bgr is None or image_bgr.size == 0:
         return image_bgr
 
-    # 1. Convert to LAB color space
     lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-
-    # 2. Downscaled background illumination estimation on L channel (<0.08s)
     h, w = l.shape
-    scale = 0.5
-    small_l = cv2.resize(l, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-    kernel_size = 25
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
-    bg_small = cv2.morphologyEx(small_l, cv2.MORPH_DILATE, kernel)
-    bg_small = cv2.GaussianBlur(bg_small, (kernel_size, kernel_size), 0)
-    bg_l = cv2.resize(bg_small, (w, h), interpolation=cv2.INTER_LINEAR)
+    # Large illumination model. Keep kernel proportional to page size.
+    k = max(25, int(round(min(h, w) * 0.018)))
+    if k % 2 == 0:
+        k += 1
+    small = cv2.resize(l, (max(1, w // 2), max(1, h // 2)), interpolation=cv2.INTER_AREA)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    bg = cv2.morphologyEx(small, cv2.MORPH_CLOSE, kernel)
+    bg = cv2.GaussianBlur(bg, (0, 0), max(1.0, k / 3.0))
+    bg = cv2.resize(bg, (w, h), interpolation=cv2.INTER_LINEAR)
+    bg_safe = np.maximum(bg, 1)
+    l_div = np.clip(l.astype(np.float32) / bg_safe.astype(np.float32) * float(target_bg), 0, 255).astype(np.uint8)
 
-    bg_l_safe = np.maximum(bg_l, 1)
-
-    # Divide L by background to equalize illumination across the page
-    l_div = np.clip((l.astype(np.float32) / bg_l_safe.astype(np.float32)) * float(target_bg), 0, 255).astype(np.uint8)
-
-    # 3. Dynamic contrast enhancement (stretch ink/bubbles to black, keep paper white)
-    p1 = float(np.percentile(l_div, 1))
-    p99 = float(np.percentile(l_div, 99))
+    p1, p99 = float(np.percentile(l_div, 1)), float(np.percentile(l_div, 99))
     if p99 > p1 + 25:
         l_std = np.clip((l_div.astype(np.float32) - p1) * 250.0 / (p99 - p1), 0, 255).astype(np.uint8)
     else:
         l_std = l_div
 
-    # 4. Subtle unsharp masking for crisp text and bubble edges
-    blurred_l = cv2.GaussianBlur(l_std, (0, 0), 1.2)
-    l_sharp = cv2.addWeighted(l_std, 1.25, blurred_l, -0.25, 0)
+    blurred = cv2.GaussianBlur(l_std, (0, 0), 1.2)
+    l_sharp = cv2.addWeighted(l_std, 1.18, blurred, -0.18, 0)
 
-    # 5. Neutralize color cast in A and B channels (white balance adjustment)
-    med_a = float(np.median(a))
-    med_b = float(np.median(b))
-    # Standard neutral LAB is 128
+    med_a, med_b = float(np.median(a)), float(np.median(b))
     a_clean = np.clip(a.astype(np.float32) - (med_a - 128.0) * 0.85, 0, 255).astype(np.uint8)
     b_clean = np.clip(b.astype(np.float32) - (med_b - 128.0) * 0.85, 0, 255).astype(np.uint8)
-
-    merged_lab = cv2.merge([l_sharp, a_clean, b_clean])
-    return cv2.cvtColor(merged_lab, cv2.COLOR_LAB2BGR)
+    return cv2.cvtColor(cv2.merge([l_sharp, a_clean, b_clean]), cv2.COLOR_LAB2BGR)
 
 
 def detect_corners_and_crop(
@@ -493,81 +609,126 @@ def detect_corners_and_crop(
     crop_mode="inner",
     apply_standardization=True
 ):
+    """Main alignment pipeline.
+
+    Key difference from the previous implementation:
+        photo -> physical paper crop -> rough canonical warp -> ArUco detection
+        -> fine corner extraction -> map back -> final warp.
+
+    This keeps small corner markers large enough to detect even when the camera
+    is relatively far from the LJK.
     """
-    Unified Corner Detection & Perspective Cropping Engine with Strict Inner Crop:
-    1. Evaluates 4 corners with multi-angle rotation checks (0, 90, 180, 270 degrees).
-    2. Uses 3-marker geometric recovery to guarantee finding all 4 ArUco corners even with glare/shadows.
-    3. crop_mode='inner' guarantees cropping STRICTLY INSIDE the 4 ArUco markers.
-    4. Warps perspective to canonical canvas dimensions (canvas_w x canvas_h).
-    5. Coordinates returned in ordered_pts always match the original unrotated image space.
-    """
-    ordered_pts = None
-    status = "FAILED"
-    method_used = "none"
-    corner_ids = None
-    detected_dict = None
+    if image is None or image.size == 0:
+        return None, None, "none", None, None, "FAILED: gambar kosong"
 
     h_in, w_in = image.shape[:2]
+    if image.ndim != 3:
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    else:
+        image_bgr = image
 
-    # Smart candidate angle search:
-    # If image is landscape (w > h) while canvas is portrait (h > w), try 90 and 270 first
+    # Try orientations that match the target aspect ratio first.
     if w_in > h_in and canvas_h > canvas_w:
+        candidate_angles = [90, 270, 0, 180]
+    elif h_in > w_in and canvas_w > canvas_h:
         candidate_angles = [90, 270, 0, 180]
     else:
         candidate_angles = [0, 180, 90, 270]
 
-    # 0. Di awal: Deteksi dulu 4 corner fisik dokumen secara jelas
-    doc_corners, _ = find_document_corners(image, target_w=canvas_w, target_h=canvas_h)
-    if doc_corners is None or len(doc_corners) != 4:
-        doc_corners = np.array([
-            [0, 0], [w_in - 1, 0], [w_in - 1, h_in - 1], [0, h_in - 1]
-        ], dtype="float32")
+    best_result = None
 
-    # 1. Primary Method: ArUco Fiducials (Strict Inner Crop)
-    if preferred_method in ["aruco", "auto"]:
-        for ang in candidate_angles:
-            rot_img = rotate_image(image, ang) if ang != 0 else image
-            pts_aruco, c_ids, d_name, status_aruco = find_aruco_markers(
-                rot_img, dict_name=dict_name, expected_ids=expected_ids, crop_mode=crop_mode
+    for ang in candidate_angles:
+        rot_img = _rotate_candidate(image_bgr, ang)
+        rh, rw = rot_img.shape[:2]
+
+        # STEP 1: physical document detection. This is deliberately before ArUco.
+        doc_corners, doc_status = find_document_corners(
+            rot_img, target_w=canvas_w, target_h=canvas_h
+        )
+        doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
+
+        # STEP 2: rough warp with margin padding so outer corner fiducials are never clipped.
+        c_doc = doc_corners.mean(axis=0)
+        expanded_doc = c_doc + (doc_corners - c_doc) * 1.05
+        expanded_doc[:, 0] = np.clip(expanded_doc[:, 0], 0, rw - 1)
+        expanded_doc[:, 1] = np.clip(expanded_doc[:, 1], 0, rh - 1)
+
+        rough_w = max(1800, min(2400, canvas_w + 400))
+        rough_h = max(2400, min(3400, canvas_h + 600))
+        rough_img, rough_M, inv_rough_M = _rough_warp(rot_img, expanded_doc, rough_w, rough_h)
+
+        # STEP 3: ArUco on the rough page, not the entire desk/photo.
+        ordered_rough = None
+        corner_ids = None
+        detected_dict = None
+        aruco_status = ""
+        if preferred_method in ("aruco", "auto"):
+            ordered_rough, corner_ids, detected_dict, aruco_status = find_aruco_markers(
+                rough_img,
+                dict_name=dict_name,
+                expected_ids=expected_ids,
+                crop_mode=crop_mode,
             )
-            if pts_aruco is not None and status_aruco == "DETECTED":
-                if ang != 0:
-                    ordered_pts = np.array([unrotate_point(pt, image.shape, ang) for pt in pts_aruco], dtype="float32")
-                else:
-                    ordered_pts = pts_aruco
-                corner_ids = c_ids
-                detected_dict = d_name
-                status = "DETECTED (4 Sudut Terkunci Sempurna - ArUco)"
-                method_used = "aruco"
-                break
 
-    # 2. Secondary Method: Corner Anchor RegMarks (Berbasis 4 Sudut Dokumen)
-    if ordered_pts is None and preferred_method in ["regmark", "auto"]:
-        for ang in candidate_angles:
-            rot_img = rotate_image(image, ang) if ang != 0 else image
-            cur_doc_corners = find_document_corners(rot_img, target_w=canvas_w, target_h=canvas_h)[0] if ang != 0 else doc_corners
+        if ordered_rough is not None and aruco_status in ("DETECTED", "RECOVERED"):
+            # STEP 4: map the fine crop points from rough page back to rotated photo.
+            fine_rot = _map_points_back(ordered_rough, inv_rough_M)
+            if fine_rot is not None:
+                q = _quad_quality(fine_rot, rot_img.shape)
+                if q >= 0.20:
+                    fine_original = np.array(
+                        [unrotate_point(p, image_bgr.shape, ang) for p in fine_rot],
+                        dtype=np.float32,
+                    ) if ang else fine_rot
+                    q_orig = _quad_quality(fine_original, image_bgr.shape)
+                    if q_orig >= 0.20:
+                        best_result = (
+                            fine_original,
+                            "aruco",
+                            corner_ids,
+                            detected_dict,
+                            "DETECTED (4 Sudut Terkunci - ArUco + Rough Crop)"
+                        )
+                        break
+
+        # STEP 5: legacy regmark fallback, but also on the rough document geometry.
+        if best_result is None and preferred_method in ("regmark", "auto"):
             pts_reg, status_reg = find_regmarks(
-                rot_img, target_w=canvas_w, target_h=canvas_h, crop_mode=crop_mode, doc_corners=cur_doc_corners
+                rot_img,
+                target_w=canvas_w,
+                target_h=canvas_h,
+                crop_mode=crop_mode,
+                doc_corners=doc_corners,
             )
             if pts_reg is not None and status_reg == "DETECTED":
-                if ang != 0:
-                    ordered_pts = np.array([unrotate_point(pt, image.shape, ang) for pt in pts_reg], dtype="float32")
-                else:
-                    ordered_pts = pts_reg
-                status = "DETECTED (4 Sudut Terkunci - Corner Anchor RegMark)"
-                method_used = "regmark"
-                break
+                reg_original = np.array(
+                    [unrotate_point(p, image_bgr.shape, ang) for p in pts_reg],
+                    dtype=np.float32,
+                ) if ang else pts_reg
+                if _quad_quality(reg_original, image_bgr.shape) >= 0.20:
+                    best_result = (
+                        reg_original, "regmark", None, None,
+                        "DETECTED (4 Sudut Terkunci - Corner Anchor RegMark)"
+                    )
+                    break
 
-    # 3. Tertiary Fallback Method: 4 Sudut Fisik Dokumen yang Jelas di Awal
-    if ordered_pts is None:
-        ordered_pts = doc_corners
-        status = "DETECTED (4 Sudut Terkunci - Batas Fisik Dokumen)"
-        method_used = "doc_contour"
+        # Keep the strongest document fallback candidate if all else fails.
+        doc_original = np.array(
+            [unrotate_point(p, image_bgr.shape, ang) for p in doc_corners],
+            dtype=np.float32,
+        ) if ang else doc_corners
+        score = _quad_quality(doc_original, image_bgr.shape)
+        if best_result is None or score > _quad_quality(best_result[0], image_bgr.shape):
+            best_result = (
+                doc_original, "doc_contour", None, None,
+                "DETECTED (4 Sudut Terkunci - Batas Fisik Dokumen)"
+            )
 
-    # 4. Crop via Perspective Warp
-    warped_img, M = perspective_warp(image, ordered_pts, canvas_w, canvas_h)
+    ordered_pts, method_used, corner_ids, detected_dict, status = best_result
 
-    # 5. Image Standardization (Shadow removal, illumination equalization, contrast normalization)
+    # Final warp is always performed on the ORIGINAL image so no quality is lost
+    # from the rough detection pass.
+    warped_img, _ = perspective_warp(image_bgr, ordered_pts, canvas_w, canvas_h)
     if apply_standardization and warped_img is not None and warped_img.size > 0:
         warped_img = standardize_document_image(warped_img)
 
@@ -575,72 +736,49 @@ def detect_corners_and_crop(
 
 
 def perspective_warp(image, src_points, dst_width, dst_height):
-    """
-    Warp & Crop image bounded by 4 points to canonical canvas (dst_width x dst_height).
-    All content outside the polygon of src_points is completely cropped away.
-    """
-    dst_points = np.array([
-        [0, 0],
-        [dst_width - 1, 0],
-        [dst_width - 1, dst_height - 1],
-        [0, dst_height - 1]
-    ], dtype="float32")
-
-    M = cv2.getPerspectiveTransform(src_points, dst_points)
+    src = order_points(src_points, target_w=dst_width, target_h=dst_height)
+    dst = np.array([
+        [0, 0], [dst_width - 1, 0],
+        [dst_width - 1, dst_height - 1], [0, dst_height - 1]
+    ], dtype=np.float32)
+    M = cv2.getPerspectiveTransform(src, dst)
     warped = cv2.warpPerspective(
         image, M, (dst_width, dst_height),
         flags=cv2.INTER_CUBIC,
-        borderMode=cv2.BORDER_REPLICATE
+        borderMode=cv2.BORDER_REPLICATE,
     )
     return warped, M
 
 
-def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None, status="DETECTED", crop_mode="inner"):
-    """
-    Draw confirmation of the 4 corner markers with crop boundary lines, crosshairs, and corner coordinates.
-    High-contrast badges guarantee clear visibility across all lighting and background conditions.
-    """
+def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
+                          status="DETECTED", crop_mode="inner"):
     output = image.copy()
     if ordered_pts is None:
         return output
 
     labels = ["TL", "TR", "BR", "BL"]
-    pts_int = ordered_pts.astype(np.int32)
+    pts_int = np.asarray(ordered_pts, dtype=np.int32)
+    cv2.polylines(output, [pts_int], True, (0, 230, 0), 3, cv2.LINE_AA)
 
-    # Garis batas poligon crop hijau cerah
-    cv2.polylines(output, [pts_int], isClosed=True, color=(0, 230, 0), thickness=3, lineType=cv2.LINE_AA)
-
-    for i in range(4):
-        cx, cy = int(round(ordered_pts[i][0])), int(round(ordered_pts[i][1]))
-
-        # Retikel target sudut dengan crosshairs merah & titik hijau
+    for i, (label, p) in enumerate(zip(labels, ordered_pts)):
+        cx, cy = int(round(p[0])), int(round(p[1]))
         cv2.circle(output, (cx, cy), 18, (0, 0, 255), 2, cv2.LINE_AA)
         cv2.circle(output, (cx, cy), 6, (0, 255, 0), -1, cv2.LINE_AA)
         cv2.line(output, (cx - 24, cy), (cx + 24, cy), (0, 0, 255), 2, cv2.LINE_AA)
         cv2.line(output, (cx, cy - 24), (cx, cy + 24), (0, 0, 255), 2, cv2.LINE_AA)
 
-        id_str = f" [ID:{corner_ids[labels[i]]}]" if corner_ids and labels[i] in corner_ids else ""
-        label_text = f" {labels[i]}{id_str} ({cx}, {cy}) "
-
-        text_y = cy - 20 if i in [0, 1] else cy + 34
+        id_str = f" [ID:{corner_ids[label]}]" if corner_ids and label in corner_ids else ""
+        text = f" {label}{id_str} ({cx}, {cy}) "
+        text_y = cy - 20 if i in (0, 1) else cy + 34
         text_x = max(10, cx - 65)
-
-        # Kotak hitam kontras tinggi di belakang teks agar selalu terlihat jelas
-        (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
-        cv2.rectangle(output, (text_x - 3, text_y - th - 3), (text_x + tw + 3, text_y + baseline + 2), (0, 0, 0), -1)
-        cv2.putText(output, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 2, cv2.LINE_AA)
+        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
+        cv2.rectangle(output, (text_x - 3, text_y - th - 3),
+                      (text_x + tw + 3, text_y + baseline + 2), (0, 0, 0), -1)
+        cv2.putText(output, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.58, (0, 255, 255), 2, cv2.LINE_AA)
 
     return output
 
 
 def rotate_image(image, angle):
-    """
-    Rotate image by 90, 180, or 270 degrees.
-    """
-    if angle == 90:
-        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-    elif angle == 180:
-        return cv2.rotate(image, cv2.ROTATE_180)
-    elif angle == 270 or angle == -90:
-        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    return image
+    return _rotate_candidate(image, angle)
