@@ -79,9 +79,7 @@ def order_points(pts, target_w=1700, target_h=2400):
         # Start at top-left by minimum x+y.
         hull = np.roll(hull, -int(np.argmin(hull.sum(axis=1))), axis=0)
         # Ensure clockwise TL -> TR -> BR -> BL in image coordinates.
-        v1 = hull[1] - hull[0]
-        v2 = hull[2] - hull[1]
-        cross = float(v1[0] * v2[1] - v1[1] * v2[0])
+        cross = np.cross(hull[1] - hull[0], hull[2] - hull[1])
         if cross < 0:
             hull = hull[[0, 3, 2, 1]]
         rect = hull.astype(np.float32)
@@ -141,7 +139,7 @@ def _rotate_candidate(image, angle):
 # ArUco detection
 # ---------------------------------------------------------------------------
 
-def make_fast_detector(dict_val, min_perimeter=0.005, step=6):
+def make_fast_detector(dict_val, min_perimeter=0.005, step=4):
     """Detector tuned for small fiducials after rough document cropping."""
     dictionary = cv2.aruco.getPredefinedDictionary(dict_val)
     parameters = cv2.aruco.DetectorParameters()
@@ -160,19 +158,17 @@ def make_fast_detector(dict_val, min_perimeter=0.005, step=6):
     return cv2.aruco.ArucoDetector(dictionary, parameters)
 
 
-def _aruco_variants(gray):
-    """Generate a small, deliberately diverse set of marker-friendly images."""
+def _aruco_variants(gray, include_enhanced=True):
+    """Return a deliberately small detection cascade.
+
+    The first pass is always the raw grayscale image. Enhanced variants are
+    only used after the cheap pass fails, avoiding several expensive
+    detectMarkers() calls on every image.
+    """
     variants = [("gray", gray)]
-
-    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    variants.append(("clahe", clahe.apply(gray)))
-
-    # Mild gamma/contrast variants help phone photos with shadows or haze.
-    for gamma in (0.75, 1.25):
-        lut = np.array([np.clip((i / 255.0) ** gamma * 255.0, 0, 255)
-                        for i in range(256)], dtype=np.uint8)
-        variants.append((f"gamma{gamma}", cv2.LUT(gray, lut)))
-
+    if include_enhanced:
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        variants.append(("clahe", clahe.apply(gray)))
     return variants
 
 
@@ -323,7 +319,10 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
 
     # Detection is intentionally performed on a reasonably large image.
     # Never collapse a phone photo to 1400px merely because it is large.
-    max_dim = 2400
+    # Detection copy only. Keep the caller's original image untouched for the
+    # final warp. 1800 px is a good compromise for phone photos: much cheaper
+    # than full-resolution detection while still retaining small ArUco markers.
+    max_dim = 1800
     base_scale = min(1.0, max_dim / float(max(h, w)))
     base = gray if base_scale >= 0.999 else cv2.resize(
         gray, (int(round(w * base_scale)), int(round(h * base_scale))),
@@ -333,8 +332,9 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
 
     detector = make_fast_detector(dict_val)
     marker_map = {}
-    for _, variant in _aruco_variants(base):
-        for scale in (1.0, 0.85, 1.15):
+    # Fast path: one raw grayscale pass at native detection resolution.
+    for _, variant in _aruco_variants(base, include_enhanced=False):
+        for scale in (1.0,):
             detections = _detect_at_scale(variant, detector, scale)
             for mid, pts in detections:
                 if mid in allowed:
@@ -347,8 +347,22 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
         if len(marker_map) == 4:
             break
 
-    if len(marker_map) == 3:
-        marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
+    # Second pass only when necessary: CLAHE + mild upscale.
+    if len(marker_map) < 4:
+        for _, variant in _aruco_variants(base, include_enhanced=True):
+            if _ == "gray":
+                continue
+            for scale in (1.0, 1.25):
+                for mid, pts in _detect_at_scale(variant, detector, scale):
+                    if mid in allowed:
+                        pts_full = pts * inv
+                        area = abs(cv2.contourArea(pts_full.reshape(-1, 1, 2)))
+                        if mid not in marker_map or area > abs(cv2.contourArea(marker_map[mid].reshape(-1, 1, 2))):
+                            marker_map[mid] = pts_full
+                if len(marker_map) == 4:
+                    break
+            if len(marker_map) == 4:
+                break
 
     # Auto mode fallback dictionaries. Only do this after the primary dict.
     if len(marker_map) < 4 and (dict_name in (None, "", "auto")):
@@ -357,13 +371,12 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
                 continue
             alt_detector = make_fast_detector(alt_val)
             alt_map = {}
-            for _, variant in _aruco_variants(base):
-                for scale in (1.0, 0.85, 1.15):
-                    for mid, pts in _detect_at_scale(variant, alt_detector, scale):
-                        if mid in allowed:
-                            alt_map[mid] = pts * inv
-                    if len(alt_map) >= 4:
-                        break
+            # Fallback dictionaries are deliberately cheap: raw 1.0x first,
+            # then CLAHE 1.0x. Do not brute-force every scale.
+            for variant_name, variant in _aruco_variants(base, include_enhanced=True):
+                for mid, pts in _detect_at_scale(variant, alt_detector, 1.0):
+                    if mid in allowed:
+                        alt_map[mid] = pts * inv
                 if len(alt_map) >= 4:
                     break
             if len(alt_map) >= len(marker_map):
@@ -599,6 +612,28 @@ def standardize_document_image(image_bgr, target_bg=245):
     return cv2.cvtColor(cv2.merge([l_sharp, a_clean, b_clean]), cv2.COLOR_LAB2BGR)
 
 
+def prepare_image_for_processing(image, max_width=2200, max_height=2200):
+    """Create a processing copy for oversized phone photos.
+
+    This is a resize, not JPEG recompression. The original image is returned
+    alongside the resized copy so final perspective warping can still use the
+    highest-quality pixels.
+
+    Returns:
+        processing_image, scale_x, scale_y
+    """
+    if image is None or image.size == 0:
+        return image, 1.0, 1.0
+    h, w = image.shape[:2]
+    scale = min(1.0, max_width / float(w), max_height / float(h))
+    if scale >= 0.999:
+        return image, 1.0, 1.0
+    out = cv2.resize(image, (max(1, int(round(w * scale))),
+                             max(1, int(round(h * scale)))),
+                     interpolation=cv2.INTER_AREA)
+    return out, scale, scale
+
+
 def detect_corners_and_crop(
     image,
     canvas_w=1700,
@@ -627,6 +662,13 @@ def detect_corners_and_crop(
     else:
         image_bgr = image
 
+    # Keep original pixels for the final warp, but do geometry detection on a
+    # smaller processing copy when the upload is unnecessarily high-resolution.
+    processing_img, process_scale_x, process_scale_y = prepare_image_for_processing(
+        image_bgr, max_width=2200, max_height=2200
+    )
+    h_proc, w_proc = processing_img.shape[:2]
+
     # Try orientations that match the target aspect ratio first.
     if w_in > h_in and canvas_h > canvas_w:
         candidate_angles = [90, 270, 0, 180]
@@ -638,7 +680,7 @@ def detect_corners_and_crop(
     best_result = None
 
     for ang in candidate_angles:
-        rot_img = _rotate_candidate(image_bgr, ang)
+        rot_img = _rotate_candidate(processing_img, ang)
         rh, rw = rot_img.shape[:2]
 
         # STEP 1: physical document detection. This is deliberately before ArUco.
@@ -647,15 +689,10 @@ def detect_corners_and_crop(
         )
         doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
 
-        # STEP 2: rough warp with margin padding so outer corner fiducials are never clipped.
-        c_doc = doc_corners.mean(axis=0)
-        expanded_doc = c_doc + (doc_corners - c_doc) * 1.05
-        expanded_doc[:, 0] = np.clip(expanded_doc[:, 0], 0, rw - 1)
-        expanded_doc[:, 1] = np.clip(expanded_doc[:, 1], 0, rh - 1)
-
+        # STEP 2: rough warp. Use a generous detection canvas so small markers grow.
         rough_w = max(1800, min(2400, canvas_w + 400))
         rough_h = max(2400, min(3400, canvas_h + 600))
-        rough_img, rough_M, inv_rough_M = _rough_warp(rot_img, expanded_doc, rough_w, rough_h)
+        rough_img, rough_M, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
 
         # STEP 3: ArUco on the rough page, not the entire desk/photo.
         ordered_rough = None
@@ -674,7 +711,10 @@ def detect_corners_and_crop(
             # STEP 4: map the fine crop points from rough page back to rotated photo.
             fine_rot = _map_points_back(ordered_rough, inv_rough_M)
             if fine_rot is not None:
-                q = _quad_quality(fine_rot, rot_img.shape)
+                # Convert processing-image coordinates back to original-image
+                # coordinates before the final warp.
+                fine_rot = fine_rot / np.array([process_scale_x, process_scale_y], dtype=np.float32)
+                q = _quad_quality(fine_rot, image_bgr.shape)
                 if q >= 0.20:
                     fine_original = np.array(
                         [unrotate_point(p, image_bgr.shape, ang) for p in fine_rot],
@@ -701,10 +741,11 @@ def detect_corners_and_crop(
                 doc_corners=doc_corners,
             )
             if pts_reg is not None and status_reg == "DETECTED":
+                pts_reg_original = pts_reg / np.array([process_scale_x, process_scale_y], dtype=np.float32)
                 reg_original = np.array(
-                    [unrotate_point(p, image_bgr.shape, ang) for p in pts_reg],
+                    [unrotate_point(p, image_bgr.shape, ang) for p in pts_reg_original],
                     dtype=np.float32,
-                ) if ang else pts_reg
+                ) if ang else pts_reg_original
                 if _quad_quality(reg_original, image_bgr.shape) >= 0.20:
                     best_result = (
                         reg_original, "regmark", None, None,
@@ -713,10 +754,11 @@ def detect_corners_and_crop(
                     break
 
         # Keep the strongest document fallback candidate if all else fails.
+        doc_corners_original = doc_corners / np.array([process_scale_x, process_scale_y], dtype=np.float32)
         doc_original = np.array(
-            [unrotate_point(p, image_bgr.shape, ang) for p in doc_corners],
+            [unrotate_point(p, image_bgr.shape, ang) for p in doc_corners_original],
             dtype=np.float32,
-        ) if ang else doc_corners
+        ) if ang else doc_corners_original
         score = _quad_quality(doc_original, image_bgr.shape)
         if best_result is None or score > _quad_quality(best_result[0], image_bgr.shape):
             best_result = (
