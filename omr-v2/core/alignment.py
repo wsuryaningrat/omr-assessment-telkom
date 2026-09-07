@@ -1,14 +1,13 @@
 """Robust document alignment and ArUco corner detection.
 
 Pipeline:
-    1. Normalize orientation candidates.
-    2. Detect the physical paper (rough crop).
-    3. Upscale/warp the rough paper to a canonical detection canvas.
-    4. Detect ArUco at multiple scales / contrast variants.
-    5. Refine corners to sub-pixel accuracy.
-    6. If one marker is missing, predict its location and perform a local search.
-    7. Convert the marker-derived crop points back to the original image.
-    8. Perform the final perspective warp.
+    1. Create one bounded detection-resolution copy.
+    2. Detect the physical paper once.
+    3. Rough-warp only for corner-anchor detection.
+    4. Detect ArUco only in the four corner ROIs.
+    5. Use RegMark INNER corners when the sheet uses registration marks.
+    6. Fall back to the physical paper boundary only if anchors fail.
+    7. Perform the final perspective warp from the original image.
 
 The public function signatures are kept compatible with the previous module.
 """
@@ -146,8 +145,8 @@ def make_fast_detector(dict_val, min_perimeter=0.005, step=4):
     parameters.minMarkerPerimeterRate = float(min_perimeter)
     parameters.maxMarkerPerimeterRate = 4.0
     parameters.adaptiveThreshWinSizeMin = 3
-    parameters.adaptiveThreshWinSizeMax = 53
-    parameters.adaptiveThreshWinSizeStep = step
+    parameters.adaptiveThreshWinSizeMax = 23
+    parameters.adaptiveThreshWinSizeStep = min(step, 10)
     parameters.minCornerDistanceRate = 0.01
     parameters.minDistanceToBorder = 1
     parameters.polygonalApproxAccuracyRate = 0.03
@@ -298,12 +297,13 @@ def recover_missing_corner(marker_map, exp_c_ids, full_gray,
 
 
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
-    """Detect four corner ArUco markers robustly.
+    """Fast ArUco corner detection.
 
-    The function itself does not perform the final page warp. It returns crop
-    points in the coordinate system of *image*. A caller may therefore use a
-    rough document warp first, detect markers there at a useful pixel scale,
-    then map these points back to the original photo.
+    ArUco markers are expected near the four page corners, so detection is
+    restricted to four corner ROIs instead of scanning the entire page. This
+    both speeds detection and prevents answer bubbles / text from becoming
+    false positives. The default crop point is explicitly the INNER marker
+    vertex, i.e. the vertex pointing toward the page center.
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
     h, w = gray.shape[:2]
@@ -316,104 +316,84 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
 
     expected = expected_ids or {"TL": 0, "TR": 1, "BR": 3, "BL": 2}
     allowed = set(expected.values())
+    detector = make_fast_detector(dict_val, min_perimeter=0.008, step=10)
 
-    # Detection is intentionally performed on a reasonably large image.
-    # Never collapse a phone photo to 1400px merely because it is large.
-    # Detection copy only. Keep the caller's original image untouched for the
-    # final warp. 1800 px is a good compromise for phone photos: much cheaper
-    # than full-resolution detection while still retaining small ArUco markers.
-    max_dim = 1800
-    base_scale = min(1.0, max_dim / float(max(h, w)))
-    base = gray if base_scale >= 0.999 else cv2.resize(
-        gray, (int(round(w * base_scale)), int(round(h * base_scale))),
-        interpolation=cv2.INTER_AREA
-    )
-    inv = 1.0 / base_scale
+    # Corner ROIs: enough area for a marker that sits slightly inward from the
+    # page edge, but small enough to exclude most OMR content.
+    roi_w = max(180, int(round(w * 0.24)))
+    roi_h = max(180, int(round(h * 0.24)))
+    rois = {
+        "TL": (0, 0, roi_w, roi_h),
+        "TR": (w - roi_w, 0, w, roi_h),
+        "BR": (w - roi_w, h - roi_h, w, h),
+        "BL": (0, h - roi_h, roi_w, h),
+    }
 
-    detector = make_fast_detector(dict_val)
     marker_map = {}
-    # Fast path: one raw grayscale pass at native detection resolution.
-    for _, variant in _aruco_variants(base, include_enhanced=False):
-        for scale in (1.0,):
-            detections = _detect_at_scale(variant, detector, scale)
-            for mid, pts in detections:
-                if mid in allowed:
-                    pts_full = pts * inv
-                    area = abs(cv2.contourArea(pts_full.reshape(-1, 1, 2)))
-                    if mid not in marker_map or area > abs(cv2.contourArea(marker_map[mid].reshape(-1, 1, 2))):
-                        marker_map[mid] = pts_full
-            if len(marker_map) == 4:
-                break
-        if len(marker_map) == 4:
-            break
-
-    # Second pass only when necessary: CLAHE + mild upscale.
-    if len(marker_map) < 4:
-        for _, variant in _aruco_variants(base, include_enhanced=True):
-            if _ == "gray":
+    for label, (x1, y1, x2, y2) in rois.items():
+        roi = gray[y1:y2, x1:x2]
+        if roi.size == 0:
+            continue
+        # Cheap raw pass first. Only if it fails, try CLAHE once.
+        passes = (roi,)
+        for pass_index, candidate in enumerate(passes):
+            corners, ids, _ = detector.detectMarkers(candidate)
+            if ids is None:
+                if pass_index == 0:
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                    candidate = clahe.apply(roi)
+                    corners, ids, _ = detector.detectMarkers(candidate)
+                else:
+                    continue
+            if ids is None:
                 continue
-            for scale in (1.0, 1.25):
-                for mid, pts in _detect_at_scale(variant, detector, scale):
-                    if mid in allowed:
-                        pts_full = pts * inv
-                        area = abs(cv2.contourArea(pts_full.reshape(-1, 1, 2)))
-                        if mid not in marker_map or area > abs(cv2.contourArea(marker_map[mid].reshape(-1, 1, 2))):
-                            marker_map[mid] = pts_full
-                if len(marker_map) == 4:
-                    break
-            if len(marker_map) == 4:
-                break
-
-    # Auto mode fallback dictionaries. Only do this after the primary dict.
-    if len(marker_map) < 4 and (dict_name in (None, "", "auto")):
-        for alt_name, alt_val in FAST_ARUCO_DICTS[1:] + FALLBACK_DICTS:
-            if alt_val == dict_val:
-                continue
-            alt_detector = make_fast_detector(alt_val)
-            alt_map = {}
-            # Fallback dictionaries are deliberately cheap: raw 1.0x first,
-            # then CLAHE 1.0x. Do not brute-force every scale.
-            for variant_name, variant in _aruco_variants(base, include_enhanced=True):
-                for mid, pts in _detect_at_scale(variant, alt_detector, 1.0):
-                    if mid in allowed:
-                        alt_map[mid] = pts * inv
-                if len(alt_map) >= 4:
-                    break
-            if len(alt_map) >= len(marker_map):
-                marker_map = alt_map
-                best_dict_name = alt_name
-            if len(marker_map) == 4:
+            for i, mid in enumerate(ids.flatten()):
+                mid = int(mid)
+                if mid not in allowed:
+                    continue
+                pts = corners[i][0].astype(np.float32) + np.array([x1, y1], np.float32)
+                area = abs(cv2.contourArea(pts.reshape(-1, 1, 2)))
+                if area >= 4:
+                    marker_map[mid] = pts
+            if marker_map.get(expected[label]) is not None:
                 break
 
     if len(marker_map) == 3:
+        # Recovery uses the same image but only after the fast 4-ROI pass.
         marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
 
     if len(marker_map) < 4:
-        return None, None, best_dict_name, f"ArUco: Ditemukan {len(marker_map)}/4 marker sudut {list(marker_map.keys())} ({best_dict_name})."
+        return None, None, best_dict_name, (
+            f"ArUco: Ditemukan {len(marker_map)}/4 marker sudut "
+            f"{list(marker_map.keys())} ({best_dict_name})."
+        )
 
-    # Refine all real/synthetic marker corners once more on the original image.
-    # Synthetic points may not correspond to a real marker, so refinement is skipped for them.
-    expected_labels = {mid: lbl for lbl, mid in expected.items()}
-    center = np.mean(np.vstack(list(marker_map.values())), axis=0)
+    # Explicit INNER-corner selection. For each marker, choose the vertex whose
+    # direction from the marker center points most strongly toward the page center.
+    marker_centers = {
+        lbl: marker_map[expected[lbl]].mean(axis=0).astype(np.float32)
+        for lbl in ("TL", "TR", "BR", "BL")
+    }
+    page_center = np.mean(np.vstack(list(marker_centers.values())), axis=0)
     crop_pts = []
-
     for lbl in ("TL", "TR", "BR", "BL"):
-        mid = expected[lbl]
-        pts = marker_map[mid].astype(np.float32)
-        dists = np.linalg.norm(pts - center, axis=1)
-        if crop_mode == "outer":
-            pt = pts[np.argmax(dists)]
-        elif crop_mode == "center":
+        pts = marker_map[expected[lbl]].astype(np.float32)
+        if crop_mode == "center":
             pt = pts.mean(axis=0)
         else:
-            # Inner vertex = marker vertex closest to document center.
-            pt = pts[np.argmin(dists)]
+            direction = page_center - marker_centers[lbl]
+            norm = float(np.linalg.norm(direction))
+            if norm < 1e-6:
+                pt = pts[np.argmin(np.linalg.norm(pts - page_center, axis=1))]
+            else:
+                unit = direction / norm
+                projection = (pts - marker_centers[lbl]) @ unit
+                # INNER is the default. OUTER remains only for explicit legacy calls.
+                pt = pts[np.argmin(projection) if crop_mode == "outer" else np.argmax(projection)]
         crop_pts.append(pt)
 
     ordered = np.asarray(crop_pts, dtype=np.float32)
-    # Geometry sanity check. Reject obviously broken/self-intersecting quads.
-    q = _quad_quality(ordered, gray.shape)
-    if q < 0.20:
+    if _quad_quality(ordered, gray.shape) < 0.20:
         return None, None, best_dict_name, "ArUco: geometri marker tidak valid."
 
     return ordered, {lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")}, best_dict_name, "DETECTED"
@@ -488,7 +468,7 @@ def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=24
 
 
 def _rough_warp(image, doc_corners, width=1800, height=2500):
-    warped, M = perspective_warp(image, doc_corners, width, height)
+    warped, M = perspective_warp(image, doc_corners, width, height, interpolation=cv2.INTER_LINEAR)
     try:
         inv_M = np.linalg.inv(M)
     except np.linalg.LinAlgError:
@@ -644,140 +624,134 @@ def detect_corners_and_crop(
     crop_mode="inner",
     apply_standardization=True
 ):
-    """Main alignment pipeline.
+    """Fast, robust alignment pipeline.
 
-    Key difference from the previous implementation:
-        photo -> physical paper crop -> rough canonical warp -> ArUco detection
-        -> fine corner extraction -> map back -> final warp.
+    Fast path:
+        original -> one low-resolution document detection -> rough warp ->
+        corner-only ArUco scan -> final warp from original.
 
-    This keeps small corner markers large enough to detect even when the camera
-    is relatively far from the LJK.
+    If ArUco is unavailable (which is common for this LJK's registration
+    marks), the cheap RegMark detector is used before falling back to the
+    physical page contour. No Google Drive/background step is needed here.
     """
     if image is None or image.size == 0:
         return None, None, "none", None, None, "FAILED: gambar kosong"
 
-    h_in, w_in = image.shape[:2]
-    if image.ndim != 3:
-        image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    else:
-        image_bgr = image
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim != 3 else image
+    h_in, w_in = image_bgr.shape[:2]
 
-    # Keep original pixels for the final warp, but do geometry detection on a
-    # smaller processing copy when the upload is unnecessarily high-resolution.
-    processing_img, process_scale_x, process_scale_y = prepare_image_for_processing(
-        image_bgr, max_width=2200, max_height=2200
+    # One detection copy only. Original pixels remain untouched for final warp.
+    processing_img, sx, sy = prepare_image_for_processing(
+        image_bgr, max_width=1800, max_height=1800
     )
-    h_proc, w_proc = processing_img.shape[:2]
 
-    # Try orientations that match the target aspect ratio first.
-    if w_in > h_in and canvas_h > canvas_w:
-        candidate_angles = [90, 270, 0, 180]
-    elif h_in > w_in and canvas_w > canvas_h:
-        candidate_angles = [90, 270, 0, 180]
-    else:
-        candidate_angles = [0, 180, 90, 270]
+    # Do not brute-force rotations. The page detector and ArUco are rotation
+    # tolerant. 180° is only a cheap fallback if the first orientation cannot
+    # produce a marker/regmark result.
+    candidate_angles = [0, 180, 90, 270]
+    best_doc = None
 
-    best_result = None
+    for angle_index, ang in enumerate(candidate_angles):
+        # After a real marker-based result, stop immediately.
+        if best_doc is not None and best_doc[1] in ("aruco", "regmark"):
+            break
+        # 90/270 are only for a genuine failure on the first two attempts.
+        if angle_index >= 2 and best_doc is not None:
+            break
 
-    for ang in candidate_angles:
         rot_img = _rotate_candidate(processing_img, ang)
-        rh, rw = rot_img.shape[:2]
-
-        # STEP 1: physical document detection. This is deliberately before ArUco.
-        doc_corners, doc_status = find_document_corners(
+        doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
         doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
 
-        # STEP 2: rough warp. Use a generous detection canvas so small markers grow.
-        rough_w = max(1800, min(2400, canvas_w + 400))
-        rough_h = max(2400, min(3400, canvas_h + 600))
-        rough_img, rough_M, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
+        # Cheap rough warp only for marker detection. Keep this below the final
+        # OMR canvas size because it is disposable detection data.
+        rough_w = min(1800, max(1400, canvas_w))
+        rough_h = min(2500, max(2000, canvas_h))
+        rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
 
-        # STEP 3: ArUco on the rough page, not the entire desk/photo.
-        ordered_rough = None
-        corner_ids = None
-        detected_dict = None
-        aruco_status = ""
+        # 1) ArUco fast path, restricted to four corner ROIs.
         if preferred_method in ("aruco", "auto"):
-            ordered_rough, corner_ids, detected_dict, aruco_status = find_aruco_markers(
+            ar_pts, ids, detected_dict, ar_status = find_aruco_markers(
                 rough_img,
                 dict_name=dict_name,
                 expected_ids=expected_ids,
-                crop_mode=crop_mode,
+                crop_mode="inner",  # Always inner for the main alignment path.
             )
-
-        if ordered_rough is not None and aruco_status in ("DETECTED", "RECOVERED"):
-            # STEP 4: map the fine crop points from rough page back to rotated photo.
-            fine_rot = _map_points_back(ordered_rough, inv_rough_M)
-            if fine_rot is not None:
-                # Convert processing-image coordinates back to original-image
-                # coordinates before the final warp.
-                fine_rot = fine_rot / np.array([process_scale_x, process_scale_y], dtype=np.float32)
-                q = _quad_quality(fine_rot, image_bgr.shape)
-                if q >= 0.20:
-                    fine_original = np.array(
-                        [unrotate_point(p, image_bgr.shape, ang) for p in fine_rot],
-                        dtype=np.float32,
-                    ) if ang else fine_rot
-                    q_orig = _quad_quality(fine_original, image_bgr.shape)
-                    if q_orig >= 0.20:
-                        best_result = (
-                            fine_original,
-                            "aruco",
-                            corner_ids,
-                            detected_dict,
-                            "DETECTED (4 Sudut Terkunci - ArUco + Rough Crop)"
+            if ar_pts is not None and ar_status == "DETECTED":
+                fine_rot = _map_points_back(ar_pts, inv_rough_M)
+                if fine_rot is not None:
+                    fine_proc = fine_rot
+                    fine_original = fine_proc / np.array([sx, sy], dtype=np.float32)
+                    if ang:
+                        fine_original = np.array(
+                            [unrotate_point(p, image_bgr.shape, ang) for p in fine_original],
+                            dtype=np.float32,
+                        )
+                    if _quad_quality(fine_original, image_bgr.shape) >= 0.20:
+                        best_doc = (
+                            fine_original, "aruco", ids, detected_dict,
+                            "DETECTED (4 Sudut Terkunci - ArUco INNER)"
                         )
                         break
 
-        # STEP 5: legacy regmark fallback, but also on the rough document geometry.
-        if best_result is None and preferred_method in ("regmark", "auto"):
+        # 2) RegMark path. This is the actual fast anchor mechanism for the
+        # supplied LJK image and uses INNER points by default.
+        if preferred_method in ("aruco", "auto", "regmark"):
             pts_reg, status_reg = find_regmarks(
                 rot_img,
                 target_w=canvas_w,
                 target_h=canvas_h,
-                crop_mode=crop_mode,
+                crop_mode="inner",
                 doc_corners=doc_corners,
             )
             if pts_reg is not None and status_reg == "DETECTED":
-                pts_reg_original = pts_reg / np.array([process_scale_x, process_scale_y], dtype=np.float32)
-                reg_original = np.array(
-                    [unrotate_point(p, image_bgr.shape, ang) for p in pts_reg_original],
-                    dtype=np.float32,
-                ) if ang else pts_reg_original
-                if _quad_quality(reg_original, image_bgr.shape) >= 0.20:
-                    best_result = (
-                        reg_original, "regmark", None, None,
-                        "DETECTED (4 Sudut Terkunci - Corner Anchor RegMark)"
+                pts_original = pts_reg / np.array([sx, sy], dtype=np.float32)
+                if ang:
+                    pts_original = np.array(
+                        [unrotate_point(p, image_bgr.shape, ang) for p in pts_original],
+                        dtype=np.float32,
+                    )
+                if _quad_quality(pts_original, image_bgr.shape) >= 0.20:
+                    best_doc = (
+                        pts_original, "regmark", None, None,
+                        "DETECTED (4 Sudut Terkunci - RegMark INNER)"
                     )
                     break
 
-        # Keep the strongest document fallback candidate if all else fails.
-        doc_corners_original = doc_corners / np.array([process_scale_x, process_scale_y], dtype=np.float32)
-        doc_original = np.array(
-            [unrotate_point(p, image_bgr.shape, ang) for p in doc_corners_original],
-            dtype=np.float32,
-        ) if ang else doc_corners_original
+        # 3) Physical page contour is only a last-resort fallback. It is OUTER
+        # by definition, so make that explicit in the returned status.
+        doc_original = doc_corners / np.array([sx, sy], dtype=np.float32)
+        if ang:
+            doc_original = np.array(
+                [unrotate_point(p, image_bgr.shape, ang) for p in doc_original],
+                dtype=np.float32,
+            )
         score = _quad_quality(doc_original, image_bgr.shape)
-        if best_result is None or score > _quad_quality(best_result[0], image_bgr.shape):
-            best_result = (
+        if best_doc is None or score > _quad_quality(best_doc[0], image_bgr.shape):
+            best_doc = (
                 doc_original, "doc_contour", None, None,
-                "DETECTED (4 Sudut Terkunci - Batas Fisik Dokumen)"
+                "DETECTED (Fallback - Batas Fisik Dokumen OUTER)"
             )
 
-    ordered_pts, method_used, corner_ids, detected_dict, status = best_result
+    if best_doc is None:
+        return None, None, "none", None, None, "FAILED: corner tidak ditemukan"
 
-    # Final warp is always performed on the ORIGINAL image so no quality is lost
-    # from the rough detection pass.
-    warped_img, _ = perspective_warp(image_bgr, ordered_pts, canvas_w, canvas_h)
+    ordered_pts, method_used, corner_ids, detected_dict, status = best_doc
+
+    # Final warp from original image. Linear interpolation is substantially
+    # cheaper than cubic and is sufficient for the canonical OMR canvas.
+    warped_img, _ = perspective_warp(
+        image_bgr, ordered_pts, canvas_w, canvas_h, interpolation=cv2.INTER_LINEAR
+    )
     if apply_standardization and warped_img is not None and warped_img.size > 0:
         warped_img = standardize_document_image(warped_img)
 
     return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status
 
 
-def perspective_warp(image, src_points, dst_width, dst_height):
+def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2.INTER_LINEAR):
     src = order_points(src_points, target_w=dst_width, target_h=dst_height)
     dst = np.array([
         [0, 0], [dst_width - 1, 0],
@@ -786,7 +760,7 @@ def perspective_warp(image, src_points, dst_width, dst_height):
     M = cv2.getPerspectiveTransform(src, dst)
     warped = cv2.warpPerspective(
         image, M, (dst_width, dst_height),
-        flags=cv2.INTER_CUBIC,
+        flags=interpolation,
         borderMode=cv2.BORDER_REPLICATE,
     )
     return warped, M
