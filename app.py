@@ -79,7 +79,7 @@ def get_default_template_path():
         if json_files:
             return os.path.join(templates_dir, json_files[0])
     
-    for fallback in ["template-final.json", "templates/template_v1.json"]:
+    for fallback in ["templates/omr_config.json", "template-final.json", "templates/template_v1.json"]:
         p = os.path.join(base_dir, fallback)
         if os.path.exists(p):
             return p
