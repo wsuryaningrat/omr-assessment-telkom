@@ -36,32 +36,34 @@ def get_marker_rotation(corners):
         return 270
 
 
-def make_fast_detector(dict_val):
+def make_fast_detector(dict_val, min_perimeter=0.015, step=8):
     """
-    Creates an ultra-fast ArUco detector by filtering out all small answer bubbles/letters
-    with minMarkerPerimeterRate=0.035, eliminating useless bit-decoding sweeps.
+    Creates an ultra-reliable ArUco detector tuned for smartphone camera photos and scans.
+    minMarkerPerimeterRate=0.015 ensures even distant / tilted markers are reliably captured.
     """
     dictionary = cv2.aruco.getPredefinedDictionary(dict_val)
     parameters = cv2.aruco.DetectorParameters()
-    # Reject small bubbles and characters immediately (50x speedup!)
-    parameters.minMarkerPerimeterRate = 0.035
+    parameters.minMarkerPerimeterRate = min_perimeter
     parameters.maxMarkerPerimeterRate = 2.5
     parameters.adaptiveThreshWinSizeMin = 3
     parameters.adaptiveThreshWinSizeMax = 53
-    parameters.adaptiveThreshWinSizeStep = 10
+    parameters.adaptiveThreshWinSizeStep = step
     parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
     return cv2.aruco.ArucoDetector(dictionary, parameters)
 
 
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
     """
-    Blazing-fast (< 0.05s) ArUco marker detector.
-    Extracts the 4 corner fiducial markers and computes inner crop corners.
+    Robust multi-pass ArUco marker detector (< 0.08s).
+    Pass 1: Direct fast scan on downscaled image (width ~1400).
+    Pass 2: CLAHE contrast enhancement for dim / shadowed photos.
+    Pass 3: Background illumination compensation (shadow suppression).
+    Extracts the 4 corner fiducial markers and computes inner/outer crop corners.
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image.copy()
     h, w = gray.shape
 
-    # Pre-scale if image is huge (e.g. > 1600px width) for instantaneous contour extraction
+    # Pre-scale if image is large (e.g. > 1600px width) for high-speed contour extraction
     scale = 1.0
     if w > 1600:
         scale = 1400.0 / float(w)
@@ -99,13 +101,28 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
                 best_ids = ids.flatten()
                 best_dict_name = d_name
 
-    # Pass 2: Quick contrast enhancement only if no dictionary had >= 4 markers
+    # Pass 2: Quick contrast enhancement (CLAHE) if no dictionary had >= 4 markers
     if (best_ids is None or len(best_ids) < 4) and len(dicts_to_try) > 0:
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
         enhanced = clahe.apply(small_gray)
         for d_name, d_val in dicts_to_try:
             detector = make_fast_detector(d_val)
             c, ids, _ = detector.detectMarkers(enhanced)
+            if ids is not None and len(ids) >= 4:
+                best_corners = c
+                best_ids = ids.flatten()
+                best_dict_name = d_name
+                break
+
+    # Pass 3: Morphological illumination normalization (removes severe shadows)
+    if (best_ids is None or len(best_ids) < 4) and len(dicts_to_try) > 0:
+        bg_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (35, 35))
+        bg_estim = cv2.morphologyEx(small_gray, cv2.MORPH_DILATE, bg_kernel)
+        bg_estim = cv2.GaussianBlur(bg_estim, (35, 35), 0)
+        norm_gray = cv2.divide(small_gray, np.maximum(bg_estim, 1), scale=250)
+        for d_name, d_val in dicts_to_try:
+            detector = make_fast_detector(d_val)
+            c, ids, _ = detector.detectMarkers(norm_gray)
             if ids is not None and len(ids) >= 4:
                 best_corners = c
                 best_ids = ids.flatten()
@@ -121,7 +138,7 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
     marker_map = {}
     inv_scale = 1.0 / scale
     for i, mid in enumerate(best_ids):
-        c_pts = best_corners[i][0] * inv_scale # (4, 2)
+        c_pts = best_corners[i][0] * inv_scale  # (4, 2)
         center = np.mean(c_pts, axis=0)
         marker_map[int(mid)] = {
             "center": center,
@@ -341,6 +358,51 @@ def find_regmarks(image, target_w=1700, target_h=2400, crop_mode="inner"):
     return ordered_pts, "DETECTED"
 
 
+def find_document_corners(image, min_area_ratio=0.18, target_w=1700, target_h=2400):
+    """
+    Intelligent Paper Boundary Detector (Fallback when printed markers are missing/occluded):
+    Finds the 4 physical corners of the paper sheet on a desk or background.
+    """
+    h, w = image.shape[:2]
+    scale = 800.0 / max(h, w)
+    small_w, small_h = int(w * scale), int(h * scale)
+    small = cv2.resize(image, (small_w, small_h), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if len(small.shape) == 3 else small
+
+    # Preprocessing
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 30, 120)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    best_quad = None
+    min_area = (small_w * small_h) * min_area_ratio
+
+    for cnt in contours[:8]:
+        area = cv2.contourArea(cnt)
+        if area < min_area:
+            continue
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.025 * peri, True)
+        if len(approx) == 4 and cv2.isContourConvex(approx):
+            pts = approx.reshape(4, 2) / scale
+            ordered = order_points(pts, target_w=target_w, target_h=target_h)
+            pw = np.hypot(ordered[1][0] - ordered[0][0], ordered[1][1] - ordered[0][1])
+            ph = np.hypot(ordered[3][0] - ordered[0][0], ordered[3][1] - ordered[0][1])
+            if pw > 0 and ph > 0:
+                ar = pw / ph
+                if 0.35 <= ar <= 2.5:
+                    best_quad = ordered
+                    break
+
+    if best_quad is not None:
+        return best_quad, "DETECTED"
+    return None, "Batas Kertas: 4 sudut fisik lembar dokumen tidak ditemukan."
+
+
 def order_points(pts, target_w=1700, target_h=2400):
     """
     Order points: top-left, top-right, bottom-right, bottom-left.
@@ -349,12 +411,12 @@ def order_points(pts, target_w=1700, target_h=2400):
     rect = np.zeros((4, 2), dtype="float32")
 
     s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)] # Top-Left
-    rect[2] = pts[np.argmax(s)] # Bottom-Right
+    rect[0] = pts[np.argmin(s)]  # Top-Left
+    rect[2] = pts[np.argmax(s)]  # Bottom-Right
 
     diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)] # Top-Right
-    rect[3] = pts[np.argmax(diff)] # Bottom-Left
+    rect[1] = pts[np.argmin(diff)]  # Top-Right
+    rect[3] = pts[np.argmax(diff)]  # Bottom-Left
 
     top_w = np.hypot(rect[1][0] - rect[0][0], rect[1][1] - rect[0][1])
     bot_w = np.hypot(rect[2][0] - rect[3][0], rect[2][1] - rect[3][1])
@@ -370,6 +432,60 @@ def order_points(pts, target_w=1700, target_h=2400):
     return rect
 
 
+def standardize_document_image(image_bgr, target_bg=245):
+    """
+    Standardizes the visual appearance of a cropped/warped LJK image:
+    1. Removes shadows and uneven lighting gradients (background normalization).
+    2. Adjusts contrast so paper is clean bright white (~245) and ink/bubbles are deep crisp dark.
+    3. Neutralizes color casts (removes warm yellowish or cool bluish tint).
+    4. Applies gentle edge sharpening for crystal-clear bubble boundaries and text legibility.
+    """
+    if image_bgr is None or image_bgr.size == 0:
+        return image_bgr
+
+    # 1. Convert to LAB color space
+    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+
+    # 2. Downscaled background illumination estimation on L channel (<0.08s)
+    h, w = l.shape
+    scale = 0.5
+    small_l = cv2.resize(l, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+    kernel_size = 25
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    bg_small = cv2.morphologyEx(small_l, cv2.MORPH_DILATE, kernel)
+    bg_small = cv2.GaussianBlur(bg_small, (kernel_size, kernel_size), 0)
+    bg_l = cv2.resize(bg_small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    bg_l_safe = np.maximum(bg_l, 1)
+
+    # Divide L by background to equalize illumination across the page
+    l_div = np.clip((l.astype(np.float32) / bg_l_safe.astype(np.float32)) * float(target_bg), 0, 255).astype(np.uint8)
+
+    # 3. Dynamic contrast enhancement (stretch ink/bubbles to black, keep paper white)
+    p1 = float(np.percentile(l_div, 1))
+    p99 = float(np.percentile(l_div, 99))
+    if p99 > p1 + 25:
+        l_std = np.clip((l_div.astype(np.float32) - p1) * 250.0 / (p99 - p1), 0, 255).astype(np.uint8)
+    else:
+        l_std = l_div
+
+    # 4. Subtle unsharp masking for crisp text and bubble edges
+    blurred_l = cv2.GaussianBlur(l_std, (0, 0), 1.2)
+    l_sharp = cv2.addWeighted(l_std, 1.25, blurred_l, -0.25, 0)
+
+    # 5. Neutralize color cast in A and B channels (white balance adjustment)
+    med_a = float(np.median(a))
+    med_b = float(np.median(b))
+    # Standard neutral LAB is 128
+    a_clean = np.clip(a.astype(np.float32) - (med_a - 128.0) * 0.85, 0, 255).astype(np.uint8)
+    b_clean = np.clip(b.astype(np.float32) - (med_b - 128.0) * 0.85, 0, 255).astype(np.uint8)
+
+    merged_lab = cv2.merge([l_sharp, a_clean, b_clean])
+    return cv2.cvtColor(merged_lab, cv2.COLOR_LAB2BGR)
+
+
 def detect_corners_and_crop(
     image,
     canvas_w=1700,
@@ -377,46 +493,89 @@ def detect_corners_and_crop(
     preferred_method="aruco",
     expected_ids=None,
     dict_name=None,
-    crop_mode="inner"
+    crop_mode="inner",
+    apply_standardization=True
 ):
     """
-    Unified Corner Detection & Perspective Cropping Engine:
-    Runs in < 0.05 seconds.
-    crop_mode="inner" guarantees taking ONLY the rectangle strictly inside the ArUco markers.
+    Unified Corner Detection & Perspective Cropping Engine with Standardization:
+    1. Evaluates 4 corners with multi-angle rotation checks (0, 90, 180, 270 degrees).
+    2. Locks corners via ArUco fiducials -> RegMark anchors -> Document paper contour.
+    3. Warps perspective to canonical canvas dimensions (canvas_w x canvas_h).
+    4. Automatically applies illumination equalization, shadow removal, and contrast standardization.
     """
     ordered_pts = None
     status = "FAILED"
     method_used = "none"
     corner_ids = None
     detected_dict = None
+    working_image = image
 
+    h_in, w_in = image.shape[:2]
+
+    # Smart candidate angle search:
+    # If image is landscape (w > h) while canvas is portrait (h > w), try 90 and 270 first
+    if w_in > h_in and canvas_h > canvas_w:
+        candidate_angles = [90, 270, 0, 180]
+    else:
+        candidate_angles = [0, 180, 90, 270]
+
+    # 1. Primary Method: ArUco Fiducials
     if preferred_method in ["aruco", "auto"]:
-        pts_aruco, c_ids, d_name, status_aruco = find_aruco_markers(
-            image, dict_name=dict_name, expected_ids=expected_ids, crop_mode=crop_mode
-        )
-        if pts_aruco is not None and status_aruco == "DETECTED":
-            ordered_pts = pts_aruco
-            corner_ids = c_ids
-            detected_dict = d_name
-            status = "DETECTED (ArUco Fiducial Locked)"
-            method_used = "aruco"
+        for ang in candidate_angles:
+            rot_img = rotate_image(image, ang) if ang != 0 else image
+            pts_aruco, c_ids, d_name, status_aruco = find_aruco_markers(
+                rot_img, dict_name=dict_name, expected_ids=expected_ids, crop_mode=crop_mode
+            )
+            if pts_aruco is not None and status_aruco == "DETECTED":
+                ordered_pts = pts_aruco
+                corner_ids = c_ids
+                detected_dict = d_name
+                status = "DETECTED (4 Sudut Terkunci Sempurna - ArUco)"
+                method_used = "aruco"
+                working_image = rot_img
+                break
 
+    # 2. Secondary Method: Corner Anchor RegMarks
     if ordered_pts is None:
-        pts_reg, status_reg = find_regmarks(image, target_w=canvas_w, target_h=canvas_h, crop_mode=crop_mode)
-        if pts_reg is not None and status_reg == "DETECTED":
-            ordered_pts = pts_reg
-            status = "DETECTED (Corner Anchor Locked)"
-            method_used = "regmark"
-        else:
-            status = f"{status_reg}"
+        for ang in candidate_angles:
+            rot_img = rotate_image(image, ang) if ang != 0 else image
+            pts_reg, status_reg = find_regmarks(
+                rot_img, target_w=canvas_w, target_h=canvas_h, crop_mode=crop_mode
+            )
+            if pts_reg is not None and status_reg == "DETECTED":
+                ordered_pts = pts_reg
+                status = "DETECTED (4 Sudut Terkunci - Corner Anchor)"
+                method_used = "regmark"
+                working_image = rot_img
+                break
 
+    # 3. Tertiary Fallback Method: Document Paper Boundary Quadrilateral
+    if ordered_pts is None:
+        for ang in candidate_angles:
+            rot_img = rotate_image(image, ang) if ang != 0 else image
+            pts_doc, status_doc = find_document_corners(
+                rot_img, target_w=canvas_w, target_h=canvas_h
+            )
+            if pts_doc is not None and status_doc == "DETECTED":
+                ordered_pts = pts_doc
+                status = "DETECTED (4 Sudut Terkunci - Batas Kertas Dokumen)"
+                method_used = "doc_contour"
+                working_image = rot_img
+                break
+
+    # 4. Crop via Perspective Warp or Fallback Resize
     if ordered_pts is not None:
-        warped_img, M = perspective_warp(image, ordered_pts, canvas_w, canvas_h)
+        warped_img, M = perspective_warp(working_image, ordered_pts, canvas_w, canvas_h)
     else:
         warped_img = cv2.resize(image, (canvas_w, canvas_h))
         ordered_pts = np.array([
             [0, 0], [canvas_w, 0], [canvas_w, canvas_h], [0, canvas_h]
         ], dtype="float32")
+        status = "FAILED: 4 sudut pojok tidak terdeteksi lengkap. Pastikan seluruh lembar LJK dan 4 sudutnya terlihat jelas."
+
+    # 5. Image Standardization (Shadow removal, illumination equalization, contrast normalization)
+    if apply_standardization and warped_img is not None and warped_img.size > 0:
+        warped_img = standardize_document_image(warped_img)
 
     return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status
 

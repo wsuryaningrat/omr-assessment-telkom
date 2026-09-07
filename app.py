@@ -1078,7 +1078,13 @@ if mode == "Portal Evaluasi LJK":
                     student_record["Kunci Terpakai"] = "-"
 
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
-                dosen_previews.append((doc_name, overlay_img))
+                dosen_previews.append({
+                    "name": doc_name,
+                    "overlay": overlay_img,
+                    "warped": warped,
+                    "status": status,
+                    "method": method
+                })
                 dosen_results.append(student_record)
                 prog.progress((idx + 1) / len(all_pages_to_process))
 
@@ -1173,12 +1179,30 @@ if mode == "Portal Evaluasi LJK":
                 st.session_state["dosen_submitted"] = False
                 st.rerun()
 
-        with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Klik untuk Memeriksa Arsiran)", expanded=False):
+        with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Standarisasi Citra & Hasil Baca)", expanded=False):
             if st.session_state.get("dosen_previews"):
-                sel_doc = st.selectbox("Pilih Lembar Mahasiswa:", [p[0] for p in st.session_state["dosen_previews"]])
+                prev_names = [p["name"] if isinstance(p, dict) else p[0] for p in st.session_state["dosen_previews"]]
+                sel_doc = st.selectbox("Pilih Lembar Mahasiswa:", prev_names)
+                sel_item = None
                 for p in st.session_state["dosen_previews"]:
-                    if p[0] == sel_doc:
-                        st.image(cv_to_pil(p[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
+                    p_name = p["name"] if isinstance(p, dict) else p[0]
+                    if p_name == sel_doc:
+                        sel_item = p
+                        break
+                if sel_item:
+                    if isinstance(sel_item, dict):
+                        st_status = sel_item.get("status", "")
+                        if "DETECTED" in st_status:
+                            st.success(f"📐 Status Ujung Pojok: **{st_status}**")
+                        else:
+                            st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
+                        c_prev1, c_prev2 = st.columns(2)
+                        with c_prev1:
+                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"Deteksi Jawaban: {sel_doc}")
+                        with c_prev2:
+                            st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Crop & Standarisasi: {sel_doc}")
+                    else:
+                        st.image(cv_to_pil(sel_item[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
 
 
 # ==============================================================================
