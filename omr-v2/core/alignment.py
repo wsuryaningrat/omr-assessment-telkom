@@ -557,39 +557,100 @@ def find_regmarks(image, target_w=1700, target_h=2400, crop_mode="inner", doc_co
 # Final image processing
 # ---------------------------------------------------------------------------
 
+def _odd_int(value, minimum=3):
+    value = max(minimum, int(round(value)))
+    return value if value % 2 == 1 else value + 1
+
+
+def enhance_scan_gray(gray, strength=1.0):
+    """Create a scanner-like grayscale image without hard binarization.
+
+    The goal is similar to consumer document scanners: flatten uneven page
+    illumination, push paper toward white, strengthen dark print/boxes, and
+    add mild local sharpness. We intentionally avoid a full binary threshold,
+    because OMR marks and thin box borders can be damaged by aggressive
+    thresholding.
+    """
+    if gray is None or gray.size == 0:
+        return gray
+
+    gray = np.asarray(gray, dtype=np.uint8)
+    h, w = gray.shape[:2]
+
+    # 1) Suppress sensor noise while keeping thin printed edges.
+    den = cv2.GaussianBlur(gray, (3, 3), 0)
+
+    # 2) Estimate slow illumination/background variation.
+    #    This is the key "scanner" step that removes table shadows and page
+    #    gradients before contrast is applied.
+    sigma = max(12.0, min(h, w) * 0.035)
+    bg = cv2.GaussianBlur(den, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    bg_f = np.maximum(bg.astype(np.float32), 12.0)
+    flat = np.clip(den.astype(np.float32) / bg_f * 230.0, 0, 255)
+    flat = flat.astype(np.uint8)
+
+    # 3) Robust global contrast stretch. Percentiles prevent a few black
+    #    bubbles/registration marks from dictating the range.
+    lo, hi = np.percentile(flat, [1.0, 99.0])
+    if hi > lo + 12:
+        stretched = np.clip((flat.astype(np.float32) - lo) * 250.0 / (hi - lo), 0, 255).astype(np.uint8)
+    else:
+        stretched = flat
+
+    # 4) Mild local contrast. Keep clipLimit modest so the printed grid does
+    #    not become noisy.
+    clahe = cv2.createCLAHE(clipLimit=1.7 + 0.3 * float(np.clip(strength, 0, 1.5)),
+                            tileGridSize=(10, 10))
+    local = clahe.apply(stretched)
+
+    # 5) Scanner-like crispness: unsharp mask, intentionally mild.
+    blur = cv2.GaussianBlur(local, (0, 0), 0.9)
+    amount = 0.22 * float(np.clip(strength, 0.0, 1.5))
+    sharp = cv2.addWeighted(local, 1.0 + amount, blur, -amount, 0)
+
+    # 6) Soft background lift. Avoid clipping the dark foreground.
+    #    This makes the page look whiter without erasing thin lines.
+    page_floor = np.percentile(sharp, 30)
+    if page_floor > 90:
+        lift = min(12.0, (page_floor - 90.0) * 0.35)
+        sharp = np.clip(sharp.astype(np.float32) + lift, 0, 255).astype(np.uint8)
+
+    return sharp
+
+
 def standardize_document_image(image_bgr, target_bg=245):
+    """Scanner-style enhancement tuned for OMR.
+
+    Public scanner apps such as CamScanner expose auto-crop, perspective
+    correction, background removal and multiple enhance/filter modes. Their
+    exact proprietary internals are not public, so this function recreates the
+    observable document-scan behavior with OpenCV rather than claiming to
+    reproduce CamScanner's private algorithm.
+    """
     if image_bgr is None or image_bgr.size == 0:
         return image_bgr
 
-    lab = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    h, w = l.shape
+    # OMR reads luminance. Work mainly in grayscale, then return a 3-channel
+    # image for compatibility with the existing detector pipeline.
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY) if image_bgr.ndim == 3 else image_bgr.copy()
+    clean = enhance_scan_gray(gray, strength=1.0)
 
-    # Large illumination model. Keep kernel proportional to page size.
-    k = max(25, int(round(min(h, w) * 0.018)))
-    if k % 2 == 0:
-        k += 1
-    small = cv2.resize(l, (max(1, w // 2), max(1, h // 2)), interpolation=cv2.INTER_AREA)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-    bg = cv2.morphologyEx(small, cv2.MORPH_CLOSE, kernel)
-    bg = cv2.GaussianBlur(bg, (0, 0), max(1.0, k / 3.0))
-    bg = cv2.resize(bg, (w, h), interpolation=cv2.INTER_LINEAR)
-    bg_safe = np.maximum(bg, 1)
-    l_div = np.clip(l.astype(np.float32) / bg_safe.astype(np.float32) * float(target_bg), 0, 255).astype(np.uint8)
+    # Keep the requested background target as a gentle white-point adjustment,
+    # not a hard threshold. This preserves pencil/pen strokes and fine borders.
+    if target_bg != 245:
+        mean_bg = float(np.percentile(clean, 70))
+        if mean_bg > 1:
+            gain = float(target_bg) / mean_bg
+            gain = float(np.clip(gain, 0.90, 1.10))
+            clean = np.clip(clean.astype(np.float32) * gain, 0, 255).astype(np.uint8)
 
-    p1, p99 = float(np.percentile(l_div, 1)), float(np.percentile(l_div, 99))
-    if p99 > p1 + 25:
-        l_std = np.clip((l_div.astype(np.float32) - p1) * 250.0 / (p99 - p1), 0, 255).astype(np.uint8)
-    else:
-        l_std = l_div
+    return cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR)
 
-    blurred = cv2.GaussianBlur(l_std, (0, 0), 1.2)
-    l_sharp = cv2.addWeighted(l_std, 1.18, blurred, -0.18, 0)
 
-    med_a, med_b = float(np.median(a)), float(np.median(b))
-    a_clean = np.clip(a.astype(np.float32) - (med_a - 128.0) * 0.85, 0, 255).astype(np.uint8)
-    b_clean = np.clip(b.astype(np.float32) - (med_b - 128.0) * 0.85, 0, 255).astype(np.uint8)
-    return cv2.cvtColor(cv2.merge([l_sharp, a_clean, b_clean]), cv2.COLOR_LAB2BGR)
+def make_scan_detection_image(image, strength=1.0):
+    """Fast scanner-like grayscale preprocessing for document/marker detection."""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
+    return enhance_scan_gray(gray, strength=strength)
 
 
 def prepare_image_for_processing(image, max_width=2200, max_height=2200):
@@ -622,7 +683,8 @@ def detect_corners_and_crop(
     expected_ids=None,
     dict_name=None,
     crop_mode="inner",
-    apply_standardization=True
+    apply_standardization=True,
+    scan_enhance=True
 ):
     """Fast, robust alignment pipeline.
 
@@ -671,10 +733,16 @@ def detect_corners_and_crop(
         rough_h = min(2500, max(2000, canvas_h))
         rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
 
+        # Scanner-like contrast is used for anchor detection. This improves
+        # small dark corner marks under shadows without changing the original
+        # image used by the final perspective warp.
+        rough_scan_gray = make_scan_detection_image(rough_img, strength=0.9)
+        rough_scan_bgr = cv2.cvtColor(rough_scan_gray, cv2.COLOR_GRAY2BGR)
+
         # 1) ArUco fast path, restricted to four corner ROIs.
         if preferred_method in ("aruco", "auto"):
             ar_pts, ids, detected_dict, ar_status = find_aruco_markers(
-                rough_img,
+                rough_scan_bgr,
                 dict_name=dict_name,
                 expected_ids=expected_ids,
                 crop_mode="inner",  # Always inner for the main alignment path.
@@ -700,14 +768,17 @@ def detect_corners_and_crop(
         # supplied LJK image and uses INNER points by default.
         if preferred_method in ("aruco", "auto", "regmark"):
             pts_reg, status_reg = find_regmarks(
-                rot_img,
+                rough_scan_bgr,
                 target_w=canvas_w,
                 target_h=canvas_h,
                 crop_mode="inner",
-                doc_corners=doc_corners,
+                doc_corners=np.array([[0, 0], [rough_w - 1, 0], [rough_w - 1, rough_h - 1], [0, rough_h - 1]], dtype=np.float32),
             )
             if pts_reg is not None and status_reg == "DETECTED":
-                pts_original = pts_reg / np.array([sx, sy], dtype=np.float32)
+                fine_rot_reg = _map_points_back(pts_reg, inv_rough_M)
+                if fine_rot_reg is None:
+                    fine_rot_reg = pts_reg
+                pts_original = fine_rot_reg / np.array([sx, sy], dtype=np.float32)
                 if ang:
                     pts_original = np.array(
                         [unrotate_point(p, image_bgr.shape, ang) for p in pts_original],
@@ -745,8 +816,10 @@ def detect_corners_and_crop(
     warped_img, _ = perspective_warp(
         image_bgr, ordered_pts, canvas_w, canvas_h, interpolation=cv2.INTER_LINEAR
     )
-    if apply_standardization and warped_img is not None and warped_img.size > 0:
+    if apply_standardization and scan_enhance and warped_img is not None and warped_img.size > 0:
         warped_img = standardize_document_image(warped_img)
+    elif apply_standardization and warped_img is not None and warped_img.size > 0:
+        warped_img = standardize_document_image(warped_img, target_bg=255)
 
     return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status
 
