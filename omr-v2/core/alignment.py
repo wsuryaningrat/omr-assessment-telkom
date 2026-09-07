@@ -689,8 +689,9 @@ def detect_corners_and_crop(
     """Fast, robust alignment pipeline.
 
     Fast path:
-        original -> one low-resolution document detection -> rough warp ->
-        corner-only ArUco scan -> final warp from original.
+        original -> one low-resolution scanner-like preprocessing pass ->
+        document/marker detection on the preprocessed image -> rough warp ->
+        final perspective warp from the original.
 
     If ArUco is unavailable (which is common for this LJK's registration
     marks), the cheap RegMark detector is used before falling back to the
@@ -707,9 +708,18 @@ def detect_corners_and_crop(
         image_bgr, max_width=1800, max_height=1800
     )
 
-    # Do not brute-force rotations. The page detector and ArUco are rotation
-    # tolerant. 180° is only a cheap fallback if the first orientation cannot
-    # produce a marker/regmark result.
+    # IMPORTANT: build the scanner-like detection image BEFORE any corner
+    # detection.  This is intentionally different from the old pipeline,
+    # where the paper boundary was found on the raw photo first.  Flattening
+    # illumination + contrast normalization makes the sheet edge and the
+    # corner registration marks much more consistent under shadows, glare and
+    # uneven exposure.
+    preprocessed_gray = make_scan_detection_image(processing_img, strength=1.0)
+    preprocessed_bgr = cv2.cvtColor(preprocessed_gray, cv2.COLOR_GRAY2BGR)
+
+    # Do not brute-force rotations. The page detector and marker detector are
+    # rotation tolerant. 180 degrees is only a cheap fallback if the first
+    # pass genuinely fails. 90/270 are reserved for the rare orientation case.
     candidate_angles = [0, 180, 90, 270]
     best_doc = None
 
@@ -717,11 +727,14 @@ def detect_corners_and_crop(
         # After a real marker-based result, stop immediately.
         if best_doc is not None and best_doc[1] in ("aruco", "regmark"):
             break
-        # 90/270 are only for a genuine failure on the first two attempts.
+        # Do not pay for 90/270 unless the first two orientations produced no
+        # usable anchor at all.
         if angle_index >= 2 and best_doc is not None:
             break
 
-        rot_img = _rotate_candidate(processing_img, ang)
+        rot_img = _rotate_candidate(preprocessed_bgr, ang)
+
+        # Corner detection happens on the scanner-like PREPROCESSED image.
         doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
@@ -733,11 +746,10 @@ def detect_corners_and_crop(
         rough_h = min(2500, max(2000, canvas_h))
         rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
 
-        # Scanner-like contrast is used for anchor detection. This improves
-        # small dark corner marks under shadows without changing the original
-        # image used by the final perspective warp.
-        rough_scan_gray = make_scan_detection_image(rough_img, strength=0.9)
-        rough_scan_bgr = cv2.cvtColor(rough_scan_gray, cv2.COLOR_GRAY2BGR)
+        # The rough image is already scanner-preprocessed, so do NOT run the
+        # expensive enhancement a second time before ArUco/RegMark detection.
+        # A simple grayscale conversion is enough here.
+        rough_scan_bgr = rough_img
 
         # 1) ArUco fast path, restricted to four corner ROIs.
         if preferred_method in ("aruco", "auto"):
