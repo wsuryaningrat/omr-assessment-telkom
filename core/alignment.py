@@ -78,8 +78,12 @@ def order_points(pts, target_w=1700, target_h=2400):
         # Start at top-left by minimum x+y.
         hull = np.roll(hull, -int(np.argmin(hull.sum(axis=1))), axis=0)
         # Ensure clockwise TL -> TR -> BR -> BL in image coordinates.
-        cross = np.cross(hull[1] - hull[0], hull[2] - hull[1])
-        if cross < 0:
+        # Do not use np.cross() here: NumPy 2.x removed scalar 2-D cross
+        # products and raises ValueError. Compute the z-component explicitly.
+        v1 = hull[1] - hull[0]
+        v2 = hull[2] - hull[1]
+        cross_z = float(v1[0] * v2[1] - v1[1] * v2[0])
+        if cross_z < 0:
             hull = hull[[0, 3, 2, 1]]
         rect = hull.astype(np.float32)
     else:
