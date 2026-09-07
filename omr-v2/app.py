@@ -924,8 +924,23 @@ if mode == "Portal Evaluasi LJK":
     uploaded_files_dosen = st.file_uploader(
         "Upload LJK (Gambar atau PDF)",
         type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key="ljk_uploader"
     )
+
+    # Bersihkan hasil evaluasi sebelumnya ketika file baru di-upload
+    _upload_key = tuple(sorted(
+        (getattr(uf, "name", ""), getattr(uf, "size", 0))
+        for uf in (uploaded_files_dosen or [])
+    ))
+    if _upload_key != st.session_state.get("_last_upload_key"):
+        st.session_state["_last_upload_key"] = _upload_key
+        if _upload_key and "dosen_results" in st.session_state:
+            del st.session_state["dosen_results"]
+        if _upload_key and "dosen_previews" in st.session_state:
+            del st.session_state["dosen_previews"]
+        st.session_state["dosen_submitted"] = False
+        st.session_state.pop("_preview_idx", None)
 
     # Validasi Berkas & Form (Batas 10MB per berkas)
     MAX_FILE_SIZE_MB = 10
@@ -965,10 +980,11 @@ if mode == "Portal Evaluasi LJK":
             canvas_w = template.get("canvas", {}).get("width", 1700)
             canvas_h = template.get("canvas", {}).get("height", 2400)
             fields_dict = template.get("fields", {})
-            align_method = template.get("alignment_method", "aruco")
+            # Selalu gunakan ArUco inner corner sebagai anchor utama
+            align_method = "aruco"
             aruco_dict = template.get("aruco_dict", "DICT_4X4_50")
             expected_ids = template.get("aruco_corner_ids")
-            crop_m = template.get("crop_mode", "inner")
+            crop_m = "inner"
 
             all_pages_to_process = []
             with st.spinner("Mengekstrak seluruh halaman dokumen..."):
@@ -1183,14 +1199,33 @@ if mode == "Portal Evaluasi LJK":
 
         with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Standarisasi Citra & Hasil Baca)", expanded=False):
             if st.session_state.get("dosen_previews"):
-                prev_names = [p["name"] if isinstance(p, dict) else p[0] for p in st.session_state["dosen_previews"]]
-                sel_doc = st.selectbox("Pilih Lembar Mahasiswa:", prev_names)
-                sel_item = None
-                for p in st.session_state["dosen_previews"]:
-                    p_name = p["name"] if isinstance(p, dict) else p[0]
-                    if p_name == sel_doc:
-                        sel_item = p
-                        break
+                previews = st.session_state["dosen_previews"]
+                total_prev = len(previews)
+
+                # Inisialisasi indeks navigasi
+                if "_preview_idx" not in st.session_state:
+                    st.session_state["_preview_idx"] = 0
+                prev_idx = int(st.session_state["_preview_idx"]) % total_prev
+
+                # Navigasi Prev / counter / Next
+                nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
+                with nav_col1:
+                    if st.button("⬅️ Sebelumnya", use_container_width=True, disabled=(total_prev <= 1)):
+                        st.session_state["_preview_idx"] = (prev_idx - 1) % total_prev
+                        st.rerun()
+                with nav_col2:
+                    sel_item = previews[prev_idx]
+                    sel_doc = sel_item["name"] if isinstance(sel_item, dict) else sel_item[0]
+                    st.markdown(
+                        f"<div style='text-align:center; padding:6px 0; font-weight:600;'>"
+                        f"📄 {prev_idx + 1} / {total_prev} — {sel_doc}</div>",
+                        unsafe_allow_html=True
+                    )
+                with nav_col3:
+                    if st.button("Berikutnya ➡️", use_container_width=True, disabled=(total_prev <= 1)):
+                        st.session_state["_preview_idx"] = (prev_idx + 1) % total_prev
+                        st.rerun()
+
                 if sel_item:
                     if isinstance(sel_item, dict):
                         st_status = sel_item.get("status", "")
@@ -1198,16 +1233,14 @@ if mode == "Portal Evaluasi LJK":
                             st.success(f"📐 Status Ujung Pojok: **{st_status}**")
                         else:
                             st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
-                        c_prev1, c_prev2, c_prev3 = st.columns(3)
+                        c_prev1, c_prev2 = st.columns(2)
                         with c_prev1:
                             if "regmarks_overlay" in sel_item:
-                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Posisi 4 Pojok Sudut: {sel_doc}")
+                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Posisi 4 Pojok ArUco: {sel_doc}")
                             else:
-                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"1. Hasil Sudut: {sel_doc}")
+                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"1. Hasil Warp: {sel_doc}")
                         with c_prev2:
                             st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"2. Deteksi Jawaban: {sel_doc}")
-                        with c_prev3:
-                            st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"3. Hasil Crop Bersih: {sel_doc}")
                     else:
                         st.image(cv_to_pil(sel_item[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
 
