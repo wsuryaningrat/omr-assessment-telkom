@@ -426,58 +426,188 @@ def enhance_scan_bgr(image, strength=1.0):
     return out
 
 
-def find_green_frame_corners(image):
-    """Detect the printed green frame, which is the desired inner page bound.
 
-    This is intentionally design-aware for the supplied LJK: the physical
-    paper can extend beyond the green frame, so the green frame is preferred
-    over the paper contour whenever it is visible.
+def _fit_inner_green_edge(points, orientation, image_shape):
+    """Fit one straight inner-edge line from green pixels.
+
+    The key idea is to detect the *inside boundary of the green band*, not the
+    outside contour of the green mask. This prevents the crop from jumping
+    between the outer and inner edge of the printed frame.
+    """
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+    if len(pts) < 30:
+        return None
+    h, w = image_shape[:2]
+    # Remove extreme outliers with a robust median/MAD filter on the varying
+    # coordinate. This keeps text/green blocks from pulling the fitted edge.
+    if orientation in ("top", "bottom"):
+        coord = pts[:, 1]
+    else:
+        coord = pts[:, 0]
+    med = float(np.median(coord))
+    mad = float(np.median(np.abs(coord - med))) + 1.0
+    keep = np.abs(coord - med) <= max(12.0, 4.5 * mad)
+    pts = pts[keep]
+    if len(pts) < 20:
+        return None
+
+    # Subsample for stable and cheap line fitting.
+    if len(pts) > 2500:
+        idx = np.linspace(0, len(pts) - 1, 2500).astype(np.int32)
+        pts = pts[idx]
+
+    # Fit y = ax + b for horizontal edges or x = ay + b for vertical edges.
+    if orientation in ("top", "bottom"):
+        x = pts[:, 0]
+        y = pts[:, 1]
+        A = np.column_stack([x, np.ones_like(x)])
+        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+        x0, x1 = 0.0, float(w - 1)
+        return np.array([[x0, a * x0 + b], [x1, a * x1 + b]], np.float32)
+    else:
+        y = pts[:, 1]
+        x = pts[:, 0]
+        A = np.column_stack([y, np.ones_like(y)])
+        a, b = np.linalg.lstsq(A, x, rcond=None)[0]
+        y0, y1 = 0.0, float(h - 1)
+        return np.array([[a * y0 + b, y0], [a * y1 + b, y1]], np.float32)
+
+
+def _intersect_lines(p1, p2, q1, q2):
+    """2-D infinite line intersection; None for near-parallel lines."""
+    p1 = np.asarray(p1, dtype=np.float64)
+    p2 = np.asarray(p2, dtype=np.float64)
+    q1 = np.asarray(q1, dtype=np.float64)
+    q2 = np.asarray(q2, dtype=np.float64)
+    r = p2 - p1
+    s = q2 - q1
+    den = r[0] * s[1] - r[1] * s[0]
+    if abs(den) < 1e-8:
+        return None
+    t = ((q1[0] - p1[0]) * s[1] - (q1[1] - p1[1]) * s[0]) / den
+    out = p1 + t * r
+    return out.astype(np.float32)
+
+
+
+def _first_green_run(values, from_start=True, min_run=3, max_gap=1):
+    """Return the first reasonably sized contiguous green run along a scanline."""
+    idx = np.flatnonzero(values > 0)
+    if idx.size == 0:
+        return None
+    if from_start:
+        ordered = idx
+    else:
+        ordered = idx[::-1]
+    run_start = int(ordered[0])
+    prev = int(ordered[0])
+    for raw in ordered[1:]:
+        cur = int(raw)
+        if abs(cur - prev) > max_gap + 1:
+            lo, hi = min(run_start, prev), max(run_start, prev)
+            if hi - lo + 1 >= min_run:
+                return lo, hi
+            run_start = cur
+        prev = cur
+    lo, hi = min(run_start, prev), max(run_start, prev)
+    if hi - lo + 1 >= min_run:
+        return lo, hi
+    return None
+
+
+def find_green_frame_inner_corners(image):
+    """Find the INNER boundary of the outer printed green frame.
+
+    The old implementation selected the outer contour of the entire green
+    segmentation. That is unstable because the sheet contains many other green
+    regions. Here we treat the frame as a border band: for each scan line we
+    take the *first green run encountered from the physical page edge* and use
+    its edge facing the page interior. This directly represents the inner edge
+    of the green frame and is much harder to confuse with inner green boxes.
     """
     if image is None or image.size == 0 or image.ndim != 3:
         return None
     h, w = image.shape[:2]
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    # Broad green range to survive phone WB changes and scanner enhancement.
-    lower = np.array([28, 28, 22], dtype=np.uint8)
-    upper = np.array([100, 255, 235], dtype=np.uint8)
+    lower = np.array([28, 35, 18], dtype=np.uint8)
+    upper = np.array([100, 255, 245], dtype=np.uint8)
     mask = cv2.inRange(hsv, lower, upper)
     mask = cv2.morphologyEx(
         mask,
         cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)),
-        iterations=2,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)),
+        iterations=1,
     )
-    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=1)
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
+    # Use central scan lines only. Corners contain registration marks and can
+    # locally disrupt the green border.
+    edge_frac = 0.08
+    x_lo, x_hi = int(w * edge_frac), int(w * (1.0 - edge_frac))
+    y_lo, y_hi = int(h * edge_frac), int(h * (1.0 - edge_frac))
+    top_limit = int(h * 0.28)
+    bottom_limit = int(h * 0.72)
+    left_limit = int(w * 0.28)
+    right_limit = int(w * 0.72)
+
+    top_pts, bottom_pts, left_pts, right_pts = [], [], [], []
+
+    for x in range(x_lo, x_hi + 1, 3):
+        run = _first_green_run(mask[:top_limit, x], from_start=True)
+        if run is not None:
+            _, end = run
+            top_pts.append((x, end))  # inner-facing edge of top green band
+
+    for x in range(x_lo, x_hi + 1, 3):
+        col = mask[bottom_limit:h, x]
+        run = _first_green_run(col, from_start=False)
+        if run is not None:
+            start, _ = run
+            bottom_pts.append((x, bottom_limit + start))  # inner-facing edge
+
+    for y in range(y_lo, y_hi + 1, 3):
+        run = _first_green_run(mask[y, :left_limit], from_start=True)
+        if run is not None:
+            _, end = run
+            left_pts.append((end, y))
+
+    for y in range(y_lo, y_hi + 1, 3):
+        row = mask[y, right_limit:w]
+        run = _first_green_run(row, from_start=False)
+        if run is not None:
+            start, _ = run
+            right_pts.append((right_limit + start, y))
+
+    edge_points = {
+        "top": np.asarray(top_pts, np.float32),
+        "bottom": np.asarray(bottom_pts, np.float32),
+        "left": np.asarray(left_pts, np.float32),
+        "right": np.asarray(right_pts, np.float32),
+    }
+
+    lines = {}
+    for name in ("top", "bottom", "left", "right"):
+        lines[name] = _fit_inner_green_edge(edge_points[name], name, image.shape)
+
+    if any(v is None for v in lines.values()):
         return None
 
-    img_area = float(max(1, w * h))
-    best = None
-    best_score = -1.0
-    for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:12]:
-        area = cv2.contourArea(cnt)
-        ratio = area / img_area
-        if ratio < 0.25:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        if peri <= 0:
-            continue
-        approx = cv2.approxPolyDP(cnt, 0.01 * peri, True)
-        if len(approx) != 4 or not cv2.isContourConvex(approx):
-            continue
-        pts = order_points(approx.reshape(4, 2).astype(np.float32), target_w=w, target_h=h)
-        q = _quad_quality(pts, image.shape)
-        if q < 0.55:
-            continue
-        # Prefer a large frame with substantial edge span.
-        score = ratio * (0.7 + 0.3 * q)
-        if score > best_score:
-            best_score = score
-            best = pts
-    return best
+    tl = _intersect_lines(lines["top"][0], lines["top"][1], lines["left"][0], lines["left"][1])
+    tr = _intersect_lines(lines["top"][0], lines["top"][1], lines["right"][0], lines["right"][1])
+    br = _intersect_lines(lines["bottom"][0], lines["bottom"][1], lines["right"][0], lines["right"][1])
+    bl = _intersect_lines(lines["bottom"][0], lines["bottom"][1], lines["left"][0], lines["left"][1])
+    if any(v is None for v in (tl, tr, br, bl)):
+        return None
 
+    pts = np.asarray([tl, tr, br, bl], dtype=np.float32)
+    pts = np.clip(pts, [0, 0], [w - 1, h - 1]).astype(np.float32)
+    if _quad_quality(pts, image.shape) < 0.40:
+        return None
+    return pts
+
+
+def find_green_frame_corners(image):
+    """Compatibility wrapper: return the INNER green frame corners."""
+    return find_green_frame_inner_corners(image)
 
 def inset_quad(points, ratio=0.028):
     """Move a fallback document quad inward so fallback remains INNER semantics."""
@@ -633,7 +763,7 @@ def _find_regmarks_on_normalized_page(image, crop_mode="inner"):
         best_score = -1.0
         for mask in masks:
             roi = mask[y1:y2 + 1, x1:x2 + 1]
-            contours, _ = cv2.findContours(roi, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for cnt in contours:
                 area = cv2.contourArea(cnt)
                 if area < min_side * min_side * 0.18:
@@ -883,85 +1013,86 @@ def detect_corners_and_crop(
     preprocessed_bgr = enhance_scan_bgr(processing_img, strength=1.0)
     preprocessed_gray = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2GRAY)
 
-    # Do not brute-force rotations. The page detector and marker detector are
-    # rotation tolerant. 180 degrees is only a cheap fallback if the first
-    # pass genuinely fails. 90/270 are reserved for the rare orientation case.
+    # Do not brute-force rotations. Start with the input orientation and only
+    # spend extra work when the first pass has no reliable geometric anchor.
     candidate_angles = [0, 180, 90, 270]
     best_doc = None
 
     for angle_index, ang in enumerate(candidate_angles):
-        # After a real marker-based result, stop immediately.
-        if best_doc is not None and best_doc[1] in ("aruco", "regmark"):
+        if best_doc is not None and best_doc[1] in ("green_frame", "aruco", "regmark"):
             break
-        # Do not pay for 90/270 unless the first two orientations produced no
-        # usable anchor at all.
         if angle_index >= 2 and best_doc is not None:
             break
 
         rot_img = _rotate_candidate(preprocessed_bgr, ang)
 
-        # Corner detection happens on the scanner-like PREPROCESSED image.
-        # Prefer the printed green frame because it is the actual inner crop
-        # boundary on this LJK, not the larger physical paper edge.
-        green_corners = find_green_frame_corners(rot_img)
-        if green_corners is not None:
-            doc_corners = order_points(green_corners, target_w=canvas_w, target_h=canvas_h)
-        else:
-            doc_corners, _ = find_document_corners(
-                rot_img, target_w=canvas_w, target_h=canvas_h
-            )
-            doc_corners = inset_quad(doc_corners, ratio=0.028)
-            doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
+        # 1) Find only the physical page at low cost. This is NOT used as the
+        # final crop boundary; it only gives us a normalized search canvas.
+        physical_corners, _ = find_document_corners(
+            rot_img, target_w=canvas_w, target_h=canvas_h
+        )
+        physical_corners = order_points(
+            physical_corners, target_w=canvas_w, target_h=canvas_h
+        )
 
-        # Cheap rough warp only for marker detection. Keep this below the final
-        # OMR canvas size because it is disposable detection data.
-        rough_w = min(1800, max(1400, canvas_w))
-        rough_h = min(2500, max(2000, canvas_h))
-        rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
+        rough_w = min(1900, max(1500, canvas_w))
+        rough_h = min(2500, max(2100, canvas_h))
+        rough_img, _, inv_rough_M = _rough_warp(
+            rot_img, physical_corners, rough_w, rough_h
+        )
 
-        # The rough image is already scanner-preprocessed, so do NOT run the
-        # expensive enhancement a second time before ArUco/RegMark detection.
-        # A simple grayscale conversion is enough here.
-        rough_scan_bgr = rough_img
+        # 2) AUTHORITATIVE CROP BOUNDARY: the INNER edge of the green frame.
+        # Detect it after rough rectification, where the frame is close to a
+        # rectangle and the four sides can be separated cleanly from internal
+        # green boxes. If found, we stop and never replace it with marker
+        # corners. This is what guarantees semantic consistency.
+        green_pts = find_green_frame_inner_corners(rough_img)
+        if green_pts is not None:
+            fine_rot = _map_points_back(green_pts, inv_rough_M)
+            pts_original = fine_rot / np.array([sx, sy], dtype=np.float32)
+            if ang:
+                pts_original = np.array(
+                    [unrotate_point(p, image_bgr.shape, ang) for p in pts_original],
+                    dtype=np.float32,
+                )
+            if _quad_quality(pts_original, image_bgr.shape) >= 0.20:
+                best_doc = (
+                    pts_original, "green_frame", None, None,
+                    "DETECTED (4 Sudut Terkunci - Green Frame INNER)"
+                )
+                break
 
-        # 1) ArUco fast path, restricted to four corner ROIs.
+        # 3) Fiducial fallback. The black registration mark itself is not the
+        # crop boundary. We use its geometrically INNER vertex only when the
+        # green frame cannot be recovered.
         if preferred_method in ("aruco", "auto"):
             ar_pts, ids, detected_dict, ar_status = find_aruco_markers(
-                rough_scan_bgr,
+                rough_img,
                 dict_name=dict_name,
                 expected_ids=expected_ids,
-                crop_mode="inner",  # Always inner for the main alignment path.
+                crop_mode="inner",
             )
             if ar_pts is not None and ar_status == "DETECTED":
                 fine_rot = _map_points_back(ar_pts, inv_rough_M)
-                if fine_rot is not None:
-                    fine_proc = fine_rot
-                    fine_original = fine_proc / np.array([sx, sy], dtype=np.float32)
-                    if ang:
-                        fine_original = np.array(
-                            [unrotate_point(p, image_bgr.shape, ang) for p in fine_original],
-                            dtype=np.float32,
-                        )
-                    if _quad_quality(fine_original, image_bgr.shape) >= 0.20:
-                        best_doc = (
-                            fine_original, "aruco", ids, detected_dict,
-                            "DETECTED (4 Sudut Terkunci - ArUco INNER)"
-                        )
-                        break
+                fine_original = fine_rot / np.array([sx, sy], dtype=np.float32)
+                if ang:
+                    fine_original = np.array(
+                        [unrotate_point(p, image_bgr.shape, ang) for p in fine_original],
+                        dtype=np.float32,
+                    )
+                if _quad_quality(fine_original, image_bgr.shape) >= 0.20:
+                    best_doc = (
+                        fine_original, "aruco", ids, detected_dict,
+                        "DETECTED (4 Sudut Terkunci - ArUco INNER)"
+                    )
+                    break
 
-        # 2) RegMark path. This is the actual fast anchor mechanism for the
-        # supplied LJK image and uses INNER points by default.
         if preferred_method in ("aruco", "auto", "regmark"):
-            # Reuse the rough page that we already computed above. The old
-            # implementation called find_regmarks(), which performed another
-            # perspective warp internally. That duplicate warp was unnecessary.
             pts_reg, status_reg = _find_regmarks_on_normalized_page(
-                rough_scan_bgr, crop_mode="inner"
+                rough_img, crop_mode="inner"
             )
             if pts_reg is not None and status_reg == "DETECTED":
                 fine_rot_reg = _map_points_back(pts_reg, inv_rough_M)
-                if fine_rot_reg is None:
-                    fine_rot_reg = pts_reg
                 pts_original = fine_rot_reg / np.array([sx, sy], dtype=np.float32)
                 if ang:
                     pts_original = np.array(
@@ -975,24 +1106,17 @@ def detect_corners_and_crop(
                     )
                     break
 
-        # 3) If fiducials are unavailable, retain INNER semantics. Since the
-        # green frame is already preferred above, this branch uses an inward
-        # physical-paper estimate rather than returning the outer paper edge.
-        doc_original = doc_corners / np.array([sx, sy], dtype=np.float32)
+        # 4) Last resort. Keep INNER semantics even when no fiducial survives.
+        doc_original = physical_corners / np.array([sx, sy], dtype=np.float32)
         if ang:
             doc_original = np.array(
                 [unrotate_point(p, image_bgr.shape, ang) for p in doc_original],
                 dtype=np.float32,
             )
         score = _quad_quality(doc_original, image_bgr.shape)
-        fallback_method = "green_frame" if green_corners is not None else "doc_inset"
-        fallback_status = (
-            "DETECTED (Fallback - Green Frame INNER)"
-            if green_corners is not None
-            else "DETECTED (Fallback - Inset INNER)"
-        )
+        fallback_status = "DETECTED (Fallback - Inset INNER)"
         if best_doc is None or score > _quad_quality(best_doc[0], image_bgr.shape):
-            best_doc = (doc_original, fallback_method, None, None, fallback_status)
+            best_doc = (doc_original, "doc_inset", None, None, fallback_status)
 
     if best_doc is None:
         return None, None, "none", None, None, "FAILED: corner tidak ditemukan"
