@@ -345,19 +345,97 @@ def _detect_in_roi(detector, roi, offset_xy, allowed, scale=1.0):
     return found
 
 
+def _find_dark_square_candidates(roi_gray, min_side_frac=0.04, max_side_frac=0.35):
+    """Locate dark square blobs in a corner ROI.
+
+    Returns a list of bounding boxes (x, y, w, h) in ROI coordinates, sorted
+    best-first (large, square, filled, close to the roi corner at origin).
+    These are the candidate locations of ArUco markers before decoding.
+    """
+    rh, rw = roi_gray.shape[:2]
+    min_side = max(8, int(min(rh, rw) * min_side_frac))
+    max_side = int(max(rh, rw) * max_side_frac)
+
+    _, otsu = cv2.threshold(roi_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    adapt = cv2.adaptiveThreshold(
+        roi_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 9
+    )
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+
+    candidates = {}
+    for mask in (otsu, adapt):
+        closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        cnts, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in cnts:
+            area = cv2.contourArea(cnt)
+            if area < min_side * min_side * 0.20:
+                continue
+            bx, by, bw, bh = cv2.boundingRect(cnt)
+            side = max(bw, bh)
+            if side < min_side or side > max_side:
+                continue
+            ar = bw / float(max(bh, 1))
+            if not (0.45 <= ar <= 2.2):
+                continue
+            fill = area / float(max(bw * bh, 1))
+            if fill < 0.25:
+                continue
+            # Score: larger, squarer, more filled, and nearer to origin is better.
+            dist_to_corner = float(np.hypot(bx, by))
+            squareness = min(bw, bh) / float(max(bw, bh, 1))
+            size_score = float(side) / float(max(max_side, 1))
+            score = (0.40 * squareness
+                     + 0.30 * fill
+                     + 0.20 * size_score
+                     - 0.10 * (dist_to_corner / float(max(rh, rw, 1))))
+            key = (bx // 5, by // 5)
+            if key not in candidates or score > candidates[key][-1]:
+                candidates[key] = (bx, by, bw, bh, score)
+
+    return [(bx, by, bw, bh)
+            for bx, by, bw, bh, _ in sorted(candidates.values(), key=lambda v: -v[-1])][:8]
+
+
+def _aruco_decode_patch(detector, patch, patch_offset, allowed_ids, scale=1.0):
+    """Run ArUco detector on a patch; return {marker_id: corners_in_global}."""
+    found = {}
+    corners_list, ids, _ = detector.detectMarkers(patch)
+    if ids is None:
+        return found
+    ox, oy = patch_offset
+    for i, mid in enumerate(ids.flatten()):
+        mid = int(mid)
+        if mid not in allowed_ids:
+            continue
+        pts = (corners_list[i][0].astype(np.float32) / scale
+               + np.array([ox, oy], np.float32))
+        area = abs(cv2.contourArea(pts.reshape(-1, 1, 2)))
+        if area >= 4:
+            found[mid] = pts
+    return found
+
+
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
-    """Robust ArUco detection using the INNER corner of each marker as anchor.
+    """Robust ArUco detection: locate dark-square blobs first, then decode.
 
-    Each of the four page-corner ROIs is tried with five image variants (raw,
-    CLAHE, Otsu, adaptive-threshold, and 2× upscale) to maximise detection
-    under phone photography conditions (glare, shadows, motion blur, warm WB).
-    If three markers are found, a fourth is recovered via affine prediction and
-    local search. Detection stops at the first successful variant per ROI to
-    keep latency low on clean inputs.
+    Two-pass strategy per corner ROI
+    ---------------------------------
+    Pass 1 — Dark-square localisation (fast):
+        Morphological analysis (Otsu + adaptive threshold) finds candidate dark
+        blobs in the corner ROI.  For each blob a tight expanded patch is sent
+        to the ArUco decoder.  This is both faster and more reliable than
+        decoding the whole ROI because the marker is already isolated.
 
-    The crop point is always the INNER vertex — the ArUco corner vertex closest
-    to the page centre. This is the "regmark corner" that the LJK alignment
-    uses as its authoritative anchor.
+    Pass 2 — Full-ROI cascade (fallback):
+        If Pass 1 yields no confirmed marker, the entire corner ROI is tried
+        with five image variants (raw → CLAHE → Otsu → adaptive → 2× upscale)
+        and two detector sensitivities.  ROI size is also expanded from 25 % to
+        38 % of the image edge on the second attempt.
+
+    After detection, the INNER vertex of each confirmed marker is selected:
+    the corner of the ArUco square that is geometrically closest to the page
+    centre. This gives a tight, consistent crop boundary independent of
+    marker size or slight misalignment.
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
     h, w = gray.shape[:2]
@@ -371,51 +449,111 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
     expected = expected_ids or {"TL": 0, "TR": 1, "BR": 3, "BL": 2}
     allowed = set(expected.values())
 
-    # Two detector sensitivities: normal first, then looser for degraded images.
-    detectors = [
-        make_fast_detector(dict_val, min_perimeter=0.008, step=10),
-        make_fast_detector(dict_val, min_perimeter=0.004, step=4),
-    ]
+    # Ordered strict → loose for speed on clean images.
+    det_normal = make_fast_detector(dict_val, min_perimeter=0.006, step=8)
+    det_loose  = make_fast_detector(dict_val, min_perimeter=0.003, step=4)
 
-    # ROI sizes: start at 25 % of image edge; expand to 38 % on retry.
-    roi_fractions = [0.25, 0.38]
+    def _roi_bbox(label, frac):
+        """Return (x1, y1, x2, y2) of the corner ROI in image coordinates."""
+        rw_ = max(100, int(round(w * frac)))
+        rh_ = max(100, int(round(h * frac)))
+        if label == "TL": return (0,       0,       rw_,     rh_)
+        if label == "TR": return (w - rw_, 0,       w,       rh_)
+        if label == "BR": return (w - rw_, h - rh_, w,       h)
+        if label == "BL": return (0,       h - rh_, rw_,     h)
+        return (0, 0, rw_, rh_)
 
-    rois_by_label = {
-        "TL": lambda rw, rh: (0,       0,       rw,      rh),
-        "TR": lambda rw, rh: (w - rw,  0,       w,       rh),
-        "BR": lambda rw, rh: (w - rw,  h - rh,  w,       h),
-        "BL": lambda rw, rh: (0,       h - rh,  rw,      h),
-    }
+    # Flip axes so the page-corner of interest is always at (0, 0) of the
+    # flipped ROI. This makes _find_dark_square_candidates always bias toward
+    # the correct corner regardless of which page corner we are examining.
+    _flip_axes = {"TL": (False, False),
+                  "TR": (True,  False),
+                  "BR": (True,  True),
+                  "BL": (False, True)}
 
     marker_map = {}
+
     for label in ("TL", "TR", "BR", "BL"):
         target_id = expected[label]
         if target_id in marker_map:
             continue
-        for det in detectors:
+
+        fx, fy = _flip_axes[label]
+
+        for frac in (0.25, 0.38):
             if target_id in marker_map:
                 break
-            for frac in roi_fractions:
+            x1, y1, x2, y2 = _roi_bbox(label, frac)
+            roi_patch = gray[y1:y2, x1:x2]
+            if roi_patch.size == 0:
+                continue
+            rh_roi, rw_roi = roi_patch.shape[:2]
+
+            # ---------------------------------------------------------------
+            # PASS 1: Dark-square blob → focused patch → ArUco decode
+            # ---------------------------------------------------------------
+            flipped = roi_patch
+            if fx:
+                flipped = cv2.flip(flipped, 1)
+            if fy:
+                flipped = cv2.flip(flipped, 0)
+
+            blob_boxes = _find_dark_square_candidates(flipped)
+
+            for bx_f, by_f, bw_b, bh_b in blob_boxes:
+                # Un-flip bounding box back to original ROI coordinates.
+                bx = (rw_roi - bx_f - bw_b) if fx else bx_f
+                by = (rh_roi - by_f - bh_b) if fy else by_f
+
+                # Expand patch with generous padding so sub-pixel refinement
+                # and adaptive threshold have enough context.
+                pad = max(14, int(max(bw_b, bh_b) * 0.55))
+                px1 = max(0, bx - pad)
+                py1 = max(0, by - pad)
+                px2 = min(rw_roi, bx + bw_b + pad)
+                py2 = min(rh_roi, by + bh_b + pad)
+                patch = roi_patch[py1:py2, px1:px2]
+                if patch.size == 0:
+                    continue
+                gx, gy = x1 + px1, y1 + py1
+
+                for det in (det_normal, det_loose):
+                    for variant in _make_roi_variants(patch):
+                        sc = (variant.shape[1] / float(patch.shape[1])
+                              if patch.shape[1] > 0 else 1.0)
+                        found = _aruco_decode_patch(det, variant, (gx, gy), allowed, scale=sc)
+                        if target_id in found:
+                            marker_map[target_id] = found[target_id]
+                            break
+                        for mid, pts in found.items():
+                            if mid not in marker_map:
+                                marker_map[mid] = pts
+                    if target_id in marker_map:
+                        break
                 if target_id in marker_map:
                     break
-                roi_w = max(120, int(round(w * frac)))
-                roi_h = max(120, int(round(h * frac)))
-                x1, y1, x2, y2 = rois_by_label[label](roi_w, roi_h)
-                roi_patch = gray[y1:y2, x1:x2]
-                if roi_patch.size == 0:
-                    continue
+
+            if target_id in marker_map:
+                continue  # pass 1 succeeded → next label
+
+            # ---------------------------------------------------------------
+            # PASS 2: Full-ROI cascade (fallback when no blob found)
+            # ---------------------------------------------------------------
+            for det in (det_normal, det_loose):
+                if target_id in marker_map:
+                    break
                 for variant in _make_roi_variants(roi_patch):
-                    scale = variant.shape[1] / float(roi_patch.shape[1]) if roi_patch.shape[1] > 0 else 1.0
-                    found = _detect_in_roi(det, variant, (x1, y1), allowed, scale=scale)
+                    sc = (variant.shape[1] / float(roi_patch.shape[1])
+                          if roi_patch.shape[1] > 0 else 1.0)
+                    found = _aruco_decode_patch(det, variant, (x1, y1), allowed, scale=sc)
                     if target_id in found:
                         marker_map[target_id] = found[target_id]
                         break
-                    # Accept any allowed marker found as a bonus.
                     for mid, pts in found.items():
                         if mid not in marker_map:
                             marker_map[mid] = pts
 
-    # One recovery attempt when exactly three markers are found.
+    # Recovery: affine prediction + local search when exactly 3 found.
     if len(marker_map) == 3:
         marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
 
@@ -426,10 +564,9 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
         )
 
     # --- INNER-CORNER SELECTION -------------------------------------------
-    # For each ArUco marker, pick the vertex that is closest to the page
-    # centre. This is the "regmark corner" — the corner of the printed ArUco
-    # square that is nearest to the LJK content area. It gives the tightest
-    # and most consistent crop boundary regardless of marker size variation.
+    # For each confirmed ArUco marker, pick the vertex that is closest to the
+    # page centre ("inner corner" / "regmark corner"). This is deterministic,
+    # stable under marker rotation, and invariant to marker size.
     marker_centers = {
         lbl: marker_map[expected[lbl]].mean(axis=0).astype(np.float32)
         for lbl in ("TL", "TR", "BR", "BL")
@@ -437,20 +574,15 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
     page_center = np.mean(np.vstack(list(marker_centers.values())), axis=0)
     crop_pts = []
     for lbl in ("TL", "TR", "BR", "BL"):
-        pts = marker_map[expected[lbl]].astype(np.float32)  # shape (4, 2)
+        pts = marker_map[expected[lbl]].astype(np.float32)  # (4, 2)
         mc = marker_centers[lbl]
         if crop_mode == "center":
             pt = mc
         elif crop_mode == "outer":
-            # Vertex furthest from page centre (rarely needed).
             dists = np.linalg.norm(pts - page_center, axis=1)
             pt = pts[np.argmax(dists)]
         else:
-            # INNER (default): vertex of the ArUco square that is closest to
-            # the page centre — i.e. the corner that faces inward.
-            # We use direct Euclidean distance from each vertex to the page
-            # centre, which is more robust than projection along a direction
-            # vector when the marker is close to the edge.
+            # INNER: ArUco vertex closest to page centre.
             dists = np.linalg.norm(pts - page_center, axis=1)
             pt = pts[np.argmin(dists)]
         crop_pts.append(pt)
@@ -460,7 +592,6 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
         return None, None, best_dict_name, "ArUco: geometri marker tidak valid."
 
     return ordered, {lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")}, best_dict_name, "DETECTED"
-
 
 
 # ---------------------------------------------------------------------------
