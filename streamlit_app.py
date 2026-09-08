@@ -1236,7 +1236,7 @@ if mode == "Portal Evaluasi LJK":
                         c_prev1, c_prev2 = st.columns(2)
                         with c_prev1:
                             if "regmarks_overlay" in sel_item:
-                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Posisi 4 Pojok ArUco: {sel_doc}")
+                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Deteksi Kotak ArUco & Area Crop LJK: {sel_doc}")
                             else:
                                 st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"1. Hasil Warp: {sel_doc}")
                         with c_prev2:

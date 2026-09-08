@@ -415,6 +415,13 @@ def _aruco_decode_patch(detector, patch, patch_offset, allowed_ids, scale=1.0):
     return found
 
 
+class CornerIdMap(dict):
+    """Dictionary mapping corner labels -> ArUco IDs, with optional boxes attribute."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.boxes = None
+
+
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
     """Robust ArUco detection: locate dark-square blobs first, then decode.
 
@@ -591,7 +598,13 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
     if _quad_quality(ordered, gray.shape) < 0.20:
         return None, None, best_dict_name, "ArUco: geometri marker tidak valid."
 
-    return ordered, {lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")}, best_dict_name, "DETECTED"
+    marker_boxes = {
+        lbl: marker_map[expected[lbl]].astype(np.float32)
+        for lbl in ("TL", "TR", "BR", "BL")
+    }
+    out_ids = CornerIdMap({lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")})
+    out_ids.boxes = marker_boxes
+    return ordered, out_ids, best_dict_name, "DETECTED"
 
 
 # ---------------------------------------------------------------------------
@@ -1127,8 +1140,22 @@ def detect_corners_and_crop(
                         dtype=np.float32,
                     )
                 if _quad_quality(fine_original, image_bgr.shape) >= 0.20:
+                    orig_boxes = {}
+                    if hasattr(ids, "boxes") and ids.boxes:
+                        for lbl, b_pts in ids.boxes.items():
+                            b_rot = _map_points_back(b_pts, inv_rough_M)
+                            if b_rot is not None:
+                                b_orig = b_rot / np.array([sx, sy], dtype=np.float32)
+                                if ang:
+                                    b_orig = np.array(
+                                        [unrotate_point(p, image_bgr.shape, ang) for p in b_orig],
+                                        dtype=np.float32,
+                                    )
+                                orig_boxes[lbl] = b_orig
+                    final_ids = CornerIdMap(ids)
+                    final_ids.boxes = orig_boxes if orig_boxes else None
                     best_doc = (
-                        fine_original, "aruco", ids, detected_dict,
+                        fine_original, "aruco", final_ids, detected_dict,
                         "DETECTED (4 Sudut Terkunci - ArUco Inner Corner)"
                     )
                     break
@@ -1231,31 +1258,150 @@ def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2
 
 
 def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
-                          status="DETECTED", crop_mode="inner"):
+                          status="DETECTED", crop_mode="inner", marker_boxes=None):
     output = image.copy()
     if ordered_pts is None:
         return output
 
+    ih, iw = output.shape[:2]
+    scale_factor = max(1.0, min(ih, iw) / 1200.0)
+    banner_h = max(32, int(round(40 * scale_factor)))
+
+    # 1. Retrieve ArUco / Regmark boxes if available
+    boxes = marker_boxes
+    if boxes is None and hasattr(corner_ids, "boxes"):
+        boxes = corner_ids.boxes
+    elif boxes is None and isinstance(corner_ids, dict) and "_boxes" in corner_ids:
+        boxes = corner_ids["_boxes"]
+
+    # 2. Draw detected ArUco black boxes (kotak hitam ArUco)
+    if boxes and len(boxes) > 0:
+        # Subtle semi-transparent tint on ArUco black squares
+        overlay = output.copy()
+        for lbl in ("TL", "TR", "BR", "BL"):
+            if lbl in boxes and boxes[lbl] is not None:
+                b_pts = np.asarray(boxes[lbl], dtype=np.int32)
+                cv2.fillPoly(overlay, [b_pts], (0, 140, 255))
+        cv2.addWeighted(overlay, 0.25, output, 0.75, 0, output)
+
+        # Draw crisp outline & corners for each ArUco box
+        box_line_w = max(2, int(round(3 * scale_factor)))
+        v_rad = max(3, int(round(4 * scale_factor)))
+        for lbl in ("TL", "TR", "BR", "BL"):
+            if lbl in boxes and boxes[lbl] is not None:
+                b_pts = np.asarray(boxes[lbl], dtype=np.int32)
+                # Outer border in bright amber / orange
+                cv2.polylines(output, [b_pts], True, (0, 165, 255), box_line_w, cv2.LINE_AA)
+                
+                # Corner vertices of the black box
+                for v in b_pts:
+                    cv2.circle(output, tuple(v), v_rad, (0, 215, 255), -1, cv2.LINE_AA)
+
+                # Center of ArUco box
+                bc = b_pts.mean(axis=0).astype(int)
+                cv2.circle(output, (bc[0], bc[1]), max(3, int(round(5 * scale_factor))), (0, 140, 255), -1, cv2.LINE_AA)
+
+                # Tag badge for ArUco box
+                id_val = corner_ids[lbl] if corner_ids and lbl in corner_ids else ""
+                tag = f" Kotak ArUco {lbl} [ID:{id_val}] "
+                f_scale = 0.46 * scale_factor
+                f_thick = max(1, int(round(1.4 * scale_factor)))
+                (tw, th), bl = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+                bx = bc[0] - tw // 2
+                by = bc[1] - int(round(35 * scale_factor)) if "T" in lbl else bc[1] + int(round(45 * scale_factor))
+                bx = max(10, min(iw - tw - 10, bx))
+                by = max(banner_h + th + 8, min(ih - 10, by))
+                cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 0, 0), -1)
+                cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 165, 255), 1)
+                cv2.putText(output, tag, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 215, 255), f_thick, cv2.LINE_AA)
+
+    # 3. Draw Green Crop Polygon (Garis Hijau Area yang Dicrop)
     labels = ["TL", "TR", "BR", "BL"]
     pts_int = np.asarray(ordered_pts, dtype=np.int32)
-    cv2.polylines(output, [pts_int], True, (0, 230, 0), 3, cv2.LINE_AA)
+    crop_line_w = max(2, int(round(3 * scale_factor)))
+    cv2.polylines(output, [pts_int], True, (0, 230, 0), crop_line_w, cv2.LINE_AA)
 
+    # 4. Draw inner corner targets (Pojok dalam LJK yang menjadi batas crop)
     for i, (label, p) in enumerate(zip(labels, ordered_pts)):
         cx, cy = int(round(p[0])), int(round(p[1]))
-        cv2.circle(output, (cx, cy), 18, (0, 0, 255), 2, cv2.LINE_AA)
-        cv2.circle(output, (cx, cy), 6, (0, 255, 0), -1, cv2.LINE_AA)
-        cv2.line(output, (cx - 24, cy), (cx + 24, cy), (0, 0, 255), 2, cv2.LINE_AA)
-        cv2.line(output, (cx, cy - 24), (cx, cy + 24), (0, 0, 255), 2, cv2.LINE_AA)
+        r1 = max(10, int(round(16 * scale_factor)))
+        r2 = max(4, int(round(5 * scale_factor)))
+        cr_len = max(14, int(round(22 * scale_factor)))
+        l_thick = max(1, int(round(2 * scale_factor)))
+
+        # Target circle & crosshair
+        cv2.circle(output, (cx, cy), r1, (0, 0, 255), l_thick, cv2.LINE_AA)
+        cv2.circle(output, (cx, cy), r2, (0, 255, 0), -1, cv2.LINE_AA)
+        cv2.line(output, (cx - cr_len, cy), (cx + cr_len, cy), (0, 0, 255), l_thick, cv2.LINE_AA)
+        cv2.line(output, (cx, cy - cr_len), (cx, cy + cr_len), (0, 0, 255), l_thick, cv2.LINE_AA)
+
+        # Line connecting ArUco center to its inner corner point
+        if boxes and label in boxes and boxes[label] is not None:
+            bc = np.asarray(boxes[label]).mean(axis=0).astype(int)
+            cv2.line(output, (bc[0], bc[1]), (cx, cy), (0, 255, 255), max(1, int(round(1.5 * scale_factor))), cv2.LINE_AA)
 
         id_str = f" [ID:{corner_ids[label]}]" if corner_ids and label in corner_ids else ""
-        text = f" {label}{id_str} ({cx}, {cy}) "
-        text_y = cy - 20 if i in (0, 1) else cy + 34
-        text_x = max(10, cx - 65)
-        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)
+        text = f" {label}{id_str} Sudut Dalam ({cx}, {cy}) "
+        f_scale = 0.48 * scale_factor
+        f_thick = max(1, int(round(1.6 * scale_factor)))
+        (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+        
+        # Position towards page interior to prevent any overlap with ArUco box badge
+        if label == "TL":
+            text_x = cx + int(round(16 * scale_factor))
+            text_y = cy + int(round(30 * scale_factor))
+        elif label == "TR":
+            text_x = cx - tw - int(round(16 * scale_factor))
+            text_y = cy + int(round(30 * scale_factor))
+        elif label == "BL":
+            text_x = cx + int(round(16 * scale_factor))
+            text_y = cy - int(round(20 * scale_factor))
+        else:  # BR
+            text_x = cx - tw - int(round(16 * scale_factor))
+            text_y = cy - int(round(20 * scale_factor))
+            
+        text_x = max(10, min(iw - tw - 10, text_x))
+        text_y = max(th + 10, min(ih - 10, text_y))
+        
         cv2.rectangle(output, (text_x - 3, text_y - th - 3),
                       (text_x + tw + 3, text_y + baseline + 2), (0, 0, 0), -1)
+        cv2.rectangle(output, (text_x - 3, text_y - th - 3),
+                      (text_x + tw + 3, text_y + baseline + 2), (0, 230, 0), 1)
         cv2.putText(output, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.58, (0, 255, 255), 2, cv2.LINE_AA)
+                    f_scale, (0, 255, 255), f_thick, cv2.LINE_AA)
+
+    # 5. Top Legend Banner / HUD
+    banner_h = max(32, int(round(40 * scale_factor)))
+    hud_overlay = output.copy()
+    cv2.rectangle(hud_overlay, (0, 0), (iw, banner_h), (20, 20, 20), -1)
+    cv2.addWeighted(hud_overlay, 0.78, output, 0.22, 0, output)
+    cv2.line(output, (0, banner_h), (iw, banner_h), (0, 230, 0), max(1, int(round(1.5 * scale_factor))))
+
+    leg_f_scale = 0.45 * scale_factor
+    leg_f_thick = max(1, int(round(1.4 * scale_factor)))
+    hud_y = int(round(banner_h * 0.68))
+    
+    # Item 1: Kotak ArUco
+    cv2.rectangle(output, (int(round(15 * scale_factor)), int(round(banner_h * 0.26))),
+                  (int(round(30 * scale_factor)), int(round(banner_h * 0.74))), (0, 165, 255), -1)
+    cv2.putText(output, "Kotak Hitam ArUco", (int(round(36 * scale_factor)), hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
+
+    # Item 2: Garis Area Crop
+    x_off = int(round(220 * scale_factor))
+    cv2.line(output, (x_off, hud_y - int(round(4 * scale_factor))),
+             (x_off + int(round(20 * scale_factor)), hud_y - int(round(4 * scale_factor))), (0, 230, 0), max(2, int(round(3 * scale_factor))))
+    cv2.putText(output, "Garis Area Crop LJK", (x_off + int(round(26 * scale_factor)), hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
+
+    # Item 3: Titik Sudut Dalam
+    x_off2 = int(round(440 * scale_factor))
+    cv2.circle(output, (x_off2 + int(round(8 * scale_factor)), hud_y - int(round(4 * scale_factor))),
+               max(4, int(round(6 * scale_factor))), (0, 0, 255), 2)
+    cv2.circle(output, (x_off2 + int(round(8 * scale_factor)), hud_y - int(round(4 * scale_factor))),
+               max(2, int(round(3 * scale_factor))), (0, 255, 0), -1)
+    cv2.putText(output, "Titik Sudut Dalam (Crop Anchor)", (x_off2 + int(round(20 * scale_factor)), hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
 
     return output
 
