@@ -60,7 +60,7 @@ class TestAlignmentEngine(unittest.TestCase):
         img = load_image("sample foto/manual_1.jpeg")
         self.assertIsNotNone(img)
 
-        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
             img, preferred_method="aruco", crop_mode="inner", apply_standardization=True
         )
         self.assertTrue(status.startswith("DETECTED"))
@@ -78,7 +78,7 @@ class TestAlignmentEngine(unittest.TestCase):
         img = load_image("sample foto/IMG_9534.HEIC")
         self.assertIsNotNone(img)
 
-        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
             img, preferred_method="aruco", crop_mode="inner", apply_standardization=True
         )
         self.assertTrue(status.startswith("DETECTED"))
@@ -106,7 +106,7 @@ class TestAlignmentEngine(unittest.TestCase):
         orig = load_image("sample foto/manual_1.jpeg")
         for ang in [0, 90, 180, 270]:
             rot = rotate_image(orig, ang) if ang != 0 else orig
-            warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+            warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
                 rot, preferred_method="aruco", crop_mode="inner", apply_standardization=False
             )
             self.assertTrue(status.startswith("DETECTED"), f"Failed detection at angle {ang}")
@@ -130,7 +130,7 @@ class TestAlignmentEngine(unittest.TestCase):
         with open(pdf_path, "rb") as fp:
             img_no_corner = extract_images_from_file(fp)[0][1]
 
-        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
             img_no_corner, preferred_method="auto", crop_mode="inner"
         )
         self.assertTrue(status.startswith("DETECTED"), f"Failed detection on sample_no corner: {status}")
@@ -145,7 +145,7 @@ class TestAlignmentEngine(unittest.TestCase):
         with open(pdf_path, "rb") as fp:
             img_digital = extract_images_from_file(fp)[0][1]
 
-        warped, pts, method, c_ids, d_name, status = detect_corners_and_crop(
+        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
             img_digital, preferred_method="auto", crop_mode="inner"
         )
         self.assertTrue(status.startswith("DETECTED"), f"Failed detection on digital_1: {status}")

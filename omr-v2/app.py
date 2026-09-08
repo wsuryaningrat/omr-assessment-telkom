@@ -22,6 +22,7 @@ from core.alignment import (
     detect_corners_and_crop,
     perspective_warp,
     draw_regmarks_overlay,
+    draw_cropped_coordinate_system_overlay,
     rotate_image
 )
 from core.detector import (
@@ -1008,7 +1009,7 @@ if mode == "Portal Evaluasi LJK":
             dosen_previews = []
 
             for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-                warped, pts, method, c_ids, _, status = detect_corners_and_crop(
+                warped, pts, method, c_ids, _, status, _ = detect_corners_and_crop(
                     img_bgr,
                     canvas_w=canvas_w,
                     canvas_h=canvas_h,
@@ -1379,9 +1380,9 @@ elif mode == "Kalibrasi LJK" and sub_mode == "Editor Template":
     canvas_w = st.session_state["template_metadata"]["width"]
     canvas_h = st.session_state["template_metadata"]["height"]
 
-    # Fast ArUco Alignment & Inner Rectangle Crop (<0.05s)
+    # Green Frame Crop + ArUco Machine Registration (<0.05s)
     t_start = time.time()
-    warped_img, ordered_pts, method_used, corner_ids, detected_dict, status = detect_corners_and_crop(
+    warped_img, ordered_pts, method_used, corner_ids, detected_dict, status, aruco_reg = detect_corners_and_crop(
         img_bgr,
         canvas_w=canvas_w,
         canvas_h=canvas_h,
@@ -1397,15 +1398,20 @@ elif mode == "Kalibrasi LJK" and sub_mode == "Editor Template":
     st.session_state["detected_dict"] = detected_dict
     st.session_state["method_used"] = method_used
     st.session_state["crop_mode"] = c_mode
+    st.session_state["aruco_registration"] = aruco_reg
 
-    # Compact Collapsible Preview for ArUco Corner Status
+    # Collapsible Preview for Crop Geometry & Machine Registration
     with st.expander(f"📐 Penyelarasan Sudut Otomatis: {status} ({t_elapsed:.3f}s) — Klik untuk intip gambar crop", expanded=False):
         c_crop1, c_crop2 = st.columns(2)
         with c_crop1:
-            regmarks_overlay = draw_regmarks_overlay(img_bgr, ordered_pts, method=method_used, corner_ids=corner_ids, status=status, crop_mode=c_mode)
-            st.image(cv_to_pil(regmarks_overlay), caption="Posisi 4 Pojok Sudut", use_container_width=True)
+            regmarks_overlay = draw_regmarks_overlay(
+                img_bgr, ordered_pts, method=method_used, corner_ids=corner_ids,
+                status=status, crop_mode=c_mode, aruco_registration=aruco_reg
+            )
+            st.image(cv_to_pil(regmarks_overlay), caption="Batas Crop (Green Frame) & Registrasi Mesin (ArUco)", use_container_width=True)
         with c_crop2:
-            st.image(cv_to_pil(warped_img), caption=f"Hasil Crop Bersih ({canvas_w}×{canvas_h} px)", use_container_width=True)
+            coord_overlay = draw_cropped_coordinate_system_overlay(warped_img, aruco_registration=aruco_reg)
+            st.image(cv_to_pil(coord_overlay), caption=f"Sistem Koordinat Hasil Crop ({canvas_w}×{canvas_h} px)", use_container_width=True)
 
     # --------------------------------------------------------------------------
     # SECTION SELECTION / EDIT / CUSTOM CREATION (BUG-FREE & RELIABLE)
@@ -2138,8 +2144,15 @@ elif mode == "Kalibrasi LJK" and sub_mode == "Editor Template":
                 "canvas": {"width": canvas_w, "height": canvas_h},
                 "bubble_shape": chosen_shape,
                 "alignment_method": method_used,
+                "crop_boundary": "green_frame",
                 "aruco_dict": detected_dict,
                 "aruco_corner_ids": corner_ids,
+                "aruco_registration": {
+                    "status": aruco_reg.get("status") if aruco_reg else "NONE",
+                    "marker_ids": aruco_reg.get("marker_ids") if aruco_reg else {},
+                    "normalized_centers": {k: [round(float(v[0]), 2), round(float(v[1]), 2)] for k, v in aruco_reg.get("normalized_centers", {}).items()} if aruco_reg else {},
+                    "orientation_angle": aruco_reg.get("orientation_angle", 0) if aruco_reg else 0,
+                } if aruco_reg else None,
                 "crop_mode": c_mode,
                 "regmarks": ordered_pts.tolist(),
                 "fields": st.session_state["calibrated_fields"]
@@ -2293,7 +2306,7 @@ elif mode == "Kalibrasi LJK" and sub_mode == "OMR Reader":
             progress_bar = st.progress(0)
 
             for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-                warped, pts, method, _, _, status = detect_corners_and_crop(
+                warped, pts, method, _, _, status, _ = detect_corners_and_crop(
                     img_bgr,
                     canvas_w=canvas_w,
                     canvas_h=canvas_h,

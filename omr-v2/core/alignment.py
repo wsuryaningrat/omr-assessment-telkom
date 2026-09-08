@@ -13,6 +13,7 @@ The public function signatures are kept compatible with the previous module.
 """
 
 import cv2
+import logging
 import numpy as np
 
 
@@ -416,14 +417,32 @@ def _aruco_decode_patch(detector, patch, patch_offset, allowed_ids, scale=1.0):
 
 
 class CornerIdMap(dict):
-    """Dictionary mapping corner labels -> ArUco IDs, with optional boxes attribute."""
+    """Dictionary mapping corner labels -> ArUco IDs, with optional boxes and registration attributes."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.boxes = None
+        self.registration = None
 
 
-def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inner"):
+def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None):
     """Robust ArUco detection: locate dark-square blobs first, then decode.
+
+    This function is a **pure marker detector**.  It returns the full 4-corner
+    box for each detected ArUco marker.  It does NOT select inner/outer corners
+    and does NOT determine crop boundaries — that responsibility belongs to the
+    green-frame detector.
+
+    Returns
+    -------
+    marker_boxes : dict[str, ndarray(4,2)] or None
+        {label: 4 corner vertices} for each detected marker (TL/TR/BR/BL).
+        None if fewer than 4 markers found.
+    corner_ids : CornerIdMap or None
+        Mapping of label → marker ID, with .boxes attribute.
+    dict_name : str
+        The ArUco dictionary name that was used.
+    status : str
+        "DETECTED" on success, or an error description.
 
     Two-pass strategy per corner ROI
     ---------------------------------
@@ -438,11 +457,6 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
         with five image variants (raw → CLAHE → Otsu → adaptive → 2× upscale)
         and two detector sensitivities.  ROI size is also expanded from 25 % to
         38 % of the image edge on the second attempt.
-
-    After detection, the INNER vertex of each confirmed marker is selected:
-    the corner of the ArUco square that is geometrically closest to the page
-    centre. This gives a tight, consistent crop boundary independent of
-    marker size or slight misalignment.
     """
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
     h, w = gray.shape[:2]
@@ -570,41 +584,28 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode="inne
             f"{list(marker_map.keys())} ({best_dict_name})."
         )
 
-    # --- INNER-CORNER SELECTION -------------------------------------------
-    # For each confirmed ArUco marker, pick the vertex that is closest to the
-    # page centre ("inner corner" / "regmark corner"). This is deterministic,
-    # stable under marker rotation, and invariant to marker size.
-    marker_centers = {
-        lbl: marker_map[expected[lbl]].mean(axis=0).astype(np.float32)
-        for lbl in ("TL", "TR", "BR", "BL")
-    }
-    page_center = np.mean(np.vstack(list(marker_centers.values())), axis=0)
-    crop_pts = []
+    # --- Return full marker box data (REGISTRATION ONLY) --------------------
+    # ArUco is a pure detector. It returns the full 4-corner boxes for each
+    # detected marker.  Crop boundary selection is NOT done here — that is
+    # the responsibility of the green-frame detector.
+    # -----------------------------------------------------------------------
+    _log = logging.getLogger("alignment.aruco")
+
+    marker_boxes = {}
+    marker_centers = {}
     for lbl in ("TL", "TR", "BR", "BL"):
-        pts = marker_map[expected[lbl]].astype(np.float32)  # (4, 2)
-        mc = marker_centers[lbl]
-        if crop_mode == "center":
-            pt = mc
-        elif crop_mode == "outer":
-            dists = np.linalg.norm(pts - page_center, axis=1)
-            pt = pts[np.argmax(dists)]
-        else:
-            # INNER: ArUco vertex closest to page centre.
-            dists = np.linalg.norm(pts - page_center, axis=1)
-            pt = pts[np.argmin(dists)]
-        crop_pts.append(pt)
+        mid = expected[lbl]
+        pts = marker_map[mid].astype(np.float32)   # (4, 2) — all 4 ArUco corners
+        marker_boxes[lbl] = pts
+        mc = pts.mean(axis=0)
+        marker_centers[lbl] = mc
+        _log.info("  ArUco %s [ID:%d]: center=(%.1f, %.1f)  corners=%s",
+                   lbl, mid, mc[0], mc[1],
+                   [(round(float(p[0]),1), round(float(p[1]),1)) for p in pts])
 
-    ordered = np.asarray(crop_pts, dtype=np.float32)
-    if _quad_quality(ordered, gray.shape) < 0.20:
-        return None, None, best_dict_name, "ArUco: geometri marker tidak valid."
-
-    marker_boxes = {
-        lbl: marker_map[expected[lbl]].astype(np.float32)
-        for lbl in ("TL", "TR", "BR", "BL")
-    }
     out_ids = CornerIdMap({lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")})
     out_ids.boxes = marker_boxes
-    return ordered, out_ids, best_dict_name, "DETECTED"
+    return marker_boxes, out_ids, best_dict_name, "DETECTED"
 
 
 # ---------------------------------------------------------------------------
@@ -1053,19 +1054,45 @@ def detect_corners_and_crop(
     apply_standardization=True,
     scan_enhance=True
 ):
-    """Fast, robust alignment pipeline.
+    """Alignment pipeline: Green Frame crop + ArUco registration.
 
-    Fast path:
-        original -> one low-resolution scanner-like preprocessing pass ->
-        document/marker detection on the preprocessed image -> rough warp ->
-        final perspective warp from the original.
+    Architecture
+    ------------
+    CROP BOUNDARY  — determined exclusively by the **green printed frame**.
+                     ArUco markers do NOT influence crop position or size.
+    REGISTRATION   — ArUco markers are detected in parallel and returned as
+                     metadata in the normalized LJK coordinate system for downstream
+                     deterministic JSON.
 
-    If ArUco is unavailable (which is common for this LJK's registration
-    marks), the RegMark detector is used, then the printed green frame is
-    preferred. All successful paths preserve INNER-crop semantics.
+    Pipeline:
+        Image → preprocess → Green Frame Detection → 4 Green Frame Corners
+              → Perspective Crop → Normalized LJK Coordinate System
+              → (parallel) ArUco Registration metadata in normalized space
+
+    Fallback hierarchy (crop only):
+        1. Green Frame (PRIMARY)
+        2. RegMark (SECONDARY)
+        3. Inset document boundary (LAST RESORT)
+
+    Returns
+    -------
+    warped_img, crop_pts, method_used, corner_ids, detected_dict, status, aruco_registration
+        aruco_registration : dict or None
+            {
+                "status": "DETECTED" | "PARTIAL",
+                "marker_ids":    {TL: id, TR: id, BR: id, BL: id},
+                "marker_boxes":  {TL: ndarray(4,2), ...},   # original-image coords
+                "marker_centers":{TL: ndarray(2,), ...},
+                "normalized_boxes":  {TL: ndarray(4,2), ...}, # normalized canvas coords
+                "normalized_centers":{TL: ndarray(2,), ...},
+                "detected_dict": str,
+                "orientation_angle": int,
+            }
     """
+    _log = logging.getLogger("alignment.pipeline")
+
     if image is None or image.size == 0:
-        return None, None, "none", None, None, "FAILED: gambar kosong"
+        return None, None, "none", None, None, "FAILED: gambar kosong", None
 
     image_bgr = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim != 3 else image
     h_in, w_in = image_bgr.shape[:2]
@@ -1075,38 +1102,25 @@ def detect_corners_and_crop(
         image_bgr, max_width=2200, max_height=2200
     )
 
-    # IMPORTANT: build the scanner-like detection image BEFORE any corner
-    # detection.  This is intentionally different from the old pipeline,
-    # where the paper boundary was found on the raw photo first.  Flattening
-    # illumination + contrast normalization makes the sheet edge and the
-    # corner registration marks much more consistent under shadows, glare and
-    # uneven exposure.
-    # Preserve color for design-aware frame detection, while also building the
-    # enhanced grayscale stream used by ArUco/RegMark detection.
+    # Scanner-like preprocessing for consistent detection.
     preprocessed_bgr = enhance_scan_bgr(processing_img, strength=1.0)
     preprocessed_gray = cv2.cvtColor(preprocessed_bgr, cv2.COLOR_BGR2GRAY)
 
-    # Do not brute-force rotations. The page detector and marker detector are
-    # rotation tolerant. 180 degrees is only a cheap fallback if the first
-    # pass genuinely fails. 90/270 are reserved for the rare orientation case.
     candidate_angles = [0, 180, 90, 270]
-    best_doc = None
+    best_crop = None          # (crop_pts, method, corner_ids, dict, status)
+    best_aruco_reg = None     # ArUco registration data (independent of crop)
 
     for angle_index, ang in enumerate(candidate_angles):
-        # ArUco inner-corner is the authoritative anchor. Stop as soon as one
-        # is found — no need to try other orientations.
-        if best_doc is not None and best_doc[1] in ("aruco", "regmark"):
+        # Green frame is authoritative for crop. Stop early when found.
+        if best_crop is not None and best_crop[1] in ("green_frame", "regmark"):
             break
-        # Skip 90°/270° if any anchor was found at 0°/180°.
-        if angle_index >= 2 and best_doc is not None:
+        if angle_index >= 2 and best_crop is not None:
             break
 
         rot_img = _rotate_candidate(preprocessed_bgr, ang)
+        rot_raw = _rotate_candidate(processing_img, ang)
 
-        # Build a rough rectified image for marker detection. Use the physical
-        # paper boundary (doc corners) rather than the green frame here because
-        # doc corners are computed cheaply from edge detection and give a
-        # reasonable canvas even when the green frame is partially occluded.
+        # Build a rough-warped image for ArUco detection in corner ROIs.
         doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
@@ -1117,55 +1131,10 @@ def detect_corners_and_crop(
         rough_h = min(2500, max(2000, canvas_h))
         rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
 
-        # -------------------------------------------------------------------
-        # PRIMARY: ArUco inner corner
-        # Each ArUco marker is detected in its corner ROI with up to five
-        # image variants (raw → CLAHE → Otsu → adaptive → 2× upscale).
-        # The INNER vertex of each detected marker — the ArUco corner closest
-        # to the LJK page centre — is used as the authoritative crop anchor.
-        # -------------------------------------------------------------------
-        ar_pts, ids, detected_dict, ar_status = find_aruco_markers(
-            rough_img,
-            dict_name=dict_name,
-            expected_ids=expected_ids,
-            crop_mode="inner",
-        )
-        if ar_pts is not None and ar_status == "DETECTED":
-            fine_rot = _map_points_back(ar_pts, inv_rough_M)
-            if fine_rot is not None:
-                fine_original = fine_rot / np.array([sx, sy], dtype=np.float32)
-                if ang:
-                    fine_original = np.array(
-                        [unrotate_point(p, image_bgr.shape, ang) for p in fine_original],
-                        dtype=np.float32,
-                    )
-                if _quad_quality(fine_original, image_bgr.shape) >= 0.20:
-                    orig_boxes = {}
-                    if hasattr(ids, "boxes") and ids.boxes:
-                        for lbl, b_pts in ids.boxes.items():
-                            b_rot = _map_points_back(b_pts, inv_rough_M)
-                            if b_rot is not None:
-                                b_orig = b_rot / np.array([sx, sy], dtype=np.float32)
-                                if ang:
-                                    b_orig = np.array(
-                                        [unrotate_point(p, image_bgr.shape, ang) for p in b_orig],
-                                        dtype=np.float32,
-                                    )
-                                orig_boxes[lbl] = b_orig
-                    final_ids = CornerIdMap(ids)
-                    final_ids.boxes = orig_boxes if orig_boxes else None
-                    best_doc = (
-                        fine_original, "aruco", final_ids, detected_dict,
-                        "DETECTED (4 Sudut Terkunci - ArUco Inner Corner)"
-                    )
-                    break
-
-        # -------------------------------------------------------------------
-        # SECONDARY: Printed green frame
-        # Only reached when ArUco detection fails (marker occluded, dirty,
-        # or image severely degraded). The green frame is detected in the
-        # un-warped rotated image for the most reliable colour segmentation.
-        # -------------------------------------------------------------------
+        # ===================================================================
+        # PRIMARY CROP: Printed Green Frame
+        # The green frame is the SOLE source of crop boundary.
+        # ===================================================================
         green_corners = find_green_frame_corners(rot_img)
         if green_corners is not None:
             green_original = green_corners / np.array([sx, sy], dtype=np.float32)
@@ -1176,18 +1145,77 @@ def detect_corners_and_crop(
                 )
             score = _quad_quality(green_original, image_bgr.shape)
             if score >= 0.20:
-                if best_doc is None or score > _quad_quality(best_doc[0], image_bgr.shape):
-                    best_doc = (
+                if best_crop is None or score > _quad_quality(best_crop[0], image_bgr.shape):
+                    best_crop = (
                         green_original, "green_frame", None, None,
-                        "DETECTED (Fallback - Green Frame Inner)"
+                        "DETECTED (Green Frame — Crop Boundary)"
                     )
-                continue
+                    _log.info("Green Frame detected at angle=%d, score=%.2f", ang, score)
 
-        # -------------------------------------------------------------------
-        # TERTIARY: Black-box registration marks (square corner boxes)
-        # Only used when both ArUco and green-frame detection fail.
-        # -------------------------------------------------------------------
-        if preferred_method in ("aruco", "auto", "regmark"):
+        # ===================================================================
+        # PARALLEL: ArUco Registration (does NOT affect crop)
+        # Detect ArUco markers and store as registration metadata.
+        # ===================================================================
+        if best_aruco_reg is None:
+            # Try raw rotated image first (preserves crisp black ArUco squares)
+            ar_boxes, ar_ids, detected_dict, ar_status = find_aruco_markers(
+                rot_raw,
+                dict_name=dict_name,
+                expected_ids=expected_ids,
+            )
+            inv_M_for_ar = None
+            if ar_boxes is None or ar_status != "DETECTED":
+                # Try preprocessed rotated image
+                ar_boxes, ar_ids, detected_dict, ar_status = find_aruco_markers(
+                    rot_img,
+                    dict_name=dict_name,
+                    expected_ids=expected_ids,
+                )
+            if ar_boxes is None or ar_status != "DETECTED":
+                # Fallback to rough-warped image
+                ar_boxes, ar_ids, detected_dict, ar_status = find_aruco_markers(
+                    rough_img,
+                    dict_name=dict_name,
+                    expected_ids=expected_ids,
+                )
+                inv_M_for_ar = inv_rough_M
+
+            if ar_boxes is not None and ar_status == "DETECTED":
+                orig_boxes = {}
+                orig_centers = {}
+                for lbl, b_pts in ar_boxes.items():
+                    if inv_M_for_ar is not None:
+                        b_unwarped = _map_points_back(b_pts, inv_M_for_ar)
+                    else:
+                        b_unwarped = b_pts
+                    if b_unwarped is not None:
+                        b_orig = b_unwarped / np.array([sx, sy], dtype=np.float32)
+                        if ang:
+                            b_orig = np.array(
+                                [unrotate_point(p, image_bgr.shape, ang) for p in b_orig],
+                                dtype=np.float32,
+                            )
+                        orig_boxes[lbl] = b_orig
+                        orig_centers[lbl] = b_orig.mean(axis=0)
+
+                if len(orig_boxes) == 4:
+                    final_ids = CornerIdMap(ar_ids)
+                    final_ids.boxes = orig_boxes
+                    best_aruco_reg = {
+                        "status": "DETECTED",
+                        "marker_ids": dict(ar_ids),
+                        "marker_boxes": orig_boxes,
+                        "marker_centers": orig_centers,
+                        "detected_dict": detected_dict,
+                        "corner_ids": final_ids,
+                        "orientation_angle": ang,
+                    }
+                    _log.info("ArUco registration: 4/4 markers detected (%s)", detected_dict)
+
+        # ===================================================================
+        # FALLBACK CROP: RegMark (when green frame not found)
+        # ===================================================================
+        if best_crop is None and preferred_method in ("aruco", "auto", "regmark"):
             pts_reg, status_reg = _find_regmarks_on_normalized_page(
                 rough_img, crop_mode="inner"
             )
@@ -1202,44 +1230,70 @@ def detect_corners_and_crop(
                         dtype=np.float32,
                     )
                 if _quad_quality(pts_original, image_bgr.shape) >= 0.20:
-                    best_doc = (
+                    best_crop = (
                         pts_original, "regmark", None, None,
-                        "DETECTED (Fallback - RegMark Inner)"
+                        "DETECTED (Fallback — RegMark)"
                     )
-                    break
+                    _log.info("RegMark fallback detected at angle=%d", ang)
 
-        # -------------------------------------------------------------------
-        # LAST RESORT: Inset physical-paper boundary
-        # -------------------------------------------------------------------
-        doc_original = doc_corners / np.array([sx, sy], dtype=np.float32)
-        if ang:
-            doc_original = np.array(
-                [unrotate_point(p, image_bgr.shape, ang) for p in doc_original],
-                dtype=np.float32,
-            )
-        score = _quad_quality(doc_original, image_bgr.shape)
-        if best_doc is None or score > _quad_quality(best_doc[0], image_bgr.shape):
-            best_doc = (
-                doc_original, "doc_inset", None, None,
-                "DETECTED (Fallback - Inset INNER)"
-            )
+        # ===================================================================
+        # LAST RESORT CROP: Inset physical-paper boundary
+        # ===================================================================
+        if best_crop is None:
+            doc_original = doc_corners / np.array([sx, sy], dtype=np.float32)
+            if ang:
+                doc_original = np.array(
+                    [unrotate_point(p, image_bgr.shape, ang) for p in doc_original],
+                    dtype=np.float32,
+                )
+            score = _quad_quality(doc_original, image_bgr.shape)
+            if best_crop is None or score > _quad_quality(best_crop[0], image_bgr.shape):
+                best_crop = (
+                    doc_original, "doc_inset", None, None,
+                    "DETECTED (Fallback — Inset Boundary)"
+                )
 
-    if best_doc is None:
-        return None, None, "none", None, None, "FAILED: corner tidak ditemukan"
+    if best_crop is None:
+        return None, None, "none", None, None, "FAILED: corner tidak ditemukan", None
 
-    ordered_pts, method_used, corner_ids, detected_dict, status = best_doc
+    ordered_pts, method_used, corner_ids, detected_dict, status = best_crop
 
-    # Final warp from original image. Linear interpolation is substantially
-    # cheaper than cubic and is sufficient for the canonical OMR canvas.
-    warped_img, _ = perspective_warp(
+    # Attach ArUco registration info to corner_ids if available
+    if best_aruco_reg is not None and corner_ids is None:
+        corner_ids = best_aruco_reg.get("corner_ids")
+        detected_dict = best_aruco_reg.get("detected_dict")
+
+    _log.info("CROP method=%s | ArUco registration=%s",
+              method_used,
+              "available" if best_aruco_reg else "not detected")
+
+    # Final warp from original image using GREEN FRAME corners exclusively.
+    warped_img, M = perspective_warp(
         image_bgr, ordered_pts, canvas_w, canvas_h, interpolation=cv2.INTER_LINEAR
     )
+
+    # Compute normalized LJK coordinates for ArUco registration
+    if best_aruco_reg is not None and M is not None:
+        norm_boxes = {}
+        norm_centers = {}
+        for lbl, b_pts in best_aruco_reg["marker_boxes"].items():
+            pts_in = np.asarray(b_pts, dtype=np.float32).reshape(-1, 1, 2)
+            pts_norm = cv2.perspectiveTransform(pts_in, M).reshape(-1, 2)
+            norm_boxes[lbl] = pts_norm
+            norm_centers[lbl] = pts_norm.mean(axis=0)
+        best_aruco_reg["normalized_boxes"] = norm_boxes
+        best_aruco_reg["normalized_centers"] = norm_centers
+        best_aruco_reg["canvas_size"] = (canvas_w, canvas_h)
+        if corner_ids is not None:
+            corner_ids.registration = best_aruco_reg
+            corner_ids.boxes = best_aruco_reg["marker_boxes"]
+
     if apply_standardization and scan_enhance and warped_img is not None and warped_img.size > 0:
         warped_img = standardize_document_image(warped_img)
     elif apply_standardization and warped_img is not None and warped_img.size > 0:
         warped_img = standardize_document_image(warped_img, target_bg=255)
 
-    return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status
+    return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status, best_aruco_reg
 
 
 def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2.INTER_LINEAR):
@@ -1257,8 +1311,14 @@ def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2
     return warped, M
 
 
-def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
-                          status="DETECTED", crop_mode="inner", marker_boxes=None):
+def draw_regmarks_overlay(image, ordered_pts, method="green_frame", corner_ids=None,
+                          status="DETECTED", crop_mode="inner", marker_boxes=None,
+                          aruco_registration=None):
+    """Draw debug visualization separating CROP (green frame) from REGISTRATION (ArUco).
+
+    Green elements  = crop boundary (from green frame)
+    Orange elements = ArUco registration reference (does NOT affect crop)
+    """
     output = image.copy()
     if ordered_pts is None:
         return output
@@ -1267,44 +1327,53 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
     scale_factor = max(1.0, min(ih, iw) / 1200.0)
     banner_h = max(32, int(round(40 * scale_factor)))
 
-    # 1. Retrieve ArUco / Regmark boxes if available
-    boxes = marker_boxes
-    if boxes is None and hasattr(corner_ids, "boxes"):
+    # 1. Retrieve ArUco boxes from registration data or legacy parameters
+    boxes = None
+    if aruco_registration and "marker_boxes" in aruco_registration:
+        boxes = aruco_registration["marker_boxes"]
+    elif marker_boxes:
+        boxes = marker_boxes
+    elif hasattr(corner_ids, "boxes") and corner_ids is not None:
         boxes = corner_ids.boxes
-    elif boxes is None and isinstance(corner_ids, dict) and "_boxes" in corner_ids:
-        boxes = corner_ids["_boxes"]
 
-    # 2. Draw detected ArUco black boxes (kotak hitam ArUco)
+    # Retrieve ArUco IDs
+    ar_ids = None
+    if aruco_registration and "marker_ids" in aruco_registration:
+        ar_ids = aruco_registration["marker_ids"]
+    elif corner_ids and isinstance(corner_ids, dict):
+        ar_ids = corner_ids
+
+    # 2. Draw ArUco boxes — labelled as REGISTRATION reference
     if boxes and len(boxes) > 0:
-        # Subtle semi-transparent tint on ArUco black squares
+        # Subtle semi-transparent tint on ArUco squares
         overlay = output.copy()
         for lbl in ("TL", "TR", "BR", "BL"):
             if lbl in boxes and boxes[lbl] is not None:
                 b_pts = np.asarray(boxes[lbl], dtype=np.int32)
                 cv2.fillPoly(overlay, [b_pts], (0, 140, 255))
-        cv2.addWeighted(overlay, 0.25, output, 0.75, 0, output)
+        cv2.addWeighted(overlay, 0.22, output, 0.78, 0, output)
 
-        # Draw crisp outline & corners for each ArUco box
         box_line_w = max(2, int(round(3 * scale_factor)))
         v_rad = max(3, int(round(4 * scale_factor)))
         for lbl in ("TL", "TR", "BR", "BL"):
             if lbl in boxes and boxes[lbl] is not None:
                 b_pts = np.asarray(boxes[lbl], dtype=np.int32)
-                # Outer border in bright amber / orange
+                # Outline in amber/orange
                 cv2.polylines(output, [b_pts], True, (0, 165, 255), box_line_w, cv2.LINE_AA)
-                
-                # Corner vertices of the black box
+
+                # Corner vertices
                 for v in b_pts:
                     cv2.circle(output, tuple(v), v_rad, (0, 215, 255), -1, cv2.LINE_AA)
 
-                # Center of ArUco box
+                # Center dot
                 bc = b_pts.mean(axis=0).astype(int)
-                cv2.circle(output, (bc[0], bc[1]), max(3, int(round(5 * scale_factor))), (0, 140, 255), -1, cv2.LINE_AA)
+                cv2.circle(output, (bc[0], bc[1]), max(3, int(round(5 * scale_factor))),
+                           (0, 140, 255), -1, cv2.LINE_AA)
 
-                # Tag badge for ArUco box
-                id_val = corner_ids[lbl] if corner_ids and lbl in corner_ids else ""
-                tag = f" Kotak ArUco {lbl} [ID:{id_val}] "
-                f_scale = 0.46 * scale_factor
+                # Badge: "REGISTRATION" label
+                id_val = ar_ids.get(lbl, "") if ar_ids else ""
+                tag = f" ArUco {lbl} [ID:{id_val}] REGISTRATION "
+                f_scale = 0.42 * scale_factor
                 f_thick = max(1, int(round(1.4 * scale_factor)))
                 (tw, th), bl = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
                 bx = bc[0] - tw // 2
@@ -1313,15 +1382,16 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
                 by = max(banner_h + th + 8, min(ih - 10, by))
                 cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 0, 0), -1)
                 cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 165, 255), 1)
-                cv2.putText(output, tag, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 215, 255), f_thick, cv2.LINE_AA)
+                cv2.putText(output, tag, (bx, by), cv2.FONT_HERSHEY_SIMPLEX,
+                            f_scale, (0, 215, 255), f_thick, cv2.LINE_AA)
 
-    # 3. Draw Green Crop Polygon (Garis Hijau Area yang Dicrop)
+    # 3. Draw Green Crop Polygon — this IS the crop boundary
     labels = ["TL", "TR", "BR", "BL"]
     pts_int = np.asarray(ordered_pts, dtype=np.int32)
     crop_line_w = max(2, int(round(3 * scale_factor)))
     cv2.polylines(output, [pts_int], True, (0, 230, 0), crop_line_w, cv2.LINE_AA)
 
-    # 4. Draw inner corner targets (Pojok dalam LJK yang menjadi batas crop)
+    # 4. Draw crop corner targets (green frame corners = crop boundary)
     for i, (label, p) in enumerate(zip(labels, ordered_pts)):
         cx, cy = int(round(p[0])), int(round(p[1]))
         r1 = max(10, int(round(16 * scale_factor)))
@@ -1329,24 +1399,22 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
         cr_len = max(14, int(round(22 * scale_factor)))
         l_thick = max(1, int(round(2 * scale_factor)))
 
-        # Target circle & crosshair
-        cv2.circle(output, (cx, cy), r1, (0, 0, 255), l_thick, cv2.LINE_AA)
+        # Target circle & crosshair (green = crop boundary)
+        cv2.circle(output, (cx, cy), r1, (0, 200, 0), l_thick, cv2.LINE_AA)
         cv2.circle(output, (cx, cy), r2, (0, 255, 0), -1, cv2.LINE_AA)
-        cv2.line(output, (cx - cr_len, cy), (cx + cr_len, cy), (0, 0, 255), l_thick, cv2.LINE_AA)
-        cv2.line(output, (cx, cy - cr_len), (cx, cy + cr_len), (0, 0, 255), l_thick, cv2.LINE_AA)
+        cv2.line(output, (cx - cr_len, cy), (cx + cr_len, cy), (0, 200, 0), l_thick, cv2.LINE_AA)
+        cv2.line(output, (cx, cy - cr_len), (cx, cy + cr_len), (0, 200, 0), l_thick, cv2.LINE_AA)
 
-        # Line connecting ArUco center to its inner corner point
+        # Line connecting ArUco center to crop corner (showing registration offset)
         if boxes and label in boxes and boxes[label] is not None:
             bc = np.asarray(boxes[label]).mean(axis=0).astype(int)
-            cv2.line(output, (bc[0], bc[1]), (cx, cy), (0, 255, 255), max(1, int(round(1.5 * scale_factor))), cv2.LINE_AA)
+            cv2.line(output, (bc[0], bc[1]), (cx, cy), (0, 255, 255), max(1, int(round(1.2 * scale_factor))), cv2.LINE_AA)
 
-        id_str = f" [ID:{corner_ids[label]}]" if corner_ids and label in corner_ids else ""
-        text = f" {label}{id_str} Sudut Dalam ({cx}, {cy}) "
-        f_scale = 0.48 * scale_factor
+        text = f" {label} CROP ({cx}, {cy}) "
+        f_scale = 0.46 * scale_factor
         f_thick = max(1, int(round(1.6 * scale_factor)))
         (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
-        
-        # Position towards page interior to prevent any overlap with ArUco box badge
+
         if label == "TL":
             text_x = cx + int(round(16 * scale_factor))
             text_y = cy + int(round(30 * scale_factor))
@@ -1359,16 +1427,16 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
         else:  # BR
             text_x = cx - tw - int(round(16 * scale_factor))
             text_y = cy - int(round(20 * scale_factor))
-            
+
         text_x = max(10, min(iw - tw - 10, text_x))
         text_y = max(th + 10, min(ih - 10, text_y))
-        
+
         cv2.rectangle(output, (text_x - 3, text_y - th - 3),
                       (text_x + tw + 3, text_y + baseline + 2), (0, 0, 0), -1)
         cv2.rectangle(output, (text_x - 3, text_y - th - 3),
-                      (text_x + tw + 3, text_y + baseline + 2), (0, 230, 0), 1)
+                      (text_x + tw + 3, text_y + baseline + 2), (0, 200, 0), 1)
         cv2.putText(output, text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX,
-                    f_scale, (0, 255, 255), f_thick, cv2.LINE_AA)
+                    f_scale, (180, 255, 180), f_thick, cv2.LINE_AA)
 
     # 5. Top Legend Banner / HUD
     banner_h = max(32, int(round(40 * scale_factor)))
@@ -1377,31 +1445,129 @@ def draw_regmarks_overlay(image, ordered_pts, method="aruco", corner_ids=None,
     cv2.addWeighted(hud_overlay, 0.78, output, 0.22, 0, output)
     cv2.line(output, (0, banner_h), (iw, banner_h), (0, 230, 0), max(1, int(round(1.5 * scale_factor))))
 
-    leg_f_scale = 0.45 * scale_factor
+    leg_f_scale = 0.42 * scale_factor
     leg_f_thick = max(1, int(round(1.4 * scale_factor)))
     hud_y = int(round(banner_h * 0.68))
-    
-    # Item 1: Kotak ArUco
-    cv2.rectangle(output, (int(round(15 * scale_factor)), int(round(banner_h * 0.26))),
-                  (int(round(30 * scale_factor)), int(round(banner_h * 0.74))), (0, 165, 255), -1)
-    cv2.putText(output, "Kotak Hitam ArUco", (int(round(36 * scale_factor)), hud_y),
-                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
 
-    # Item 2: Garis Area Crop
-    x_off = int(round(220 * scale_factor))
-    cv2.line(output, (x_off, hud_y - int(round(4 * scale_factor))),
-             (x_off + int(round(20 * scale_factor)), hud_y - int(round(4 * scale_factor))), (0, 230, 0), max(2, int(round(3 * scale_factor))))
-    cv2.putText(output, "Garis Area Crop LJK", (x_off + int(round(26 * scale_factor)), hud_y),
-                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
+    # Legend 1: Green Frame = CROP
+    cv2.line(output,
+             (int(round(15 * scale_factor)), hud_y - int(round(4 * scale_factor))),
+             (int(round(35 * scale_factor)), hud_y - int(round(4 * scale_factor))),
+             (0, 230, 0), max(2, int(round(3 * scale_factor))))
+    cv2.putText(output, "Green Frame = CROP BOUNDARY",
+                (int(round(42 * scale_factor)), hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (180, 255, 180), leg_f_thick, cv2.LINE_AA)
 
-    # Item 3: Titik Sudut Dalam
-    x_off2 = int(round(440 * scale_factor))
-    cv2.circle(output, (x_off2 + int(round(8 * scale_factor)), hud_y - int(round(4 * scale_factor))),
-               max(4, int(round(6 * scale_factor))), (0, 0, 255), 2)
-    cv2.circle(output, (x_off2 + int(round(8 * scale_factor)), hud_y - int(round(4 * scale_factor))),
-               max(2, int(round(3 * scale_factor))), (0, 255, 0), -1)
-    cv2.putText(output, "Titik Sudut Dalam (Crop Anchor)", (x_off2 + int(round(20 * scale_factor)), hud_y),
-                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (255, 255, 255), leg_f_thick, cv2.LINE_AA)
+    # Legend 2: ArUco = REGISTRATION
+    x_off = int(round(320 * scale_factor))
+    cv2.rectangle(output,
+                  (x_off, int(round(banner_h * 0.26))),
+                  (x_off + int(round(15 * scale_factor)), int(round(banner_h * 0.74))),
+                  (0, 165, 255), -1)
+    cv2.putText(output, "ArUco = REGISTRATION",
+                (x_off + int(round(22 * scale_factor)), hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (0, 215, 255), leg_f_thick, cv2.LINE_AA)
+
+    # Legend 3: Method info
+    x_off2 = int(round(560 * scale_factor))
+    method_label = f"Crop Method: {method}"
+    cv2.putText(output, method_label,
+                (x_off2, hud_y),
+                cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (200, 200, 200), leg_f_thick, cv2.LINE_AA)
+
+    return output
+
+
+def draw_cropped_coordinate_system_overlay(warped_img, aruco_registration=None):
+    """Render the normalized LJK coordinate system and ArUco registration reference on the cropped canvas."""
+    if warped_img is None or warped_img.size == 0:
+        return warped_img
+
+    output = warped_img.copy()
+    h, w = output.shape[:2]
+    scale_factor = max(1.0, min(h, w) / 1200.0)
+
+    # 1. Subtle grid ticks along the border (every 200 px)
+    tick_color = (180, 180, 180)
+    tick_len = int(round(12 * scale_factor))
+    f_scale = 0.35 * scale_factor
+    f_thick = 1
+
+    for x in range(200, w, 200):
+        cv2.line(output, (x, 0), (x, tick_len), tick_color, 1)
+        cv2.line(output, (x, h - 1), (x, h - 1 - tick_len), tick_color, 1)
+        cv2.putText(output, str(x), (x - int(12 * scale_factor), tick_len + int(14 * scale_factor)),
+                    cv2.FONT_HERSHEY_SIMPLEX, f_scale, (100, 100, 100), f_thick, cv2.LINE_AA)
+
+    for y in range(200, h, 200):
+        cv2.line(output, (0, y), (tick_len, y), tick_color, 1)
+        cv2.line(output, (w - 1, y), (w - 1 - tick_len, y), tick_color, 1)
+        cv2.putText(output, str(y), (tick_len + int(4 * scale_factor), y + int(4 * scale_factor)),
+                    cv2.FONT_HERSHEY_SIMPLEX, f_scale, (100, 100, 100), f_thick, cv2.LINE_AA)
+
+    # 2. Origin (0, 0) Axis Indicator in Top-Left Corner
+    axis_len = int(round(80 * scale_factor))
+    axis_thick = max(2, int(round(2.5 * scale_factor)))
+    origin = (int(round(35 * scale_factor)), int(round(35 * scale_factor)))
+
+    # X-axis arrow (Green)
+    cv2.arrowedLine(output, origin, (origin[0] + axis_len, origin[1]), (0, 220, 0), axis_thick, tipLength=0.25)
+    cv2.putText(output, "X (0 -> W)", (origin[0] + axis_len + 5, origin[1] + 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42 * scale_factor, (0, 200, 0), f_thick, cv2.LINE_AA)
+
+    # Y-axis arrow (Blue)
+    cv2.arrowedLine(output, origin, (origin[0], origin[1] + axis_len), (255, 120, 0), axis_thick, tipLength=0.25)
+    cv2.putText(output, "Y (0 -> H)", (origin[0] - 10, origin[1] + axis_len + int(16 * scale_factor)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42 * scale_factor, (255, 120, 0), f_thick, cv2.LINE_AA)
+
+    # (0, 0) circle
+    cv2.circle(output, origin, int(round(5 * scale_factor)), (0, 255, 255), -1)
+    cv2.putText(output, "(0, 0)", (origin[0] + 8, origin[1] - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45 * scale_factor, (0, 255, 255), f_thick, cv2.LINE_AA)
+
+    # 3. Draw Registered ArUco Marker Boxes in Normalized Space (if present)
+    if aruco_registration and "normalized_boxes" in aruco_registration:
+        norm_boxes = aruco_registration["normalized_boxes"]
+        norm_ids = aruco_registration.get("marker_ids", {})
+        box_line_w = max(2, int(round(2.5 * scale_factor)))
+        v_rad = max(3, int(round(4 * scale_factor)))
+
+        for lbl, b_pts in norm_boxes.items():
+            if b_pts is not None:
+                b_int = np.asarray(b_pts, dtype=np.int32)
+                # Orange polygon outline
+                cv2.polylines(output, [b_int], True, (0, 165, 255), box_line_w, cv2.LINE_AA)
+                for v in b_int:
+                    cv2.circle(output, tuple(v), v_rad, (0, 215, 255), -1, cv2.LINE_AA)
+                bc = b_int.mean(axis=0).astype(int)
+                cv2.circle(output, (bc[0], bc[1]), max(3, int(round(5 * scale_factor))), (0, 140, 255), -1, cv2.LINE_AA)
+
+                id_val = norm_ids.get(lbl, "")
+                tag = f" ArUco {lbl} [ID:{id_val}] (reg) "
+                f_s = 0.40 * scale_factor
+                (tw, th), bl = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, f_s, 1)
+                bx = max(5, min(w - tw - 5, bc[0] - tw // 2))
+                by = bc[1] - int(round(25 * scale_factor)) if "T" in lbl else bc[1] + int(round(35 * scale_factor))
+                cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 0, 0), -1)
+                cv2.rectangle(output, (bx - 2, by - th - 2), (bx + tw + 2, by + bl + 2), (0, 165, 255), 1)
+                cv2.putText(output, tag, (bx, by), cv2.FONT_HERSHEY_SIMPLEX, f_s, (0, 215, 255), 1, cv2.LINE_AA)
+
+    # 4. Dimension Badge (Bottom Right)
+    dim_text = f" Kanvas: {w} × {h} px (Green Frame) "
+    f_dim = 0.44 * scale_factor
+    (dw, dh), dbl = cv2.getTextSize(dim_text, cv2.FONT_HERSHEY_SIMPLEX, f_dim, 1)
+    cv2.rectangle(output, (w - dw - 15, h - dh - 15), (w - 10, h - 10), (20, 20, 20), -1)
+    cv2.rectangle(output, (w - dw - 15, h - dh - 15), (w - 10, h - 10), (0, 230, 0), 1)
+    cv2.putText(output, dim_text, (w - dw - 12, h - 12), cv2.FONT_HERSHEY_SIMPLEX, f_dim, (180, 255, 180), 1, cv2.LINE_AA)
+
+    # 5. Bottom Status Banner
+    banner_h = max(24, int(round(30 * scale_factor)))
+    cv2.rectangle(output, (0, h - banner_h), (w, h), (15, 15, 15), -1)
+    cv2.line(output, (0, h - banner_h), (w, h - banner_h), (0, 230, 0), 1)
+    reg_status = "ArUco 4/4 Verified" if (aruco_registration and aruco_registration.get("status") == "DETECTED") else "ArUco Standby"
+    info_text = f"SISTEM KOORDINAT TERNORMALISASI | Crop: Green Frame (100%) | Registrasi: {reg_status} | Deterministic JSON Ready"
+    cv2.putText(output, info_text, (15, h - int(round(banner_h * 0.32))),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38 * scale_factor, (220, 220, 220), 1, cv2.LINE_AA)
 
     return output
 
