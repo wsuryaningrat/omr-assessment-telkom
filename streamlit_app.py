@@ -40,7 +40,9 @@ from core.utils import (
     draw_all_fields_overlay,
     draw_reading_overlay,
     export_to_csv,
-    export_to_json
+    export_to_json,
+    evaluate_template_bubble_alignment,
+    draw_alignment_delta_overlay
 )
 from core.evaluator import (
     parse_kunci_jawaban_excel,
@@ -1096,11 +1098,15 @@ if mode == "Portal Evaluasi LJK":
 
                 overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
                 regmarks_overlay = draw_regmarks_overlay(img_bgr, pts, method=method, corner_ids=c_ids, status=status, crop_mode=crop_m)
+                align_summary, align_deltas = evaluate_template_bubble_alignment(gray_warped, fields_dict)
+                delta_overlay_img = draw_alignment_delta_overlay(warped, fields_dict, gray_warped, summary=align_summary, bubble_deltas=align_deltas)
                 dosen_previews.append({
                     "name": doc_name,
                     "overlay": overlay_img,
                     "warped": warped,
                     "regmarks_overlay": regmarks_overlay,
+                    "delta_overlay": delta_overlay_img,
+                    "align_summary": align_summary,
                     "status": status,
                     "method": method
                 })
@@ -1230,18 +1236,42 @@ if mode == "Portal Evaluasi LJK":
                 if sel_item:
                     if isinstance(sel_item, dict):
                         st_status = sel_item.get("status", "")
-                        if "DETECTED" in st_status:
-                            st.success(f"📐 Status Ujung Pojok: **{st_status}**")
-                        else:
-                            st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
-                        c_prev1, c_prev2 = st.columns(2)
-                        with c_prev1:
-                            if "regmarks_overlay" in sel_item:
-                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"1. Deteksi Kotak ArUco & Area Crop LJK: {sel_doc}")
+                        align_sum = sel_item.get("align_summary", {})
+                        col_stat1, col_stat2 = st.columns([1, 1])
+                        with col_stat1:
+                            if "DETECTED" in st_status:
+                                st.success(f"📐 Status Ujung Pojok: **{st_status}**")
                             else:
-                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"1. Hasil Warp: {sel_doc}")
-                        with c_prev2:
-                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"2. Deteksi Jawaban: {sel_doc}")
+                                st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
+                        with col_stat2:
+                            if align_sum:
+                                q_val = align_sum.get("quality", "EVALUATED")
+                                m_dx = align_sum.get("median_dx", 0.0)
+                                m_dy = align_sum.get("median_dy", 0.0)
+                                s_dx = align_sum.get("std_dx", 0.0)
+                                s_dy = align_sum.get("std_dy", 0.0)
+                                if q_val in ("EXCELLENT", "ALIGNED"):
+                                    st.success(f"🎯 Alignment Bubble (Ground Truth): **{q_val}** (Δx: {m_dx:+.1f}±{s_dx:.1f}px, Δy: {m_dy:+.1f}±{s_dy:.1f}px)")
+                                else:
+                                    st.warning(f"⚠️ Alignment Bubble: **{q_val}** (Δx: {m_dx:+.1f}px, Δy: {m_dy:+.1f}px)")
+
+                        tab_pv1, tab_pv2, tab_pv3 = st.tabs([
+                            "🎯 Deteksi Jawaban OMR",
+                            "📐 Diagnostik Alignment (dx, dy)",
+                            "🖼️ Deteksi Kotak ArUco & Area Crop"
+                        ])
+                        with tab_pv1:
+                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"Hasil Deteksi Jawaban: {sel_doc}")
+                        with tab_pv2:
+                            if "delta_overlay" in sel_item:
+                                st.image(cv_to_pil(sel_item["delta_overlay"]), use_container_width=True, caption=f"Vektor Delta Alignment (Ground Truth JSON vs Fisik): {sel_doc}")
+                            else:
+                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Warp: {sel_doc}")
+                        with tab_pv3:
+                            if "regmarks_overlay" in sel_item:
+                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"Deteksi Kotak ArUco & Area Crop LJK: {sel_doc}")
+                            else:
+                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Warp: {sel_doc}")
                     else:
                         st.image(cv_to_pil(sel_item[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
 

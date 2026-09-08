@@ -630,57 +630,145 @@ def enhance_scan_bgr(image, strength=1.0):
     return out
 
 
-def find_green_frame_corners(image):
-    """Detect the printed green frame, which is the desired inner page bound.
+def _fit_robust_line(pts, is_horizontal=True):
+    pts = np.asarray(pts, dtype=np.float32)
+    if len(pts) < 15:
+        return None
+    coord = pts[:, 1] if is_horizontal else pts[:, 0]
+    med = np.median(coord)
+    mad = np.median(np.abs(coord - med)) + 1.0
+    keep = np.abs(coord - med) <= max(10.0, 3.0 * mad)
+    pts = pts[keep]
+    if len(pts) < 15:
+        return None
+    if is_horizontal:
+        A = np.column_stack([pts[:, 0], np.ones(len(pts))])
+        a, b = np.linalg.lstsq(A, pts[:, 1], rcond=None)[0]
+        return ('H', float(a), float(b))
+    else:
+        A = np.column_stack([pts[:, 1], np.ones(len(pts))])
+        a, b = np.linalg.lstsq(A, pts[:, 0], rcond=None)[0]
+        return ('V', float(a), float(b))
 
-    This is intentionally design-aware for the supplied LJK: the physical
-    paper can extend beyond the green frame, so the green frame is preferred
-    over the paper contour whenever it is visible.
+
+def _intersect_lines(lh, lv):
+    _, ah, bh = lh
+    _, av, bv = lv
+    denom = 1.0 - ah * av
+    if abs(denom) < 1e-6:
+        return None
+    y = (ah * bv + bh) / denom
+    x = av * y + bv
+    return np.array([x, y], dtype=np.float32)
+
+
+def find_green_frame_corners(image):
+    """Robustly detect the printed green frame boundary using line fitting and edge constraints.
+
+    Architecture & Invariants:
+    1. The green frame defines the outer crop boundary for the canonical LJK canvas.
+    2. Uses directional morphology (horizontal and vertical line kernels) to isolate straight border edges.
+    3. Fits lines to the 4 borders (Top, Bottom, Left, Right) with median/MAD outlier rejection.
+    4. Computes 4 corners as exact line intersections: TL, TR, BR, BL.
+    5. Falls back to convex hull contour analysis if lighting or occlusion breaks line continuity.
+    6. Returns points ordered strictly TL -> TR -> BR -> BL.
     """
     if image is None or image.size == 0 or image.ndim != 3:
         return None
     h, w = image.shape[:2]
+
+    # 1. Dual-space green mask (HSV + RGB differential) to survive phone glare and lighting shifts
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    # Broad green range to survive phone WB changes and scanner enhancement.
-    lower = np.array([28, 28, 22], dtype=np.uint8)
-    upper = np.array([100, 255, 235], dtype=np.uint8)
-    mask = cv2.inRange(hsv, lower, upper)
-    mask = cv2.morphologyEx(
-        mask,
-        cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9)),
-        iterations=2,
-    )
-    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=1)
+    lower = np.array([28, 18, 16], dtype=np.uint8)
+    upper = np.array([100, 255, 255], dtype=np.uint8)
+    mask_hsv = cv2.inRange(hsv, lower, upper)
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
+    b, g, r = cv2.split(image.astype(np.int16))
+    mask_rgb = ((g - r > 6) & (g - b > 3) & (g > 35)).astype(np.uint8) * 255
+    mask = cv2.bitwise_or(mask_hsv, mask_rgb)
 
-    img_area = float(max(1, w * h))
-    best = None
-    best_score = -1.0
-    for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:12]:
-        area = cv2.contourArea(cnt)
-        ratio = area / img_area
-        if ratio < 0.25:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        if peri <= 0:
-            continue
-        approx = cv2.approxPolyDP(cnt, 0.01 * peri, True)
-        if len(approx) != 4 or not cv2.isContourConvex(approx):
-            continue
-        pts = order_points(approx.reshape(4, 2).astype(np.float32), target_w=w, target_h=h)
-        q = _quad_quality(pts, image.shape)
-        if q < 0.55:
-            continue
-        # Prefer a large frame with substantial edge span.
-        score = ratio * (0.7 + 0.3 * q)
-        if score > best_score:
-            best_score = score
-            best = pts
-    return best
+    # 2. Extract horizontal and vertical line segments
+    kw = max(15, int(w * 0.02))
+    kh = max(15, int(h * 0.02))
+    lines_h = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (kw, 2)))
+    lines_v = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (2, kh)))
+
+    # 3. Outer border scan
+    x_steps = range(int(0.12 * w), int(0.88 * w), 2)
+    top_pts = []
+    bot_pts = []
+    for x in x_steps:
+        nz_top = np.where(lines_h[int(0.02 * h):int(0.28 * h), x] > 0)[0]
+        if len(nz_top) > 0:
+            top_pts.append((x, int(0.02 * h) + nz_top[0]))
+        nz_bot = np.where(lines_h[int(0.72 * h):int(0.98 * h), x] > 0)[0]
+        if len(nz_bot) > 0:
+            bot_pts.append((x, int(0.72 * h) + nz_bot[-1]))
+
+    y_steps = range(int(0.12 * h), int(0.88 * h), 2)
+    left_pts = []
+    right_pts = []
+    for y in y_steps:
+        nz_left = np.where(lines_v[y, int(0.02 * w):int(0.28 * w)] > 0)[0]
+        if len(nz_left) > 0:
+            left_pts.append((int(0.02 * w) + nz_left[0], y))
+        nz_right = np.where(lines_v[y, int(0.72 * w):int(0.98 * w)] > 0)[0]
+        if len(nz_right) > 0:
+            right_pts.append((int(0.72 * w) + nz_right[-1], y))
+
+    # 4. Robust line fitting
+    lt = _fit_robust_line(top_pts, True)
+    lb = _fit_robust_line(bot_pts, True)
+    ll = _fit_robust_line(left_pts, False)
+    lr = _fit_robust_line(right_pts, False)
+
+    quad = None
+    if not any(p is None for p in (lt, lb, ll, lr)):
+        tl = _intersect_lines(lt, ll)
+        tr = _intersect_lines(lt, lr)
+        br = _intersect_lines(lb, lr)
+        bl = _intersect_lines(lb, ll)
+        if not any(p is None for p in (tl, tr, br, bl)):
+            cand = order_points([tl, tr, br, bl], target_w=w, target_h=h)
+            top_w = np.linalg.norm(cand[1] - cand[0])
+            bot_w = np.linalg.norm(cand[2] - cand[3])
+            left_h = np.linalg.norm(cand[3] - cand[0])
+            right_h = np.linalg.norm(cand[2] - cand[1])
+            avg_w = (top_w + bot_w) / 2.0
+            avg_h = (left_h + right_h) / 2.0
+            if avg_w > 0 and 1.20 <= (avg_h / avg_w) <= 1.70:
+                quad = cand
+
+    # 5. Robust fallback: contour analysis if line fitting fails
+    if quad is None:
+        mask_close = cv2.morphologyEx(
+            mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11)),
+            iterations=2
+        )
+        contours, _ = cv2.findContours(mask_close, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        img_area = float(max(1, w * h))
+        best_score = -1.0
+        for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
+            area = cv2.contourArea(cnt)
+            ratio = area / img_area
+            if ratio < 0.25:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            if peri <= 0:
+                continue
+            approx = cv2.approxPolyDP(cnt, 0.015 * peri, True)
+            if len(approx) == 4 and cv2.isContourConvex(approx):
+                c_cand = order_points(approx.reshape(4, 2).astype(np.float32), target_w=w, target_h=h)
+                q = _quad_quality(c_cand, image.shape)
+                if q >= 0.50:
+                    score = ratio * (0.7 + 0.3 * q)
+                    if score > best_score:
+                        best_score = score
+                        quad = c_cand
+
+    return quad
 
 
 def inset_quad(points, ratio=0.028):
@@ -1284,6 +1372,26 @@ def detect_corners_and_crop(
         best_aruco_reg["normalized_boxes"] = norm_boxes
         best_aruco_reg["normalized_centers"] = norm_centers
         best_aruco_reg["canvas_size"] = (canvas_w, canvas_h)
+
+        # ArUco Validation Reference against canonical expected coordinates
+        # Reference positions of ArUco centers in normalized 1700x2400 canvas
+        ref_aruco = {
+            "TL": np.array([-25.8, -22.8], dtype=np.float32),
+            "TR": np.array([1724.5, -23.7], dtype=np.float32),
+            "BR": np.array([1722.8, 2417.8], dtype=np.float32),
+            "BL": np.array([-25.9, 2419.8], dtype=np.float32)
+        }
+        reg_errors = {}
+        for lbl, c_pos in norm_centers.items():
+            if lbl in ref_aruco:
+                reg_errors[lbl] = round(float(np.linalg.norm(c_pos - ref_aruco[lbl])), 2)
+        max_reg_err = max(reg_errors.values()) if reg_errors else 0.0
+        best_aruco_reg["registration_errors"] = reg_errors
+        best_aruco_reg["registration_max_err"] = round(max_reg_err, 2)
+        best_aruco_reg["registration_quality"] = (
+            "EXCELLENT" if max_reg_err < 15.0 else ("VALID" if max_reg_err < 30.0 else "WARNING")
+        )
+
         if corner_ids is not None:
             corner_ids.registration = best_aruco_reg
             corner_ids.boxes = best_aruco_reg["marker_boxes"]

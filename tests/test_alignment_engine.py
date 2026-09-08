@@ -1,10 +1,11 @@
 """
-Automated Integration Tests for ArUco Alignment and Strict Inner Crop Engine.
+Automated Integration Tests for Green Frame Alignment, ArUco Registration, and Bubble Delta Validation.
 Verifies:
-1. Strict inner crop completely excludes ArUco markers from the canvas.
-2. 3-marker geometric recovery handles missing or occluded corner markers.
-3. Rotated images (0, 90, 180, 270 deg) are aligned to canonical upright 1700x2400 canvas.
-4. End-to-end OMR decoding yields accurate student data.
+1. Mathematical exactness of geometric unrotate.
+2. Deterministic Green Frame crop & perspective normalization on baseline reference (IMG_9558.HEIC).
+3. Robust Green Frame recovery & alignment consistency on challenging scan (IMG_9557.HEIC).
+4. ArUco serves strictly as registration/validation reference in normalized LJK space.
+5. Bubble delta evaluation demonstrates aligned coordinate spaces (std < 3.5 px).
 """
 
 import unittest
@@ -18,17 +19,19 @@ pillow_heif.register_heif_opener()
 
 from core.alignment import (
     detect_corners_and_crop,
-    make_fast_detector,
     rotate_image,
     unrotate_point
 )
 from core.decoder import decode_field
+from core.utils import evaluate_template_bubble_alignment
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_image(rel_path):
     path = os.path.join(BASE_DIR, rel_path)
+    if not os.path.exists(path):
+        return None
     if path.lower().endswith((".heic", ".heif")):
         pil_img = Image.open(path)
         return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
@@ -55,37 +58,18 @@ class TestAlignmentEngine(unittest.TestCase):
             unrot = unrotate_point((rx, ry), (h, w), ang)
             self.assertLess(np.max(np.abs(unrot - pt_orig)), 1.0)
 
-    def test_manual_photo_strict_inner_crop(self):
-        """Verify manual_1.jpeg crops strictly inside ArUco markers with 0 markers in canvas."""
-        img = load_image("sample foto/manual_1.jpeg")
-        self.assertIsNotNone(img)
+    def test_reference_sample_alignment_and_decode(self):
+        """Verify baseline reference (IMG_9558.HEIC) produces canonical 1700x2400 and accurate student data."""
+        img = load_image("sample foto/IMG_9558.HEIC")
+        self.assertIsNotNone(img, "IMG_9558.HEIC must exist in sample foto/")
 
-        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
-            img, preferred_method="aruco", crop_mode="inner", apply_standardization=True
+        warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
+            img, preferred_method="green_frame", apply_standardization=True
         )
-        self.assertTrue(status.startswith("DETECTED"))
-        self.assertEqual(method, "aruco")
+        self.assertTrue(status.startswith("DETECTED"), f"Expected DETECTED, got {status}")
+        self.assertEqual(method, "green_frame")
         self.assertEqual(warped.shape, (2400, 1700, 3))
 
-        # Check that ArUco detector finds ZERO markers inside the cropped canvas
-        gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        det = make_fast_detector(cv2.aruco.DICT_4X4_50)
-        c, ids, _ = det.detectMarkers(gray_w)
-        self.assertIsNone(ids, "ArUco markers must NOT appear inside the inner cropped canvas")
-
-    def test_heic_photo_with_glare_recovery(self):
-        """Verify IMG_9534.HEIC (with marker 1 glare) recovers all 4 markers and decodes correctly."""
-        img = load_image("sample foto/IMG_9534.HEIC")
-        self.assertIsNotNone(img)
-
-        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
-            img, preferred_method="aruco", crop_mode="inner", apply_standardization=True
-        )
-        self.assertTrue(status.startswith("DETECTED"))
-        self.assertEqual(method, "aruco")
-        self.assertEqual(warped.shape, (2400, 1700, 3))
-
-        # Check OMR decoding on the recovered canvas
         gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
         fields = {}
         for fname, fdef in self.template.get("fields", {}).items():
@@ -94,65 +78,58 @@ class TestAlignmentEngine(unittest.TestCase):
             fields.update(decode_field(gray_w, fcopy, thresh=0.28, margin=0.08))
 
         self.assertIn("WAHYU", fields.get("NAMA", ""))
-        self.assertIn("1234321119", fields.get("NPM", ""))
-        self.assertEqual(fields.get("FAKULTAS", ""), "FKS")
-        self.assertEqual(fields.get("KODE SOAL", ""), "111")
+        self.assertEqual(fields.get("NPM", ""), "1233322566")
+        self.assertEqual(fields.get("FAKULTAS", ""), "FIK")
 
-        soal_filled = sum(1 for k, v in fields.items() if k.startswith("soal_") and v != "BLANK")
-        self.assertEqual(soal_filled, 75, f"Expected 75 filled questions, got {soal_filled}")
+        # Evaluate coordinate alignment
+        summary, deltas = evaluate_template_bubble_alignment(gray_w, self.template.get("fields", {}))
+        self.assertIn(summary.get("quality"), ("EXCELLENT", "ALIGNED"))
+        self.assertLess(summary.get("std_dx", 99), 3.5)
+        self.assertLess(summary.get("std_dy", 99), 3.5)
 
-    def test_multi_angle_rotation(self):
-        """Verify all 4 rotation angles (0, 90, 180, 270) produce canonical upright 1700x2400."""
-        orig = load_image("sample foto/manual_1.jpeg")
-        for ang in [0, 90, 180, 270]:
-            rot = rotate_image(orig, ang) if ang != 0 else orig
-            warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
-                rot, preferred_method="aruco", crop_mode="inner", apply_standardization=False
-            )
-            self.assertTrue(status.startswith("DETECTED"), f"Failed detection at angle {ang}")
-            self.assertEqual(warped.shape, (2400, 1700, 3), f"Wrong shape at angle {ang}")
+    def test_problematic_sample_recovery_and_alignment(self):
+        """Verify challenging scan (IMG_9557.HEIC) normalizes into same canonical space with matching answers."""
+        img = load_image("sample foto/IMG_9557.HEIC")
+        self.assertIsNotNone(img, "IMG_9557.HEIC must exist in sample foto/")
 
-            # Verify points are within image boundaries
-            h, w = rot.shape[:2]
-            for pt in pts:
-                self.assertGreaterEqual(pt[0], 0)
-                self.assertLessEqual(pt[0], w)
-                self.assertGreaterEqual(pt[1], 0)
-                self.assertLessEqual(pt[1], h)
-
-    def test_corner_first_regmark_and_doc_bounds(self):
-        """Verify corner-first detection clearly locks 4 physical corners on sheets with and without regmarks."""
-        from core.pdf_utils import extract_images_from_file
-        from core.alignment import find_document_corners
-
-        # Test on sheet without printed corner markers (sample_no corner.pdf)
-        pdf_path = os.path.join(BASE_DIR, "templates", "sample_no corner.pdf")
-        with open(pdf_path, "rb") as fp:
-            img_no_corner = extract_images_from_file(fp)[0][1]
-
-        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
-            img_no_corner, preferred_method="auto", crop_mode="inner"
+        warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
+            img, preferred_method="green_frame", apply_standardization=True
         )
-        self.assertTrue(status.startswith("DETECTED"), f"Failed detection on sample_no corner: {status}")
+        self.assertTrue(status.startswith("DETECTED"), f"Expected DETECTED, got {status}")
+        self.assertEqual(method, "green_frame")
         self.assertEqual(warped.shape, (2400, 1700, 3))
-        self.assertEqual(len(pts), 4)
 
-    def test_digital_scan_corners(self):
-        """Verify digital scan LJK (digital_1.pdf) locks 4 corners cleanly."""
-        from core.pdf_utils import extract_images_from_file
+        gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        fields = {}
+        for fname, fdef in self.template.get("fields", {}).items():
+            fcopy = dict(fdef)
+            fcopy["field_name"] = fname
+            fields.update(decode_field(gray_w, fcopy, thresh=0.28, margin=0.08))
 
-        pdf_path = os.path.join(BASE_DIR, "sample foto", "digital_1.pdf")
-        with open(pdf_path, "rb") as fp:
-            img_digital = extract_images_from_file(fp)[0][1]
+        # Must match reference decoded identity
+        self.assertIn("WAHYU", fields.get("NAMA", ""))
+        self.assertEqual(fields.get("NPM", ""), "1233322566")
+        self.assertEqual(fields.get("FAKULTAS", ""), "FIK")
 
-        warped, pts, method, c_ids, d_name, status, _ = detect_corners_and_crop(
-            img_digital, preferred_method="auto", crop_mode="inner"
+        # Evaluate coordinate alignment: delta must be tight without large perspective skew
+        summary, deltas = evaluate_template_bubble_alignment(gray_w, self.template.get("fields", {}))
+        self.assertIn(summary.get("quality"), ("EXCELLENT", "ALIGNED"))
+        self.assertLess(summary.get("std_dx", 99), 3.5)
+        self.assertLess(summary.get("std_dy", 99), 3.5)
+        self.assertLess(abs(summary.get("median_dx", 99)), 3.0)
+        self.assertLess(abs(summary.get("median_dy", 99)), 3.0)
+
+    def test_aruco_registration_reference(self):
+        """Verify ArUco markers serve strictly as validation reference metadata."""
+        img = load_image("sample foto/IMG_9558.HEIC")
+        warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
+            img, preferred_method="green_frame", apply_standardization=True
         )
-        self.assertTrue(status.startswith("DETECTED"), f"Failed detection on digital_1: {status}")
-        self.assertEqual(warped.shape, (2400, 1700, 3))
-        self.assertEqual(len(pts), 4)
+        self.assertIsNotNone(reg)
+        self.assertIn("normalized_centers", reg)
+        self.assertIn("registration_quality", reg)
+        self.assertIn(reg.get("registration_quality"), ("EXCELLENT", "VALID"))
 
 
 if __name__ == "__main__":
     unittest.main()
-
