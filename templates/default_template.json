@@ -1,0 +1,134 @@
+{
+  "name": "Telkom University Math Center LJK",
+  "version": "1.0",
+  "canonical_width": 1654,
+  "canonical_height": 2339,
+  "markers": {
+    "type": "aruco_or_corners",
+    "aruco_dict": "DICT_4X4_50",
+    "marker_ids": [0, 1, 2, 3],
+    "target_corners": [
+      [60, 60],
+      [1594, 60],
+      [1594, 2279],
+      [60, 2279]
+    ],
+    "marker_size": 60
+  },
+  "scoring": {
+    "fill_threshold": 0.38,
+    "blank_threshold": 0.18,
+    "ambiguity_margin": 0.12,
+    "bubble_radius": 10,
+    "inner_radius_ratio": 0.85
+  },
+  "identity": {
+    "name": {
+      "positions": 20,
+      "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "start_x": 165,
+      "start_y": 440,
+      "spacing_x": 34,
+      "spacing_y": 28,
+      "bubble_radius": 10
+    },
+    "npm": {
+      "digits": 10,
+      "start_x": 940,
+      "start_y": 440,
+      "spacing_x": 36,
+      "spacing_y": 30,
+      "bubble_radius": 10
+    },
+    "faculty": {
+      "options": 7,
+      "faculty_names": [
+        "FIF (Fakultas Informatika)",
+        "FTE (Fakultas Teknik Elektro)",
+        "FRI (Fakultas Rekayasa Industri)",
+        "FEB (Fakultas Ekonomi dan Bisnis)",
+        "FIK (Fakultas Industri Kreatif)",
+        "FKS (Fakultas Komunikasi & Ilmu Sosial)",
+        "FIT (Fakultas Ilmu Terapan)"
+      ],
+      "start_x": 1360,
+      "start_y": 440,
+      "spacing_y": 36,
+      "bubble_radius": 10
+    }
+  },
+  "survey": {
+    "total_questions": 10,
+    "choices": ["A", "B", "C", "D"],
+    "columns": [
+      {
+        "start_q": 1,
+        "end_q": 5,
+        "start_x": 960,
+        "start_y": 960,
+        "question_spacing_y": 36,
+        "choice_spacing_x": 26
+      },
+      {
+        "start_q": 6,
+        "end_q": 10,
+        "start_x": 1160,
+        "start_y": 960,
+        "question_spacing_y": 36,
+        "choice_spacing_x": 26
+      }
+    ],
+    "bubble_radius": 10
+  },
+  "mathematics": {
+    "total_questions": 100,
+    "choices": ["A", "B", "C", "D"],
+    "columns": [
+      {
+        "start_q": 1,
+        "end_q": 25,
+        "start_x": 180,
+        "start_y": 1360,
+        "question_spacing_y": 35,
+        "choice_spacing_x": 26
+      },
+      {
+        "start_q": 26,
+        "end_q": 50,
+        "start_x": 540,
+        "start_y": 1360,
+        "question_spacing_y": 35,
+        "choice_spacing_x": 26
+      },
+      {
+        "start_q": 51,
+        "end_q": 75,
+        "start_x": 900,
+        "start_y": 1360,
+        "question_spacing_y": 35,
+        "choice_spacing_x": 26
+      },
+      {
+        "start_q": 76,
+        "end_q": 100,
+        "start_x": 1260,
+        "start_y": 1360,
+        "question_spacing_y": 35,
+        "choice_spacing_x": 26
+      }
+    ],
+    "bubble_radius": 10,
+    "answer_key": {
+      "Q01": "A", "Q02": "B", "Q03": "C", "Q04": "D", "Q05": "A", "Q06": "B", "Q07": "C", "Q08": "D", "Q09": "A", "Q10": "B",
+      "Q11": "C", "Q12": "D", "Q13": "A", "Q14": "B", "Q15": "C", "Q16": "D", "Q17": "A", "Q18": "B", "Q19": "C", "Q20": "D",
+      "Q21": "A", "Q22": "B", "Q23": "C", "Q24": "D", "Q25": "A", "Q26": "B", "Q27": "C", "Q28": "D", "Q29": "A", "Q30": "B",
+      "Q31": "C", "Q32": "D", "Q33": "A", "Q34": "B", "Q35": "C", "Q36": "D", "Q37": "A", "Q38": "B", "Q39": "C", "Q40": "D",
+      "Q41": "A", "Q42": "B", "Q43": "C", "Q44": "D", "Q45": "A", "Q46": "B", "Q47": "C", "Q48": "D", "Q49": "A", "Q50": "B",
+      "Q51": "C", "Q52": "D", "Q53": "A", "Q54": "B", "Q55": "C", "Q56": "D", "Q57": "A", "Q58": "B", "Q59": "C", "Q60": "D",
+      "Q61": "A", "Q62": "B", "Q63": "C", "Q64": "D", "Q65": "A", "Q66": "B", "Q67": "C", "Q68": "D", "Q69": "A", "Q70": "B",
+      "Q71": "C", "Q72": "D", "Q73": "A", "Q74": "B", "Q75": "C", "Q76": "D", "Q77": "A", "Q78": "B", "Q79": "C", "Q80": "D",
+      "Q81": "A", "Q82": "B", "Q83": "C", "Q84": "D", "Q85": "A", "Q86": "B", "Q87": "C", "Q88": "D", "Q89": "A", "Q90": "B",
+      "Q91": "C", "Q92": "D", "Q93": "A", "Q94": "B", "Q95": "C", "Q96": "D", "Q97": "A", "Q98": "B", "Q99": "C", "Q100": "D"
+    }
+  }
+}
