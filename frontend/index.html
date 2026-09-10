@@ -869,34 +869,50 @@
       });
     }
 
-        // IndexedDB Session Persistence (survives refresh until clear cache/cookies)
-    const DB_NAME = 'OMR_Telkom_Storage';
-    const DB_STORE = 'session';
+        // Dual-Layer Session Persistence (LocalStorage + IndexedDB, 100% survives refresh)
+    const LS_KEY = 'OMR_TELKOM_SESSION_DATA';
+    const DB_NAME = 'OMR_Telkom_Storage_v2';
+    const DB_STORE = 'images';
 
     function getDB() {
       return new Promise((resolve) => {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = e => {
-          const db = e.target.result;
-          if (!db.objectStoreNames.contains(DB_STORE)) {
-            db.createObjectStore(DB_STORE);
-          }
-        };
-        req.onsuccess = e => resolve(e.target.result);
-        req.onerror = () => resolve(null);
+        try {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = e => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(DB_STORE)) {
+              db.createObjectStore(DB_STORE);
+            }
+          };
+          req.onsuccess = e => resolve(e.target.result);
+          req.onerror = () => resolve(null);
+        } catch (e) {
+          resolve(null);
+        }
       });
     }
 
-    async function persistSession() {
+    function persistSession() {
       try {
-        const db = await getDB();
-        if (!db) return;
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        const store = tx.objectStore(DB_STORE);
-        const sessionState = {
-          submissions: submissions,
-          gradedResults: gradedResults,
-          activeSummary: document.getElementById('stat-avg').innerText !== '-' ? {
+        // 1. Synchronous LocalStorage save for lightweight student data & grades (~20KB)
+        const lightSubs = submissions.map(s => {
+          const clean = { ...s };
+          delete clean.warped_image_b64;
+          delete clean.enhanced_image_b64;
+          delete clean.bw_image_b64;
+          return clean;
+        });
+        const lightGraded = (gradedResults || []).map(s => {
+          const clean = { ...s };
+          delete clean.warped_image_b64;
+          delete clean.enhanced_image_b64;
+          delete clean.bw_image_b64;
+          return clean;
+        });
+        const sessionPayload = {
+          submissions: lightSubs,
+          gradedResults: lightGraded,
+          summary: document.getElementById('stat-avg').innerText !== '-' ? {
             avg_score: document.getElementById('stat-avg').innerText,
             pass_rate: document.getElementById('stat-pass').innerText.replace('%', ''),
             highest_score: document.getElementById('stat-high').innerText,
@@ -905,35 +921,53 @@
           keyFilename: document.getElementById('key-filename').innerText,
           savedAt: Date.now()
         };
-        store.put(sessionState, 'state');
+        localStorage.setItem(LS_KEY, JSON.stringify(sessionPayload));
+
+        // 2. Asynchronous IndexedDB save for large base64 preview images
+        getDB().then(db => {
+          if (!db) return;
+          const tx = db.transaction(DB_STORE, 'readwrite');
+          const store = tx.objectStore(DB_STORE);
+          submissions.forEach(s => {
+            const k = s.id || s.filename;
+            if (s.warped_image_b64 || s.enhanced_image_b64) {
+              store.put({
+                warped: s.warped_image_b64,
+                enhanced: s.enhanced_image_b64,
+                bw: s.bw_image_b64
+              }, k);
+            }
+          });
+        }).catch(() => {});
       } catch (err) {
-        console.warn('Session save error:', err);
+        console.warn('Persist session error:', err);
       }
     }
 
-    async function restoreSession() {
+    function restoreSession() {
       try {
-        const db = await getDB();
-        if (!db) return;
-        const tx = db.transaction(DB_STORE, 'readonly');
-        const store = tx.objectStore(DB_STORE);
-        const req = store.get('state');
-        req.onsuccess = () => {
-          const data = req.result;
+        // 1. Instant Synchronous Restoration from LocalStorage (survives refresh 100%)
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          const data = JSON.parse(raw);
           if (data && data.submissions && data.submissions.length > 0) {
             submissions = data.submissions;
             gradedResults = data.gradedResults || [];
             if (data.keyFilename) {
               document.getElementById('key-filename').innerText = data.keyFilename;
             }
-            if (data.activeSummary) {
-              renderSummary(data.activeSummary);
+            if (data.summary) {
+              renderSummary(data.summary);
             }
             updateUIState();
+
             if (gradedResults.length > 0) {
               const btn = document.getElementById('btn-grade');
               btn.disabled = false;
               btn.innerText = 'Koreksi Ulang Lembar';
+              document.getElementById('results-card').style.display = 'block';
+              document.getElementById('analytics-section').style.display = 'flex';
+              renderTable();
             } else {
               const pBox = document.getElementById('scan-progress-box');
               if (pBox) {
@@ -942,27 +976,47 @@
                 document.getElementById('scan-progress-bar').style.background = 'linear-gradient(90deg, #10b981, #059669)';
                 document.getElementById('scan-progress-pct').innerText = '100%';
                 document.getElementById('scan-progress-pct').style.color = '#059669';
-                document.getElementById('scan-progress-title').innerText = `✓ Tahap 1: ${submissions.length} LJK Tersimpan di Sesi`;
-                document.getElementById('scan-progress-sub').innerText = `Sesi pindaian dipulihkan otomatis. Klik "Mulai Koreksi" untuk menilai.`;
+                document.getElementById('scan-progress-title').innerText = `✓ Tahap 1: ${submissions.length} LJK Berhasil Dipulihkan`;
+                document.getElementById('scan-progress-sub').innerText = `Sesi pindaian dipulihkan otomatis. Klik "Mulai Koreksi" untuk memulai Tahap 2.`;
                 document.getElementById('scan-spinner').style.display = 'none';
               }
               const btn = document.getElementById('btn-grade');
               btn.disabled = false;
               btn.innerText = `Mulai Koreksi (${submissions.length} Lembar) →`;
             }
+
+            // 2. Hydrate modal preview images asynchronously from IndexedDB
+            getDB().then(db => {
+              if (!db) return;
+              const tx = db.transaction(DB_STORE, 'readonly');
+              const store = tx.objectStore(DB_STORE);
+              submissions.forEach(s => {
+                const k = s.id || s.filename;
+                const req = store.get(k);
+                req.onsuccess = () => {
+                  if (req.result) {
+                    s.warped_image_b64 = req.result.warped || s.warped_image_b64;
+                    s.enhanced_image_b64 = req.result.enhanced || s.enhanced_image_b64;
+                    s.bw_image_b64 = req.result.bw || s.bw_image_b64;
+                  }
+                };
+              });
+            }).catch(() => {});
           }
-        };
+        }
       } catch (err) {
-        console.warn('Session restore error:', err);
+        console.warn('Restore session error:', err);
       }
     }
 
-    async function clearPersistedSession() {
+    function clearPersistedSession() {
       try {
-        const db = await getDB();
-        if (!db) return;
-        const tx = db.transaction(DB_STORE, 'readwrite');
-        tx.objectStore(DB_STORE).clear();
+        localStorage.removeItem(LS_KEY);
+        getDB().then(db => {
+          if (!db) return;
+          const tx = db.transaction(DB_STORE, 'readwrite');
+          tx.objectStore(DB_STORE).clear();
+        }).catch(() => {});
       } catch (err) {}
     }
 
@@ -1519,10 +1573,12 @@ async function handleFiles(files) {
       document.getElementById('key-filename').innerText = 'Kunci Default (kj048, kj123)';
     }
 
-    // Auto-restore persisted session on browser refresh / page open
-    window.addEventListener('DOMContentLoaded', () => {
-      restoreSession();
-    });
+    // Auto-restore persisted session immediately (handles Cloudflare Rocket Loader + standard load)
+    try { restoreSession(); } catch(e) {}
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', restoreSession);
+    }
+    window.addEventListener('load', restoreSession);
   </script>
 </body>
 </html>

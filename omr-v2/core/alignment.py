@@ -1124,7 +1124,7 @@ def make_scan_detection_image(image, strength=1.0):
     return enhance_scan_gray(gray, strength=strength)
 
 
-def prepare_image_for_processing(image, max_width=2200, max_height=2200):
+def prepare_image_for_processing(image, max_width=1800, max_height=1800):
     """Create a processing copy for oversized phone photos.
 
     This is a resize, not JPEG recompression. The original image is returned
@@ -1202,7 +1202,7 @@ def detect_corners_and_crop(
 
     # One detection copy only. Original pixels remain untouched for final warp.
     processing_img, sx, sy = prepare_image_for_processing(
-        image_bgr, max_width=2200, max_height=2200
+        image_bgr, max_width=1800, max_height=1800
     )
 
     # Scanner-like preprocessing for consistent detection.
@@ -1269,7 +1269,7 @@ def detect_corners_and_crop(
         # PARALLEL: ArUco Registration (does NOT affect crop)
         # Detect ArUco markers and store as registration metadata.
         # ===================================================================
-        if best_aruco_reg is None:
+        if best_aruco_reg is None and (preferred_method == "aruco" or best_crop is None):
             # Try raw rotated image first (preserves crisp black ArUco squares)
             ar_boxes, ar_ids, detected_dict, ar_status = find_aruco_markers(
                 rot_raw,

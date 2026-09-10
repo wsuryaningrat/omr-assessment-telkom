@@ -34,6 +34,9 @@ def load_image_with_exif(file_bytes_or_buffer):
     # Correct smartphone EXIF orientation (critical for iPhone / Android scans)
     pil_img = ImageOps.exif_transpose(pil_img)
     pil_img = pil_img.convert("RGB")
+    # Fast Mobile Turbo: Bound max dimension to 2048px (avoids processing 48MP bloated sensor data)
+    if max(pil_img.size) > 2048:
+        pil_img.thumbnail((2048, 2048), Image.Resampling.BILINEAR)
     bgr_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     return bgr_img
 

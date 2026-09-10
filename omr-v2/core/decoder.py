@@ -96,3 +96,103 @@ def decode_field(gray_img, field_def, thresh=0.28, margin=0.08):
             decoded_values[item_name] = ans
 
     return decoded_values
+
+
+def decode_field_detailed(gray_img, field_def, thresh=0.28, margin=0.08):
+    """
+    Extended decoder returning both decoded field values and per-bubble confidence / fill ratios.
+    """
+    field_name = field_def.get("field_name", "field")
+    field_type = field_def.get("field_type", "multiple_choice")
+    items = field_def.get("items", [])
+
+    paper_bg = float(np.percentile(gray_img, 92))
+    if paper_bg < 150:
+        paper_bg = 240.0
+
+    decoded_values = {}
+    analysis = {}
+
+    def get_bubble_ratio(b):
+        return calculate_fill_ratio(
+            gray_img,
+            b["cx"],
+            b["cy"],
+            b.get("radius", 12),
+            shape=b.get("shape", "square"),
+            w=b.get("w"),
+            h=b.get("h"),
+            paper_bg=paper_bg,
+            option_glyph=b.get("option")
+        )
+
+    if field_type == "text":
+        chars = []
+        for it in items:
+            bubbles = it.get("bubbles", [])
+            ratios = [get_bubble_ratio(b) for b in bubbles]
+            idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=margin)
+            if status == "OK" and 0 <= idx < len(bubbles):
+                chars.append(bubbles[idx].get("option", chr(65 + idx)))
+            elif status == "BLANK":
+                chars.append(" ")
+            else:
+                chars.append("?")
+        decoded_str = "".join(chars).rstrip()
+        decoded_values[field_name] = decoded_str
+
+    elif field_type == "number":
+        digits = []
+        for it in items:
+            bubbles = it.get("bubbles", [])
+            ratios = [get_bubble_ratio(b) for b in bubbles]
+            idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=margin)
+            if status == "OK" and 0 <= idx < len(bubbles):
+                digits.append(str(bubbles[idx].get("option", idx)))
+            elif status == "BLANK":
+                digits.append(" ")
+            else:
+                digits.append("?")
+        decoded_str = "".join(digits).rstrip()
+        decoded_values[field_name] = decoded_str
+
+    elif field_type == "choice":
+        all_choices = []
+        for it in items:
+            bubbles = it.get("bubbles", [])
+            ratios = [get_bubble_ratio(b) for b in bubbles]
+            idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=margin)
+            if status == "OK" and 0 <= idx < len(bubbles):
+                all_choices.append(bubbles[idx].get("option", f"Opt_{idx+1}"))
+            elif status == "BLANK":
+                all_choices.append("BLANK")
+            else:
+                all_choices.append(status)
+        decoded_values[field_name] = all_choices[0] if len(all_choices) == 1 else ", ".join(all_choices)
+
+    else:
+        for it in items:
+            item_name = it.get("name", f"Item_{it.get('index', 1)}")
+            bubbles = it.get("bubbles", [])
+            ratios = [get_bubble_ratio(b) for b in bubbles]
+            idx, status = evaluate_question(ratios, threshold=thresh, ambiguous_margin=margin)
+
+            if status == "OK" and 0 <= idx < len(bubbles):
+                ans = bubbles[idx].get("option", chr(65 + idx))
+                conf = round(float(ratios[idx]) * 100, 1)
+            elif status == "BLANK":
+                ans = "BLANK"
+                conf = 0.0
+            else:
+                ans = status
+                conf = round(float(max(ratios)) * 100, 1) if ratios else 0.0
+
+            decoded_values[item_name] = ans
+            analysis[item_name] = {
+                "ai_prediction": ans,
+                "confidence": conf,
+                "status": status,
+                "ratios": {b.get("option", chr(65 + i)): round(float(r), 3) for i, (b, r) in enumerate(zip(bubbles, ratios))}
+            }
+
+    return decoded_values, analysis
