@@ -237,23 +237,29 @@ async def grade_submissions(request: Request):
 
     content_type = request.headers.get("content-type", "")
     if "multipart/form-data" in content_type:
-        form = await request.form()
-        subs_raw = form.get("submissions_json")
-        if subs_raw:
-            submissions = json.loads(subs_raw)
-        key_file = form.get("answer_key_file")
-        if key_file and hasattr(key_file, "read"):
-            key_bytes = await key_file.read()
-            if key_bytes:
-                kunci_sheets = parse_kunci_jawaban_excel(io.BytesIO(key_bytes))
+        try:
+            form = await request.form(max_part_size=50 * 1024 * 1024)
+            subs_raw = form.get("submissions_json")
+            if subs_raw:
+                if isinstance(subs_raw, str):
+                    submissions = json.loads(subs_raw)
+                elif hasattr(subs_raw, "read"):
+                    submissions = json.loads(await subs_raw.read())
+            key_file = form.get("answer_key_file")
+            if key_file and hasattr(key_file, "read"):
+                key_bytes = await key_file.read()
+                if key_bytes:
+                    kunci_sheets = parse_kunci_jawaban_excel(io.BytesIO(key_bytes))
+        except Exception as e:
+            print("Error parsing multipart grade form:", e)
     else:
         try:
             body = await request.json()
             submissions = body.get("submissions", body.get("results", []))
             if "answer_keys" in body:
                 kunci_sheets = body["answer_keys"]
-        except Exception:
-            pass
+        except Exception as e:
+            print("Error parsing JSON grade body:", e)
 
     if not kunci_sheets:
         sample_buf = generate_sample_kunci_excel()
