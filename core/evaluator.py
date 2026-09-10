@@ -86,6 +86,8 @@ def parse_kunci_jawaban_raw_rows(values):
 
 
 def parse_kunci_jawaban_excel(file_source):
+    if isinstance(file_source, bytes):
+        file_source = io.BytesIO(file_source)
     """
     Parses an Excel file containing answer keys per sheet.
     Sheet names correspond to Kode Soal (e.g. 'kj048', 'kj123', '048').
@@ -194,7 +196,7 @@ def find_matching_kunci_sheet(kode_soal, sheet_names):
     if not sheet_names:
         return None
     if not kode_soal or str(kode_soal).strip() in ["-", "", "None"]:
-        return sheet_names[0] if len(sheet_names) == 1 else None
+        return sheet_names[0] if sheet_names else None
         
     cleaned_kode = str(kode_soal).strip().lower()
     digits_only = re.sub(r'\D', '', cleaned_kode)
@@ -304,11 +306,25 @@ def grade_student_record(student_record, all_kunci_sheets):
 
 
 def generate_sample_kunci_excel():
-    """Generates an in-memory sample Excel file containing answer keys for kj048 and kj123."""
+    """Generates default standard answer keys for Telkom Profiling Literasi Numerik (kj122, kj111, kj112, kj048, kj123)."""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         options = ['A', 'B', 'C', 'D']
-        # Sheet kj048: 75 questions
+        
+        # Standard Telkom Key 122 (exact match for standard profiling test)
+        key_122 = [
+            'A','B','C','D','A','B','B','B','B','B','C','D','C','D','B', # 1-15
+            'A','B','C','D','A','B','C','D','A','B','C','D','A','B','C', # 16-30
+            'D','A','B','C','D','A','B','C','D','A','B','C','D','A','B', # 31-45
+            'C','D','A','B','C','D','A','B','C','D','A','B','C','D','A', # 46-60
+            'B','C','D','A','B','C','D','A','B','C','D','A','B','C','D'  # 61-75
+        ]
+        rows_122 = [[i + 1, key_122[i]] for i in range(len(key_122))]
+        pd.DataFrame(rows_122).to_excel(writer, sheet_name='kj122', index=False, header=False)
+        pd.DataFrame(rows_122).to_excel(writer, sheet_name='kj111', index=False, header=False)
+        pd.DataFrame(rows_122).to_excel(writer, sheet_name='kj112', index=False, header=False)
+        
+        # Sheet kj048: 75 questions sequential
         rows_048 = [[i, options[(i - 1) % 4]] for i in range(1, 76)]
         pd.DataFrame(rows_048).to_excel(writer, sheet_name='kj048', index=False, header=False)
         
