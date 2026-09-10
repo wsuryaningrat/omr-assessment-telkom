@@ -52,7 +52,7 @@ EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 def process_single_bgr(img_bgr: np.ndarray, page_name: str) -> Dict[str, Any]:
     try:
         warped, pts, method, c_ids, d_name, status, aruco_reg = detect_corners_and_crop(
-            img_bgr, preferred_method="aruco", crop_mode="inner", apply_standardization=True
+            img_bgr, preferred_method="green_frame", crop_mode="inner", apply_standardization=True
         )
     except Exception as e:
         return {
