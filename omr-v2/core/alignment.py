@@ -324,6 +324,12 @@ def _make_roi_variants(roi):
     h, w = roi.shape[:2]
     up = cv2.resize(roi, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
     variants.append(up)
+    # ponytail: 0.5x downscale + adaptive threshold handles blur/noise on high-res camera captures
+    if min(h, w) >= 50:
+        half = cv2.resize(roi, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+        variants.append(half)
+        variants.append(cv2.adaptiveThreshold(half, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2))
+        variants.append(cv2.adaptiveThreshold(half, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 3))
     return variants
 
 
@@ -827,7 +833,16 @@ def _find_best_document_quad(image):
                 q = _quad_quality(pts, image.shape)
                 if q < 0.45:
                     continue
-                score = ratio * (0.65 + 0.35 * q)
+                # ponytail: aspect ratio & border-touch penalty prevent selecting full camera frame on light desks
+                edges_len = [np.linalg.norm(pts[(i+1)%4] - pts[i]) for i in range(4)]
+                w_box = (edges_len[0] + edges_len[2]) / 2.0
+                h_box = (edges_len[1] + edges_len[3]) / 2.0
+                aspect = max(w_box, h_box) / max(min(w_box, h_box), 1.0)
+                aspect_score = max(0.0, 1.0 - abs(aspect - 1.414) / 0.8)
+                touches_border = sum(1 for p in pts if p[0] <= 3 or p[1] <= 3 or p[0] >= w - 4 or p[1] >= h - 4)
+                border_penalty = 0.2 if (touches_border >= 2 and ratio > 0.75) else 1.0
+
+                score = (q * 0.4 + aspect_score * 0.4 + min(ratio, 0.6) * 0.2) * border_penalty
                 if score > best_score:
                     best_score = score
                     best = pts
@@ -1212,19 +1227,29 @@ def detect_corners_and_crop(
         doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
-        doc_corners = inset_quad(doc_corners, ratio=0.020)
+        # ponytail: keep full quad without inset so corner lines and ArUco markers remain intact
         doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
 
         rough_w = min(1800, max(1400, canvas_w))
         rough_h = min(2500, max(2000, canvas_h))
         rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
+        rough_raw, _, _ = _rough_warp(rot_raw, doc_corners, rough_w, rough_h)
 
         # ===================================================================
         # PRIMARY CROP: Printed Green Frame
         # The green frame is the SOLE source of crop boundary.
+        # Check directly on rot_img, or refined on rectified rough_img for skewed captures.
         # ===================================================================
         green_corners = find_green_frame_corners(rot_img)
+        inv_M_for_green = None
+        if green_corners is None:
+            green_corners = find_green_frame_corners(rough_img)
+            inv_M_for_green = inv_rough_M
+
         if green_corners is not None:
+            if inv_M_for_green is not None:
+                fine_rot = _map_points_back(green_corners, inv_M_for_green)
+                green_corners = fine_rot if fine_rot is not None else green_corners
             green_original = green_corners / np.array([sx, sy], dtype=np.float32)
             if ang:
                 green_original = np.array(
@@ -1260,9 +1285,9 @@ def detect_corners_and_crop(
                     expected_ids=expected_ids,
                 )
             if ar_boxes is None or ar_status != "DETECTED":
-                # Fallback to rough-warped image
+                # Fallback to rough-warped raw image (preserves crisp black bits)
                 ar_boxes, ar_ids, detected_dict, ar_status = find_aruco_markers(
-                    rough_img,
+                    rough_raw,
                     dict_name=dict_name,
                     expected_ids=expected_ids,
                 )

@@ -131,5 +131,35 @@ class TestAlignmentEngine(unittest.TestCase):
         self.assertIn(reg.get("registration_quality"), ("EXCELLENT", "VALID"))
 
 
+    def test_skewed_camera_photo_dari_pak_bagas(self):
+        """Verify rotated/skewed mobile photo (dari pak bagas.jpeg) crops green frame cleanly and decodes accurately."""
+        img = load_image("sample foto/dari pak bagas.jpeg")
+        self.assertIsNotNone(img, "dari pak bagas.jpeg must exist in sample foto/")
+
+        warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
+            img, preferred_method="green_frame", apply_standardization=True
+        )
+        self.assertTrue(status.startswith("DETECTED"), f"Expected DETECTED, got {status}")
+        self.assertEqual(method, "green_frame")
+        self.assertEqual(warped.shape, (2400, 1700, 3))
+
+        gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        fields = {}
+        for fname, fdef in self.template.get("fields", {}).items():
+            fcopy = dict(fdef)
+            fcopy["field_name"] = fname
+            fields.update(decode_field(gray_w, fcopy, thresh=0.28, margin=0.08))
+
+        self.assertIn("WAHYU", fields.get("NAMA", ""))
+        self.assertEqual(fields.get("NPM", ""), "1233322566")
+        self.assertEqual(fields.get("FAKULTAS", ""), "FIK")
+        self.assertEqual(fields.get("KODE SOAL", ""), "122")
+
+        summary, deltas = evaluate_template_bubble_alignment(gray_w, self.template.get("fields", {}))
+        self.assertIn(summary.get("quality"), ("EXCELLENT", "ALIGNED"))
+        self.assertLess(summary.get("std_dx", 99), 3.5)
+        self.assertLess(summary.get("std_dy", 99), 3.5)
+
+
 if __name__ == "__main__":
     unittest.main()
