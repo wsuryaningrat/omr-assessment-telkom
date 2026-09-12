@@ -1,0 +1,2930 @@
+{
+  "version": "2.0",
+  "canvas": {
+    "width": 2400,
+    "height": 1165
+  },
+  "bubble_shape": "square",
+  "fields": {
+    "Soal-A": {
+      "field_type": "multiple_choice",
+      "field_name": "Soal-A",
+      "num_questions": 15,
+      "num_options": 4,
+      "roi": [
+        149,
+        120,
+        256,
+        1041
+      ],
+      "items": [
+        {
+          "name": "soal_01",
+          "index": 1,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_02",
+          "index": 2,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_03",
+          "index": 3,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_04",
+          "index": 4,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_05",
+          "index": 5,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_06",
+          "index": 6,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_07",
+          "index": 7,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_08",
+          "index": 8,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_09",
+          "index": 9,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_10",
+          "index": 10,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_11",
+          "index": 11,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_12",
+          "index": 12,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_13",
+          "index": 13,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_14",
+          "index": 14,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_15",
+          "index": 15,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 216.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 275.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 335.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 395.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        }
+      ]
+    },
+    "Soal-B": {
+      "field_type": "multiple_choice",
+      "field_name": "Soal-B",
+      "num_questions": 15,
+      "num_options": 4,
+      "roi": [
+        627,
+        120,
+        255,
+        1041
+      ],
+      "items": [
+        {
+          "name": "soal_01",
+          "index": 1,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_02",
+          "index": 2,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_03",
+          "index": 3,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_04",
+          "index": 4,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_05",
+          "index": 5,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_06",
+          "index": 6,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_07",
+          "index": 7,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_08",
+          "index": 8,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_09",
+          "index": 9,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_10",
+          "index": 10,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_11",
+          "index": 11,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_12",
+          "index": 12,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_13",
+          "index": 13,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_14",
+          "index": 14,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_15",
+          "index": 15,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 693.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 753.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 813.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 873.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        }
+      ]
+    },
+    "Soal-C": {
+      "field_type": "multiple_choice",
+      "field_name": "Soal-C",
+      "num_questions": 15,
+      "num_options": 4,
+      "roi": [
+        1103,
+        120,
+        257,
+        1041
+      ],
+      "items": [
+        {
+          "name": "soal_01",
+          "index": 1,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_02",
+          "index": 2,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_03",
+          "index": 3,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_04",
+          "index": 4,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_05",
+          "index": 5,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_06",
+          "index": 6,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_07",
+          "index": 7,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_08",
+          "index": 8,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_09",
+          "index": 9,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_10",
+          "index": 10,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_11",
+          "index": 11,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_12",
+          "index": 12,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_13",
+          "index": 13,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_14",
+          "index": 14,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_15",
+          "index": 15,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1171.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1231.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1291.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1350.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        }
+      ]
+    },
+    "Soal-D": {
+      "field_type": "multiple_choice",
+      "field_name": "Soal-D",
+      "num_questions": 15,
+      "num_options": 4,
+      "roi": [
+        1581,
+        120,
+        258,
+        1041
+      ],
+      "items": [
+        {
+          "name": "soal_01",
+          "index": 1,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_02",
+          "index": 2,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_03",
+          "index": 3,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_04",
+          "index": 4,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_05",
+          "index": 5,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_06",
+          "index": 6,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_07",
+          "index": 7,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_08",
+          "index": 8,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_09",
+          "index": 9,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_10",
+          "index": 10,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_11",
+          "index": 11,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_12",
+          "index": 12,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_13",
+          "index": 13,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_14",
+          "index": 14,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_15",
+          "index": 15,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 1649.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 1709.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 1769.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 1829.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        }
+      ]
+    },
+    "Soal-E": {
+      "field_type": "multiple_choice",
+      "field_name": "Soal-E",
+      "num_questions": 15,
+      "num_options": 4,
+      "roi": [
+        2061,
+        120,
+        256,
+        1041
+      ],
+      "items": [
+        {
+          "name": "soal_01",
+          "index": 1,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 147.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_02",
+          "index": 2,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 217.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_03",
+          "index": 3,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 282.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_04",
+          "index": 4,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 347.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_05",
+          "index": 5,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 416.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_06",
+          "index": 6,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 503.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_07",
+          "index": 7,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 571.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_08",
+          "index": 8,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 637.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_09",
+          "index": 9,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 704.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_10",
+          "index": 10,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 772.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_11",
+          "index": 11,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 862.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_12",
+          "index": 12,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 930.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_13",
+          "index": 13,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 996.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_14",
+          "index": 14,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 1061.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        },
+        {
+          "name": "soal_15",
+          "index": 15,
+          "bubbles": [
+            {
+              "option": "A",
+              "cx": 2128.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "B",
+              "cx": 2188.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "C",
+              "cx": 2248.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            },
+            {
+              "option": "D",
+              "cx": 2307.0,
+              "cy": 1130.0,
+              "w": 40,
+              "h": 40,
+              "shape": "square"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
