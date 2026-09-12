@@ -1236,34 +1236,81 @@ def detect_corners_and_crop(
         rough_raw, _, _ = _rough_warp(rot_raw, doc_corners, rough_w, rough_h)
 
         # ===================================================================
-        # PRIMARY CROP: Printed Green Frame
-        # The green frame is the SOLE source of crop boundary.
-        # Check directly on rot_img, or refined on rectified rough_img for skewed captures.
+        # PRIMARY CROP: Printed Green Frame (ArUco validated dual-candidate)
+        # Check directly on rot_img and refined on rough_img for camera skew
         # ===================================================================
-        green_corners = find_green_frame_corners(rot_img)
-        inv_M_for_green = None
-        if green_corners is None:
-            green_corners = find_green_frame_corners(rough_img)
-            inv_M_for_green = inv_rough_M
-
-        if green_corners is not None:
-            if inv_M_for_green is not None:
-                fine_rot = _map_points_back(green_corners, inv_M_for_green)
-                green_corners = fine_rot if fine_rot is not None else green_corners
-            green_original = green_corners / np.array([sx, sy], dtype=np.float32)
+        green_cands = []
+        g_dir = find_green_frame_corners(rot_img)
+        if g_dir is not None:
+            c_dir = g_dir / np.array([sx, sy], dtype=np.float32)
             if ang:
-                green_original = np.array(
-                    [unrotate_point(p, image_bgr.shape, ang) for p in green_original],
-                    dtype=np.float32,
+                c_dir = np.array([unrotate_point(p, image_bgr.shape, ang) for p in c_dir], dtype=np.float32)
+            q_dir = _quad_quality(c_dir, image_bgr.shape)
+            if q_dir >= 0.20:
+                green_cands.append((c_dir, q_dir, "direct"))
+
+        if rough_img is not None and inv_rough_M is not None:
+            g_rgh = find_green_frame_corners(rough_img)
+            if g_rgh is not None:
+                fine_rot = _map_points_back(g_rgh, inv_rough_M)
+                if fine_rot is not None:
+                    c_rgh = fine_rot / np.array([sx, sy], dtype=np.float32)
+                    if ang:
+                        c_rgh = np.array([unrotate_point(p, image_bgr.shape, ang) for p in c_rgh], dtype=np.float32)
+                    q_rgh = _quad_quality(c_rgh, image_bgr.shape)
+                    if q_rgh >= 0.20:
+                        green_cands.append((c_rgh, q_rgh, "rough_refined"))
+
+        if green_cands:
+            best_c = green_cands[0][0]
+            chosen_score = green_cands[0][1]
+            if len(green_cands) > 1:
+                ar_b, _, _, _ = find_aruco_markers(rot_raw, dict_name=dict_name, expected_ids=expected_ids)
+                if ar_b is None:
+                    ar_b, _, _, _ = find_aruco_markers(rot_img, dict_name=dict_name, expected_ids=expected_ids)
+                if ar_b is not None:
+                    ref_aruco = {
+                        "TL": np.array([-25.8, -22.8]),
+                        "TR": np.array([1724.5, -23.7]),
+                        "BR": np.array([1722.8, 2417.8]),
+                        "BL": np.array([-25.9, 2419.8])
+                    }
+                    min_err = 999.0
+                    for cand_c, cand_q, _ in green_cands:
+                        _, cand_M = perspective_warp(image_bgr, cand_c, canvas_w, canvas_h)
+                        errs = []
+                        for lbl, b_pts in ar_b.items():
+                            p_orig = b_pts / np.array([sx, sy], dtype=np.float32)
+                            if ang:
+                                p_orig = np.array([unrotate_point(p, image_bgr.shape, ang) for p in p_orig], dtype=np.float32)
+                            pts_norm = cv2.perspectiveTransform(p_orig.reshape(-1, 1, 2), cand_M).reshape(-1, 2)
+                            ctr = pts_norm.mean(axis=0)
+                            if lbl in ref_aruco:
+                                errs.append(np.linalg.norm(ctr - ref_aruco[lbl]))
+                        cand_err = max(errs) if errs else 999.0
+                        if cand_err < min_err:
+                            min_err = cand_err
+                            best_c = cand_c
+                            chosen_score = cand_q
+                else:
+                    target_aspect = float(canvas_w) / float(canvas_h)
+                    best_diff = 999.0
+                    for cand_c, cand_q, _ in green_cands:
+                        w_t = np.linalg.norm(cand_c[1] - cand_c[0])
+                        h_l = np.linalg.norm(cand_c[3] - cand_c[0])
+                        asp = w_t / max(1.0, h_l)
+                        diff = abs(asp - target_aspect)
+                        if diff < best_diff:
+                            best_diff = diff
+                            best_c = cand_c
+                            chosen_score = cand_q
+
+            if best_crop is None or chosen_score > _quad_quality(best_crop[0], image_bgr.shape):
+                best_crop = (
+                    best_c, "green_frame", None, None,
+                    "DETECTED (Green Frame — Crop Boundary)"
                 )
-            score = _quad_quality(green_original, image_bgr.shape)
-            if score >= 0.20:
-                if best_crop is None or score > _quad_quality(best_crop[0], image_bgr.shape):
-                    best_crop = (
-                        green_original, "green_frame", None, None,
-                        "DETECTED (Green Frame — Crop Boundary)"
-                    )
-                    _log.info("Green Frame detected at angle=%d, score=%.2f", ang, score)
+                _log.info("Green Frame detected at angle=%d, score=%.2f", ang, chosen_score)
 
         # ===================================================================
         # PARALLEL: ArUco Registration (does NOT affect crop)

@@ -448,8 +448,8 @@ def calculate_fill_ratio(image_gray, cx, cy, radius, shape="square", w=None, h=N
     bw = int(round(w)) if w is not None else int(round(radius * 2))
     bh = int(round(h)) if h is not None else int(round(radius * 2))
 
-    in_w = max(4, int(bw * 0.74))
-    in_h = max(4, int(bh * 0.74))
+    in_w = max(4, int(bw * 0.60))
+    in_h = max(4, int(bh * 0.55))
 
     x1 = max(0, cx - in_w // 2)
     y1 = max(0, cy - in_h // 2)
@@ -492,11 +492,12 @@ def calculate_fill_ratio(image_gray, cx, cy, radius, shape="square", w=None, h=N
 
     score = max(darkness * 1.5, ink_ratio * 1.25)
 
-    # 3. Neutralize intrinsic printed character weight so unfilled W/M/B/D don't cause false positives
+    # 3. Neutralize intrinsic printed character weight (W/M only, never penalize B/D in answers)
     if option_glyph:
         opt_key = str(option_glyph).strip().upper()
-        offset = GLYPH_BASE_OFFSET.get(opt_key, 0.0)
-        score = max(0.0, score - offset)
+        if opt_key in ("W", "M"):
+            offset = GLYPH_BASE_OFFSET.get(opt_key, 0.0)
+            score = max(0.0, score - offset)
 
     return float(np.clip(score, 0.0, 1.0))
 
