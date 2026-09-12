@@ -1023,6 +1023,8 @@
     // Client-side downsampler for high-res smartphone scans (HEIC/JPG > 700KB)
     // Drops upload time by ~80% without losing OCR/OMR precision
     async function compressImageIfNeeded(file) {
+      // Always send full-resolution image to backend for sub-pixel OMR & ArUco precision
+      return file;
       if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') || file.size < 700 * 1024) {
         return file;
       }
