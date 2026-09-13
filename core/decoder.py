@@ -1,3 +1,39 @@
+_ANCHOR_CACHE = {}
+
+def get_answer_grid_anchor(gray_img):
+    img_id = id(gray_img)
+    if img_id in _ANCHOR_CACHE:
+        return _ANCHOR_CACHE[img_id]
+    h_img, w_img = gray_img.shape[:2]
+    crop = gray_img[1640:min(h_img, 1840), 150:320]
+    _, th = cv2.threshold(crop, 120, 255, cv2.THRESH_BINARY_INV)
+    v_lines = cv2.morphologyEx(th, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (2, 12)))
+
+    q1_top = 1675.0
+    for i in range(len(v_lines)):
+        row = v_lines[i]
+        peaks = [x for x in range(1, len(row) - 1) if row[x] > 0 and row[x - 1] == 0]
+        if len(peaks) >= 4:
+            found_top = float(1640 + i)
+            if abs(found_top - 1675.0) > 18.0:
+                q1_top = found_top
+            break
+
+    if abs(q1_top - 1675.0) > 18.0:
+        bot_crop = gray_img[2350:min(h_img, 2400), 140:1600]
+        _, th_bot = cv2.threshold(bot_crop, 120, 255, cv2.THRESH_BINARY_INV)
+        bot_proj = np.sum(th_bot, axis=1) / 255.0
+        bot_peaks = [2350 + i for i in range(1, len(bot_proj) - 1) if bot_proj[i] > 250]
+        q_bot = float(bot_peaks[-1]) if bot_peaks else 2380.0
+        sy = (q_bot - q1_top) / max(1.0, 2380.0 - 1675.0)
+    else:
+        q1_top = 1675.0
+        sy = 1.0
+
+    res = (q1_top, sy)
+    _ANCHOR_CACHE[img_id] = res
+    return res
+
 import cv2
 import numpy as np
 from core.detector import calculate_fill_ratio, evaluate_question
@@ -20,10 +56,15 @@ def decode_field(gray_img, field_def, thresh=0.28, margin=0.08):
     decoded_values = {}
 
     def get_bubble_ratio(b):
+        cy = b["cy"]
+        if field_name.startswith("Soal-"):
+            q1_top, sy = get_answer_grid_anchor(gray_img)
+            if abs(q1_top - 1675.0) > 18.0:
+                cy = q1_top + (b["cy"] - 1675.0) * sy
         return calculate_fill_ratio(
             gray_img,
             b["cx"],
-            b["cy"],
+            cy,
             b.get("radius", 12),
             shape=b.get("shape", "square"),
             w=b.get("w"),
@@ -114,10 +155,15 @@ def decode_field_detailed(gray_img, field_def, thresh=0.28, margin=0.08):
     analysis = {}
 
     def get_bubble_ratio(b):
+        cy = b["cy"]
+        if field_name.startswith("Soal-"):
+            q1_top, sy = get_answer_grid_anchor(gray_img)
+            if abs(q1_top - 1675.0) > 18.0:
+                cy = q1_top + (b["cy"] - 1675.0) * sy
         return calculate_fill_ratio(
             gray_img,
             b["cx"],
-            b["cy"],
+            cy,
             b.get("radius", 12),
             shape=b.get("shape", "square"),
             w=b.get("w"),
