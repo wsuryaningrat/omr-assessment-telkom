@@ -896,7 +896,7 @@ if mode == "Portal Evaluasi LJK":
                 "FRI - Fakultas Rekayasa Industri",
                 "FTE - Fakultas Teknik Elektro",
                 "FEB - Fakultas Ekonomi dan Bisnis",
-                "FKB - Fakultas Komunikasi dan Bisnis",
+                "FKS - Fakultas Komunikasi dan Ilmu Sosial",
                 "FIK - Fakultas Industri Kreatif",
                 "FIT - Fakultas Ilmu Terapan",
                 "Semua Fakultas / Gabungan"
