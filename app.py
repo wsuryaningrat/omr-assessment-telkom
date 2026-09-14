@@ -41,8 +41,6 @@ from core.utils import (
     draw_reading_overlay,
     export_to_csv,
     export_to_json,
-    evaluate_template_bubble_alignment,
-    draw_alignment_delta_overlay
 )
 from core.evaluator import (
     parse_kunci_jawaban_excel,
@@ -421,7 +419,7 @@ div[data-baseweb="select"] span {
         gap: 10px !important;
     }
 
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+    div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
         flex: 1 1 100% !important;
         min-width: 100% !important;
         width: 100% !important;
@@ -506,25 +504,29 @@ div[data-baseweb="menu"] li[aria-selected="true"] {
 }
 
 /* Sembunyikan teks instruksi panjang dan berbelit pada uploader */
-div[data-testid="stFileUploadDropzoneInstructions"],
-section[data-testid="stFileUploadDropzone"] small,
+div[data-testid="stFileUploaderDropzoneInstructions"],
+section[data-testid="stFileUploaderDropzone"] small,
 div[data-testid="stFileUploader"] small {
     display: none !important;
 }
 
-/* File Uploader Container & Dropzone: Background Putih/Cerah & Semua Teks Hitam */
+/* File Uploader Container & Dropzone: Background Putih/Cerah & Semua Teks Hitam, ringkas */
 div[data-testid="stFileUploader"],
-section[data-testid="stFileUploadDropzone"],
-div[data-testid="stFileUploadDropzone"],
+section[data-testid="stFileUploaderDropzone"],
+div[data-testid="stFileUploaderDropzone"],
 div[data-testid="stFileDropzone"],
-div[data-testid="stFileUploadDropzoneInstructions"] {
+div[data-testid="stFileUploaderDropzoneInstructions"] {
     background-color: #FFFFFF !important;
     background: #FFFFFF !important;
-    border: 2px dashed #94A3B8 !important;
-    border-radius: 10px !important;
+    border: 1.5px dashed #94A3B8 !important;
+    border-radius: 8px !important;
+}
+section[data-testid="stFileUploaderDropzone"] {
+    padding: 10px 14px !important;
+    min-height: 0 !important;
 }
 div[data-testid="stFileUploader"]:hover,
-section[data-testid="stFileUploadDropzone"]:hover {
+section[data-testid="stFileUploaderDropzone"]:hover {
     border-color: #0F172A !important;
     background-color: #F8FAFC !important;
     background: #F8FAFC !important;
@@ -532,7 +534,7 @@ section[data-testid="stFileUploadDropzone"]:hover {
 
 /* Seluruh Teks di Kolom Unggah & Dropzone Hitam Pekat */
 div[data-testid="stFileUploader"] *,
-section[data-testid="stFileUploadDropzone"] * {
+section[data-testid="stFileUploaderDropzone"] * {
     color: #0F172A !important;
 }
 div[data-testid="stFileUploader"] small,
@@ -540,15 +542,15 @@ div[data-testid="stFileUploader"] span,
 div[data-testid="stFileUploader"] p,
 div[data-testid="stFileUploader"] label,
 div[data-testid="stFileUploader"] div,
-section[data-testid="stFileUploadDropzone"] span,
-section[data-testid="stFileUploadDropzone"] small,
-section[data-testid="stFileUploadDropzone"] p {
+section[data-testid="stFileUploaderDropzone"] span,
+section[data-testid="stFileUploaderDropzone"] small,
+section[data-testid="stFileUploaderDropzone"] p {
     color: #0F172A !important;
     font-weight: 600 !important;
 }
 
 /* Tombol Upload (Browse files) Warna Cerah dengan Tulisan Hitam */
-section[data-testid="stFileUploadDropzone"] button,
+section[data-testid="stFileUploaderDropzone"] button,
 div[data-testid="stFileUploader"] button,
 button[data-testid="baseButton-secondary"] {
     background-color: #F1F5F9 !important;
@@ -563,7 +565,7 @@ button[data-testid="baseButton-secondary"] {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
     transition: all 0.2s ease !important;
 }
-section[data-testid="stFileUploadDropzone"] button:hover,
+section[data-testid="stFileUploaderDropzone"] button:hover,
 div[data-testid="stFileUploader"] button:hover,
 button[data-testid="baseButton-secondary"]:hover {
     background-color: #E2E8F0 !important;
@@ -571,7 +573,7 @@ button[data-testid="baseButton-secondary"]:hover {
     border-color: #0F172A !important;
     color: #000000 !important;
 }
-section[data-testid="stFileUploadDropzone"] button *,
+section[data-testid="stFileUploaderDropzone"] button *,
 div[data-testid="stFileUploader"] button *,
 button[data-testid="baseButton-secondary"] * {
     color: #0F172A !important;
@@ -653,11 +655,11 @@ button[data-testid="baseButton-secondary"] * {
 
     /* Mobile Dropzone & Upload Box */
     div[data-testid="stFileUploader"],
-    section[data-testid="stFileUploadDropzone"] {
+    section[data-testid="stFileUploaderDropzone"] {
         padding: 14px 10px !important;
         border-radius: 8px !important;
     }
-    section[data-testid="stFileUploadDropzone"] button {
+    section[data-testid="stFileUploaderDropzone"] button {
         width: 100% !important;
         margin-top: 10px !important;
         justify-content: center !important;
@@ -671,7 +673,7 @@ button[data-testid="baseButton-secondary"] * {
     }
 
     /* Full-width Columns on Mobile Screens */
-    div[data-testid="column"] {
+    div[data-testid="stColumn"] {
         width: 100% !important;
         flex: 1 1 100% !important;
         min-width: 100% !important;
@@ -709,8 +711,507 @@ button[data-testid="baseButton-secondary"] * {
         padding-right: 0.5rem !important;
     }
 }
+
+/* ==============================================================================
+   UPLOAD WIZARD: STEP INDICATOR
+   ============================================================================== */
+.ljk-stepper {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.ljk-step {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #FFFFFF;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: all 0.2s ease;
+}
+.ljk-step-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    background: #F1F5F9;
+    color: #64748B;
+}
+.ljk-step-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.ljk-step-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #64748B;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ljk-step-sub {
+    font-size: 11px;
+    color: #94A3B8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.ljk-step.active {
+    background: #FFF1F2;
+    border-color: #BA0C2F;
+}
+.ljk-step.active .ljk-step-num {
+    background: #BA0C2F;
+    color: #FFFFFF;
+}
+.ljk-step.active .ljk-step-title {
+    color: #BA0C2F;
+}
+.ljk-step.active .ljk-step-sub {
+    color: #BA0C2F;
+    opacity: 0.75;
+}
+.ljk-step.done .ljk-step-num {
+    background: #16A34A;
+    color: #FFFFFF;
+}
+.ljk-step.done .ljk-step-title {
+    color: #16A34A;
+}
+/* stepper mobile handled by the override block below */
+
+/* Stepper compact horizontal even on mobile */
+.ljk-stepper {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 6px !important;
+}
+@media (max-width: 768px) {
+    .ljk-stepper {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+    }
+    .ljk-step { padding: 7px 8px !important; }
+    .ljk-step-num { width: 22px !important; height: 22px !important; font-size: 11px !important; }
+    .ljk-step-title { font-size: 11.5px !important; }
+}
+
+/* Progress banner shown once a stage completes */
+.ljk-progress-banner {
+    background: #F0FDF4;
+    border: 1.5px solid #BBF7D0;
+    border-radius: 10px;
+    padding: 9px 14px;
+    margin: 6px 0 10px 0;
+}
+.ljk-progress-banner-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+.ljk-progress-banner-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #15803D;
+}
+.ljk-progress-banner-pct {
+    font-size: 13px;
+    font-weight: 800;
+    color: #15803D;
+}
+.ljk-progress-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: #DCFCE7;
+    overflow: hidden;
+}
+.ljk-progress-fill {
+    height: 100%;
+    background: #16A34A;
+    border-radius: 999px;
+}
+
+/* Force specific rows to stay side-by-side even on mobile, overriding the
+   general "stack columns full-width" mobile rule below. Applied via
+   st.container(key="ljk_row_...") so the class genuinely wraps its columns. */
+div[class*="st-key-ljk_row_"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+}
+div[class*="st-key-ljk_row_"] div[data-testid="stColumn"] {
+    min-width: 0 !important;
+    width: auto !important;
+    flex: 1 1 0 !important;
+}
+
+/* Per-document table: always horizontal scroll, never stacks. */
+div[class*="st-key-ljk_table_scroll"] {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+}
+div[class*="st-key-ljk_table_scroll"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    min-width: 580px;
+    gap: 4px !important;
+}
+div[class*="st-key-ljk_table_scroll"] div[data-testid="stColumn"] {
+    min-width: 0 !important;
+    width: auto !important;
+}
+
+/* Faculty + dosen row: always stays in one line */
+div[class*="st-key-ljk_form_row"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 10px !important;
+}
+div[class*="st-key-ljk_form_row"] div[data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+}
+
+/* Stepper: always one row */
+div[class*="st-key-ljk_stepper_wrap"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+}
+div[class*="st-key-ljk_stepper_wrap"] div[data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+}
+
+/* Submit/export action row: always one line */
+div[class*="st-key-ljk_action_row"] div[data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+}
+div[class*="st-key-ljk_action_row"] div[data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+}
+
+/* Compact icon-only action buttons in the table */
+div[class*="st-key-ljk_table_scroll"] button {
+    padding: 2px 4px !important;
+    min-height: 28px !important;
+    height: 28px !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+    border-radius: 6px !important;
+}
+div[class*="st-key-ljk_table_scroll"] div[data-testid="stButton"] {
+    margin: 0 !important;
+}
+div[class*="st-key-ljk_table_scroll"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    padding: 0 1px !important;
+}
+
+/* Status icon cell: center-align */
+.ljk-status-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding-top: 4px;
+}
+
+@media (max-width: 480px) {
+    .ljk-stat-card { padding: 8px 4px !important; }
+    .ljk-stat-card .ljk-stat-label { font-size: 9.5px !important; }
+    .ljk-stat-card .ljk-stat-value { font-size: 17px !important; }
+    /* On very small screens, stepper text collapses */
+    .ljk-step-sub { display: none !important; }
+    .ljk-step { padding: 6px 8px !important; }
+    .ljk-step-title { font-size: 11px !important; }
+}
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_ljk_stepper(current_step):
+    """Compact horizontal stepper — always stays in one row."""
+    steps = [
+        ("1", "Unggah LJK", "Pilih fakultas & berkas"),
+        ("2", "Tinjau Hasil", "Cek identitas & jawaban"),
+        ("3", "Submit & Ekspor", "Kirim ke Google Sheet"),
+    ]
+    html = ['<div class="ljk-stepper">']
+    for i, (num, title, sub) in enumerate(steps, start=1):
+        state = "done" if i < current_step else ("active" if i == current_step else "")
+        icon = "✓" if state == "done" else num
+        html.append(
+            f'<div class="ljk-step {state}">'
+            f'<div class="ljk-step-num">{icon}</div>'
+            f'<div class="ljk-step-text">'
+            f'<div class="ljk-step-title">{title}</div>'
+            f'<div class="ljk-step-sub">{sub}</div>'
+            f'</div></div>'
+        )
+    html.append('</div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def render_progress_banner(label, count=None, total=None):
+    pct = 100 if total is None or total == 0 else round((count / total) * 100)
+    count_txt = f" ({count})" if count is not None else ""
+    st.markdown(
+        '<div class="ljk-progress-banner">'
+        '<div class="ljk-progress-banner-top">'
+        f'<span class="ljk-progress-banner-label">✓ {label}{count_txt}</span>'
+        f'<span class="ljk-progress-banner-pct">{pct}%</span>'
+        '</div>'
+        f'<div class="ljk-progress-track"><div class="ljk-progress-fill" style="width:{pct}%;"></div></div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+
+def classify_scan_status(preview_item, validated):
+    """Classifies a scanned sheet as Gagal (alignment failed, needs a new photo),
+    Perlu Validasi (scanned fine, awaiting human confirmation), or OK (validated).
+    Never derived from the grade."""
+    status_str = (preview_item or {}).get("status", "") if isinstance(preview_item, dict) else ""
+    if "DETECTED" not in status_str:
+        return "Gagal"
+    return "OK" if validated else "Perlu Validasi"
+
+
+def render_status_icon(label):
+    """Compact icon-only status indicator — saves column space."""
+    palette = {
+        "OK":            ("#15803D", "✔", "Tervalidasi (OK)"),
+        "Perlu Validasi":("#B45309", "⚠", "Perlu Validasi"),
+        "Gagal":         ("#B91C1C", "✕", "Gagal — ganti foto"),
+    }
+    color, icon, title = palette.get(label, ("#475569", "•", label))
+    st.markdown(
+        f'<div class="ljk-status-icon">'
+        f'<span title="{title}" style="color:{color}; font-size:17px; font-weight:900; line-height:1;">{icon}</span>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+
+def render_status_pill(label):
+    palette = {
+        "OK": ("#F0FDF4", "#15803D", "#BBF7D0", "✓"),
+        "Perlu Validasi": ("#FFFBEB", "#B45309", "#FDE68A", "⚠"),
+        "Gagal": ("#FEF2F2", "#B91C1C", "#FECACA", "✕"),
+    }
+    bg, fg, border, icon = palette.get(label, ("#F1F5F9", "#475569", "#E2E8F0", "•"))
+    st.markdown(
+        f'<span style="display:inline-flex; align-items:center; gap:4px; background:{bg}; color:{fg}; '
+        f'border:1px solid {border}; border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:700; white-space:nowrap;">'
+        f'{icon} {label}</span>',
+        unsafe_allow_html=True
+    )
+
+
+def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache):
+    """Runs the full OMR pipeline (alignment + decode + grading) on one page/photo
+    and returns (student_record, preview). Shared by the batch scan and the
+    per-row 'Ganti Foto' replacement flow so both stay perfectly in sync."""
+    canvas_w = template.get("canvas", {}).get("width", 1700)
+    canvas_h = template.get("canvas", {}).get("height", 2400)
+    fields_dict = template.get("fields", {})
+    aruco_dict = template.get("aruco_dict", "DICT_4X4_50")
+    expected_ids = template.get("aruco_corner_ids")
+    crop_m = "inner"
+
+    warped, pts, method, c_ids, _, status, _ = detect_corners_and_crop(
+        img_bgr, canvas_w=canvas_w, canvas_h=canvas_h, preferred_method="aruco",
+        expected_ids=expected_ids, dict_name=aruco_dict, crop_mode=crop_m
+    )
+    gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+    wib_tz = timezone(timedelta(hours=7))
+    current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M")
+
+    decoded_all = {}
+    soal_dict = {}
+    for fname, fdef in fields_dict.items():
+        fdef_copy = dict(fdef)
+        if "field_name" not in fdef_copy:
+            fdef_copy["field_name"] = fname
+        field_data = decode_field(gray_warped, fdef_copy, thresh=0.28, margin=0.06)
+        decoded_all.update(field_data)
+        if "soal" in fname.lower() and "kode" not in fname.lower():
+            soal_dict.update(field_data)
+
+    student_record = {
+        "Submit Date": current_submit_time,
+        "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
+        "File": doc_name,
+        "NPM": decoded_all.get("NPM", "-"),
+        "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
+        "Fakultas": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
+        "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
+        "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
+    }
+
+    kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
+    for k in sorted(kuis_keys):
+        student_record[k] = decoded_all[k]
+
+    if soal_dict:
+        soal_keys = sorted(list(soal_dict.keys()))
+    else:
+        soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
+    for k in soal_keys:
+        student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
+
+    detected_kode = student_record["Kode Soal"]
+    matched_sh = find_matching_kunci_sheet(detected_kode, list(k_cache.keys())) if k_cache else None
+    if matched_sh and matched_sh in k_cache and len(k_cache[matched_sh]) > 0:
+        kunci_for_doc = k_cache[matched_sh]
+        dyn_total_soal = len(kunci_for_doc)
+        soal_terisi = sum(
+            1 for q in kunci_for_doc.keys()
+            if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
+        )
+    elif len(k_cache) > 0 and len(list(k_cache.values())[0]) > 0:
+        first_kunci = list(k_cache.values())[0]
+        dyn_total_soal = len(first_kunci)
+        soal_terisi = sum(
+            1 for q in first_kunci.keys()
+            if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
+        )
+    else:
+        dyn_total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
+        soal_terisi = sum(1 for k in soal_keys if student_record.get(k, "BLANK") not in ["BLANK", "?", None, "", "NONE"])
+
+    student_record["Jawaban Terisi"] = f"{soal_terisi} / {dyn_total_soal}"
+
+    if k_cache:
+        grade_student_record(student_record, k_cache)
+    else:
+        student_record["Nilai"] = "-"
+        student_record["Jumlah Benar"] = "-"
+        student_record["Jumlah Salah"] = "-"
+        student_record["Jumlah Kosong"] = "-"
+        student_record["Kunci Terpakai"] = "-"
+
+    overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
+
+    preview = {
+        "name": doc_name,
+        "overlay": overlay_img,
+        "warped": warped,
+        "status": status,
+        "method": method
+    }
+    return student_record, preview
+
+
+@st.dialog("🔍 Inspeksi Lembar Jawaban", width="large")
+def show_inspect_dialog():
+    # A Streamlit dialog only stays open across st.rerun() when the call site that
+    # opens it is reached unconditionally on every script run (gated by session_state,
+    # not by an `if button:` block) — so idx always comes from session_state, and
+    # 'Next'/'Previous' just update it and rerun.
+    idx = st.session_state.get("_inspect_idx")
+    if idx is None:
+        return
+
+    results = st.session_state.get("dosen_results", [])
+    previews = st.session_state.get("dosen_previews", [])
+    validated_list = st.session_state.get("dosen_validated", [])
+    if not results:
+        st.error("Data tidak ditemukan.")
+        return
+    idx = max(0, min(idx, len(results) - 1))
+    st.session_state["_inspect_idx"] = idx
+
+    rec = results[idx]
+    prev = previews[idx] if idx < len(previews) else {}
+    st_status = prev.get("status", "") if isinstance(prev, dict) else ""
+    is_gagal = "DETECTED" not in st_status
+    is_validated = bool(validated_list[idx]) if idx < len(validated_list) else False
+
+    # Semua kontrol dikelompokkan berdekatan di atas: navigasi, validasi, dan ganti foto.
+    with st.container(key="ljk_row_dialog_nav"):
+        nav_prev, nav_next, nav_val = st.columns([1, 1, 1.3])
+        with nav_prev:
+            if st.button("⬅️ Sebelumnya", use_container_width=True, disabled=idx <= 0, key="inspect_nav_prev"):
+                st.session_state["_inspect_idx"] = idx - 1
+                st.rerun()
+        with nav_next:
+            if st.button("Berikutnya ➡️", use_container_width=True, disabled=idx >= len(results) - 1, key="inspect_nav_next"):
+                st.session_state["_inspect_idx"] = idx + 1
+                st.rerun()
+        with nav_val:
+            if is_validated:
+                if st.button("↩️ Batalkan Validasi", use_container_width=True, key=f"unvalidate_btn_{idx}"):
+                    st.session_state["dosen_validated"][idx] = False
+                    st.toast("Validasi dibatalkan.", icon="↩️")
+                    st.rerun()
+            else:
+                if st.button("✅ Tandai Divalidasi", type="primary", use_container_width=True, disabled=is_gagal, key=f"validate_btn_{idx}"):
+                    st.session_state["dosen_validated"][idx] = True
+                    st.toast("✅ Lembar divalidasi.", icon="✅")
+                    st.rerun()
+
+    with st.container(key="ljk_row_dialog_upload"):
+        up_col, btn_col = st.columns([2, 1])
+        with up_col:
+            new_photo = st.file_uploader(
+                "Ganti Foto",
+                type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
+                key=f"replace_upload_{idx}",
+                label_visibility="collapsed"
+            )
+        with btn_col:
+            do_replace = st.button("🔁 Proses Foto Baru", use_container_width=True, disabled=new_photo is None, key=f"replace_btn_{idx}")
+
+    if do_replace and new_photo is not None:
+        template = load_default_template()
+        k_cache_v = st.session_state.get("kunci_jawaban_cache", {})
+        fakultas_v = st.session_state.get("_fakultas_pilihan", "-")
+        pengawas_v = st.session_state.get("_nama_pengawas", "-")
+        with st.spinner("Memproses foto baru..."):
+            try:
+                pages = extract_images_from_file(new_photo, target_dpi=200)
+                if pages and template:
+                    doc_name, img_bgr = pages[0]
+                    new_rec, new_prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache_v)
+                    st.session_state["dosen_results"][idx] = new_rec
+                    st.session_state["dosen_previews"][idx] = new_prev
+                    st.session_state["dosen_validated"][idx] = False
+                    st.toast("✅ Foto berhasil diganti & diproses ulang!", icon="🔁")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Gagal memproses foto baru: {str(e)}")
+
+    st.markdown(
+        f"<div style='font-size:12.5px; color:#64748B; margin-top:6px;'>Lembar {idx + 1} / {len(results)}</div>"
+        f"<div><b>{rec.get('Nama Mahasiswa', '-')}</b> &bull; NPM <code>{rec.get('NPM', '-')}</code> &bull; "
+        f"{rec.get('Fakultas (LJK)', rec.get('Fakultas', '-'))} &bull; Kode Soal {rec.get('Kode Soal', '-')} "
+        f"&bull; Jawaban Terisi {rec.get('Jawaban Terisi', '-')}</div>"
+        f"<span style='color:#64748B; font-size:12.5px;'>Berkas: {rec.get('File', '-')}</span>",
+        unsafe_allow_html=True
+    )
+    if is_gagal:
+        st.warning(f"⚠️ Ujung pojok LJK tidak terdeteksi (**{st_status}**) — ganti dengan foto baru di atas.")
+
+    st.markdown("**🎯 Hasil Scan**")
+    # st.image collapses to a tiny width when it's a direct child of a dialog's
+    # own flow (its container measures 0/fit-content before the image loads) —
+    # wrapping it in a real stColumn gives it a stable width to measure against.
+    img_col = st.columns(1)[0]
+    with img_col:
+        if isinstance(prev, dict) and prev.get("overlay") is not None:
+            st.image(cv_to_pil(prev["overlay"]), use_container_width=True)
+        else:
+            st.info("Tidak ada citra hasil scan.")
 
 # ------------------------------------------------------------------------------
 # TOP TELKOM BRAND HEADER
@@ -879,39 +1380,41 @@ def reorder_rekap_columns(df):
 # ==============================================================================
 if mode == "Portal Evaluasi LJK":
     render_sidebar_footer()
-    st.markdown("""
-    <div style="margin-bottom: 20px;">
-        <h2 style="font-size: 22px; font-weight: 700; color: #0F172A; margin: 0 0 4px 0;">📋 Tahap 1: Unggah & Periksa LJK</h2>
-        <p style="font-size: 13px; color: #64748B; margin: 0;">Lengkapi identitas pengawas dan pilih fakultas mahasiswa, lalu unggah berkas LJK untuk diperiksa.</p>
-    </div>
-    """, unsafe_allow_html=True)
 
-    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas (Wajib / Mandatory & Default Kosong)
-    col_fak, col_dos = st.columns(2)
-    with col_fak:
-        fakultas_pilihan = st.selectbox(
-            "Fakultas Mahasiswa",
-            options=[
-                "FIF - Fakultas Informatika",
-                "FRI - Fakultas Rekayasa Industri",
-                "FTE - Fakultas Teknik Elektro",
-                "FEB - Fakultas Ekonomi dan Bisnis",
-                "FKB - Fakultas Komunikasi dan Bisnis",
-                "FIK - Fakultas Industri Kreatif",
-                "FIT - Fakultas Ilmu Terapan",
-                "Semua Fakultas / Gabungan"
-            ],
-            index=None,
-            placeholder="-- Pilih Fakultas Mahasiswa --",
-            help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi lembar jawabannya."
-        )
-    with col_dos:
-        nama_pengawas = st.text_input(
-            "Nama Pengawas",
-            value="",
-            placeholder="Ketik Nama Pengawas...",
-            help="Wajib diisi: Nama pengawas."
-        )
+    _has_results = bool(st.session_state.get("dosen_results"))
+    _is_submitted = bool(st.session_state.get("dosen_submitted"))
+    _current_step = 3 if _is_submitted else (2 if _has_results else 1)
+    render_ljk_stepper(_current_step)
+
+    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas — selalu satu baris
+    with st.container(key="ljk_form_row_top"):
+        col_fak, col_dos = st.columns([3, 2])
+        with col_fak:
+            fakultas_pilihan = st.selectbox(
+                "Fakultas",
+                options=[
+                    "FIF - Fakultas Informatika",
+                    "FRI - Fakultas Rekayasa Industri",
+                    "FTE - Fakultas Teknik Elektro",
+                    "FEB - Fakultas Ekonomi dan Bisnis",
+                    "FKB - Fakultas Komunikasi dan Bisnis",
+                    "FIK - Fakultas Industri Kreatif",
+                    "FIT - Fakultas Ilmu Terapan",
+                    "Semua Fakultas / Gabungan"
+                ],
+                index=None,
+                placeholder="-- Pilih Fakultas --",
+                help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi."
+            )
+        with col_dos:
+            nama_pengawas = st.text_input(
+                "Nama Pengawas",
+                value="",
+                placeholder="Nama Pengawas...",
+                help="Wajib diisi: Nama pengawas."
+            )
+    st.session_state["_fakultas_pilihan"] = fakultas_pilihan
+    st.session_state["_nama_pengawas"] = nama_pengawas
 
     # Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
     if "kunci_jawaban_cache" not in st.session_state or st.session_state["kunci_jawaban_cache"] is None:
@@ -923,12 +1426,13 @@ if mode == "Portal Evaluasi LJK":
 
     k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-    # 2. Area Unggah Berkas LJK (Intinya Aja: Gambar atau PDF)
+    # 2. Area Unggah Berkas LJK — satu kotak native saja, pemindaian berjalan otomatis
     uploaded_files_dosen = st.file_uploader(
-        "Upload LJK (Gambar atau PDF)",
+        "📤 Unggah LJK (otomatis dipindai)",
         type=["pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"],
         accept_multiple_files=True,
-        key="ljk_uploader"
+        key="ljk_uploader",
+        help="PDF, JPG, PNG, HEIC/HEIF, WEBP — mendukung multi-file & multi-halaman PDF. Maks. 10MB per berkas."
     )
 
     # Bersihkan hasil evaluasi sebelumnya ketika file baru di-upload
@@ -942,8 +1446,11 @@ if mode == "Portal Evaluasi LJK":
             del st.session_state["dosen_results"]
         if _upload_key and "dosen_previews" in st.session_state:
             del st.session_state["dosen_previews"]
+        st.session_state.pop("dosen_validated", None)
         st.session_state["dosen_submitted"] = False
         st.session_state.pop("_preview_idx", None)
+        st.session_state.pop("_inspect_idx", None)
+        st.session_state.pop("_auto_scanned_key", None)
 
     # Validasi Berkas & Form (Batas 10MB per berkas)
     MAX_FILE_SIZE_MB = 10
@@ -953,328 +1460,285 @@ if mode == "Portal Evaluasi LJK":
     is_form_complete = bool(fakultas_pilihan) and bool(nama_pengawas and nama_pengawas.strip())
     has_files = bool(uploaded_files_dosen) and len(oversized_files) == 0
 
-    col_btn, col_info = st.columns([1.5, 2.5])
-    with col_btn:
-        btn_label = f"🔍 1. Periksa LJK ({len(uploaded_files_dosen)} Berkas)" if (uploaded_files_dosen and not oversized_files) else "🔍 1. Periksa LJK"
-        do_periksa = st.button(
-            btn_label,
-            type="primary",
-            use_container_width=True,
-            disabled=not (has_files and is_form_complete)
-        )
+    # Pemindaian berjalan otomatis begitu berkas & form lengkap.
+    already_scanned = has_files and st.session_state.get("_auto_scanned_key") == _upload_key
+    should_auto_scan = has_files and is_form_complete and not already_scanned
 
-    with col_info:
-        if oversized_files:
-            st.error(f"⚠️ Berkas melebihi batas ukuran 10MB: **{', '.join(oversized_files)}**. Harap gunakan berkas maksimal 10MB per file.")
-        elif bool(uploaded_files_dosen) and not is_form_complete:
-            missing_fields = []
-            if not fakultas_pilihan:
-                missing_fields.append("Fakultas Mahasiswa")
-            if not (nama_pengawas and nama_pengawas.strip()):
-                missing_fields.append("Nama Pengawas")
-            st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
+    if oversized_files:
+        st.error(f"⚠️ Berkas melebihi batas ukuran 10MB: **{', '.join(oversized_files)}**.")
+    elif bool(uploaded_files_dosen) and not is_form_complete:
+        missing_fields = []
+        if not fakultas_pilihan:
+            missing_fields.append("Fakultas Mahasiswa")
+        if not (nama_pengawas and nama_pengawas.strip()):
+            missing_fields.append("Nama Pengawas")
+        st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
 
-    if uploaded_files_dosen and do_periksa and is_form_complete:
-            template = load_default_template()
-            if not template:
-                st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")
-                st.stop()
+    if uploaded_files_dosen and should_auto_scan and is_form_complete:
+        template = load_default_template()
+        if not template:
+            st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")
+            st.stop()
 
-            canvas_w = template.get("canvas", {}).get("width", 1700)
-            canvas_h = template.get("canvas", {}).get("height", 2400)
-            fields_dict = template.get("fields", {})
-            # Selalu gunakan ArUco inner corner sebagai anchor utama
-            align_method = "aruco"
-            aruco_dict = template.get("aruco_dict", "DICT_4X4_50")
-            expected_ids = template.get("aruco_corner_ids")
-            crop_m = "inner"
+        all_pages_to_process = []
+        with st.spinner("Mengekstrak seluruh halaman dokumen..."):
+            for uf in uploaded_files_dosen:
+                try:
+                    pages = extract_images_from_file(uf, target_dpi=200)
+                    all_pages_to_process.extend(pages)
+                except Exception as e:
+                    st.error(f"Error memproses berkas {getattr(uf, 'name', 'LJK')}: {str(e)}")
 
-            all_pages_to_process = []
-            with st.spinner("Mengekstrak seluruh halaman dokumen..."):
-                for uf in uploaded_files_dosen:
-                    try:
-                        pages = extract_images_from_file(uf, target_dpi=200)
-                        all_pages_to_process.extend(pages)
-                    except Exception as e:
-                        st.error(f"Error memproses berkas {getattr(uf, 'name', 'LJK')}: {str(e)}")
+        # Pastikan kunci jawaban terbaru tersinkronisasi dari Google Sheet sebelum penilaian
+        try:
+            conn_kj = st.connection("gsheets", type=GSheetsConnection)
+            st.session_state["kunci_jawaban_cache"] = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
+        except Exception:
+            pass
+        k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-            # Pastikan kunci jawaban terbaru tersinkronisasi dari Google Sheet sebelum penilaian
-            try:
-                conn_kj = st.connection("gsheets", type=GSheetsConnection)
-                st.session_state["kunci_jawaban_cache"] = load_kunci_jawaban_from_gsheet(TARGET_GSHEET_URL, conn=conn_kj)
-            except Exception:
-                pass
+        n_pages = len(all_pages_to_process)
+        prog = st.progress(0, text=f"Memindai 0 / {n_pages} lembar...")
+        dosen_results = []
+        dosen_previews = []
 
-            st.info(f"Memeriksa **{len(all_pages_to_process)} lembar jawaban** dari {len(uploaded_files_dosen)} berkas terupload...")
-            prog = st.progress(0)
-            dosen_results = []
-            dosen_previews = []
+        for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
+            student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache)
+            dosen_results.append(student_record)
+            dosen_previews.append(preview)
+            prog.progress((idx + 1) / n_pages, text=f"Memindai {idx + 1} / {n_pages} lembar...")
 
-            for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-                warped, pts, method, c_ids, _, status, _ = detect_corners_and_crop(
-                    img_bgr,
-                    canvas_w=canvas_w,
-                    canvas_h=canvas_h,
-                    preferred_method=align_method,
-                    expected_ids=expected_ids,
-                    dict_name=aruco_dict,
-                    crop_mode=crop_m
-                )
-
-                gray_warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-                wib_tz = timezone(timedelta(hours=7))
-                current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M")
-
-                decoded_all = {}
-                soal_dict = {}
-                for fname, fdef in fields_dict.items():
-                    fdef_copy = dict(fdef)
-                    if "field_name" not in fdef_copy:
-                        fdef_copy["field_name"] = fname
-                    field_data = decode_field(gray_warped, fdef_copy, thresh=0.28, margin=0.08)
-                    decoded_all.update(field_data)
-                    # Protect question sections (Soal-A s/d Soal-E) from other fields
-                    if "soal" in fname.lower() and "kode" not in fname.lower():
-                        soal_dict.update(field_data)
-
-                student_record = {
-                    "Submit Date": current_submit_time,
-                    "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
-                    "File": doc_name,
-                    "NPM": decoded_all.get("NPM", "-"),
-                    "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
-                    "Fakultas": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
-                    "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
-                    "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
-                }
-
-                # Kuisioner items (e.g. q01 .. q15)
-                kuis_keys = [k for k in decoded_all.keys() if (k.lower().startswith("q") and len(k) <= 5) or "kuis" in k.lower()]
-                for k in sorted(kuis_keys):
-                    student_record[k] = decoded_all[k]
-
-                # Append all questions strictly from soal_dict/soal_keys (MUST BE BEFORE GRADING!)
-                if soal_dict:
-                    soal_keys = sorted(list(soal_dict.keys()))
-                else:
-                    soal_keys = sorted([k for k in decoded_all.keys() if re.match(r"^soal_\d{2}$", k)])
-                for k in soal_keys:
-                    student_record[k] = soal_dict.get(k, decoded_all.get(k, "BLANK"))
-
-                # Tentukan total soal & hitung jawaban terisi dinamis dari kunci jawaban
-                k_cache = st.session_state.get("kunci_jawaban_cache", {})
-                detected_kode = student_record["Kode Soal"]
-                matched_sh = find_matching_kunci_sheet(detected_kode, list(k_cache.keys())) if k_cache else None
-
-                if matched_sh and matched_sh in k_cache and len(k_cache[matched_sh]) > 0:
-                    kunci_for_doc = k_cache[matched_sh]
-                    dyn_total_soal = len(kunci_for_doc)
-                    soal_terisi = sum(
-                        1 for q in kunci_for_doc.keys()
-                        if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
-                    )
-                elif len(k_cache) > 0 and len(list(k_cache.values())[0]) > 0:
-                    first_kunci = list(k_cache.values())[0]
-                    dyn_total_soal = len(first_kunci)
-                    soal_terisi = sum(
-                        1 for q in first_kunci.keys()
-                        if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
-                    )
-                else:
-                    dyn_total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
-                    soal_terisi = sum(1 for k in soal_keys if student_record.get(k, "BLANK") not in ["BLANK", "?", None, "", "NONE"])
-
-                student_record["Jawaban Terisi"] = f"{soal_terisi} / {dyn_total_soal}"
-
-                # Auto Nilai if Kunci Jawaban loaded (runs after answers are populated)
-                if k_cache:
-                    grade_student_record(student_record, k_cache)
-                else:
-                    student_record["Nilai"] = "-"
-                    student_record["Jumlah Benar"] = "-"
-                    student_record["Jumlah Salah"] = "-"
-                    student_record["Jumlah Kosong"] = "-"
-                    student_record["Kunci Terpakai"] = "-"
-
-                overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
-                regmarks_overlay = draw_regmarks_overlay(img_bgr, pts, method=method, corner_ids=c_ids, status=status, crop_mode=crop_m)
-                align_summary, align_deltas = evaluate_template_bubble_alignment(gray_warped, fields_dict)
-                delta_overlay_img = draw_alignment_delta_overlay(warped, fields_dict, gray_warped, summary=align_summary, bubble_deltas=align_deltas)
-                dosen_previews.append({
-                    "name": doc_name,
-                    "overlay": overlay_img,
-                    "warped": warped,
-                    "regmarks_overlay": regmarks_overlay,
-                    "delta_overlay": delta_overlay_img,
-                    "align_summary": align_summary,
-                    "status": status,
-                    "method": method
-                })
-                dosen_results.append(student_record)
-                prog.progress((idx + 1) / len(all_pages_to_process))
-
-            st.session_state["dosen_results"] = dosen_results
-            st.session_state["dosen_previews"] = dosen_previews
-            st.session_state["dosen_submitted"] = False
-            st.toast(f"✅ Selesai memeriksa {len(dosen_results)} lembar LJK! Silakan tinjau hasil di bawah.", icon="🔍")
+        st.session_state["dosen_results"] = dosen_results
+        st.session_state["dosen_previews"] = dosen_previews
+        st.session_state["dosen_validated"] = [False] * len(dosen_results)
+        st.session_state["dosen_submitted"] = False
+        st.session_state["_auto_scanned_key"] = _upload_key
+        st.toast(f"✅ Selesai memindai {len(dosen_results)} lembar LJK!", icon="🔍")
+        st.rerun()
 
     # Show results if available (Tahap 2: Tinjau & Submit)
     if "dosen_results" in st.session_state and st.session_state["dosen_results"]:
         results = st.session_state["dosen_results"]
-        st.markdown("---")
-        
+        previews_list = st.session_state.get("dosen_previews", [])
+        if len(st.session_state.get("dosen_validated", [])) != len(results):
+            st.session_state["dosen_validated"] = [False] * len(results)
+        validated_list = st.session_state["dosen_validated"]
+
         is_submitted = st.session_state.get("dosen_submitted", False)
-        
-        st.markdown(f"### 📋 Tahap 2: Tinjau Hasil Evaluasi ({len(results)} Mahasiswa)")
-        if not is_submitted:
-            st.info("💡 **Petunjuk Pengawas:** Periksa kolom identitas dan jawaban terisi di bawah. Jika terdapat lembar yang terisi sedikit karena foto miring/buram, Anda dapat mengganti foto tersebut di atas dan klik periksa ulang. Jika sudah yakin benar, klik tombol **📤 Submit Hasil LJK ke Google Sheet**.")
+
+        status_labels = [
+            classify_scan_status(previews_list[i] if i < len(previews_list) else {}, validated_list[i])
+            for i in range(len(results))
+        ]
+        n_ok = status_labels.count("OK")
+        all_ok = len(results) > 0 and n_ok == len(results)
+
+        render_progress_banner("Tahap 1 Selesai: LJK Berhasil Dipindai", count=len(results))
+        if is_submitted:
+            render_progress_banner("Tahap 2 Selesai: Submit Berhasil", count=len(results))
+            st.success("✅ **Data LJK Berhasil Disubmit ke Google Sheet!**")
+        elif all_ok:
+            st.info("💡 Semua lembar sudah divalidasi — klik **Submit Hasil LJK ke Google Sheet** di bawah.")
         else:
-            st.success("✅ **Data LJK Berhasil Disubmit ke Google Sheet!** Anda dapat membuka spreadsheet hasil di bawah.")
+            st.info(f"💡 **{len(results) - n_ok} dari {len(results)}** lembar masih perlu divalidasi. Klik **Inspeksi** per baris (ganti foto bila gagal), atau **Validasi Semua**.")
 
         df_full = pd.DataFrame(results)
         df_full = reorder_rekap_columns(df_full)
         for c in df_full.columns:
             df_full[c] = df_full[c].astype(str)
 
-        # Tabel Summary (Viewer): Sembunyikan Fakultas (LJK), Nilai, dan detail penilaian (Jumlah Benar, Jumlah Salah, Jumlah Kosong, Kunci Terpakai)
-        primary_cols = [c for c in ORDERED_REKAP_PREFIX if c in df_full.columns]
-        hidden_from_viewer = {
-            "Fakultas (LJK)",
-            "Nilai",
-            "Jumlah Benar",
-            "Jumlah Salah",
-            "Jumlah Kosong",
-            "Kunci Terpakai"
-        }
-        viewer_cols = [c for c in primary_cols if c not in hidden_from_viewer]
-        st.dataframe(df_full[viewer_cols], use_container_width=True, hide_index=True)
-
-        col_act1, col_act2, col_act3, col_act4 = st.columns([1.5, 1.4, 1.1, 1.0])
-        with col_act1:
-            if not is_submitted:
-                if st.button("📤 Submit Hasil LJK ke Google Sheet", type="primary", use_container_width=True, help="Simpan dan transfer data hasil evaluasi ini secara permanen ke Google Sheet"):
-                    try:
-                        with st.spinner("Mentransfer data ke Google Sheet..."):
-                            conn = st.connection("gsheets", type=GSheetsConnection)
-                            df_to_sync = df_full.copy()
-                            try:
-                                existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
-                                if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
-                                    combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
-                                    combined_sheet_df = reorder_rekap_columns(combined_sheet_df)
-                                    conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
-                                else:
-                                    conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
-                            except Exception:
-                                conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
-                        st.session_state["dosen_submitted"] = True
-                        st.toast("✅ Data berhasil disubmit ke Google Sheet!", icon="📤")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Gagal transfer ke Google Sheet: {str(e)}")
-            else:
-                st.button("✅ Data Berhasil Disubmit", disabled=True, use_container_width=True)
-
-        with col_act2:
-            st.link_button(
-                "🌐 View Google Sheet (Admin)",
-                TARGET_GSHEET_URL,
-                type="primary" if is_submitted else "secondary",
-                use_container_width=True,
-                help="Buka Google Sheet master (Sheet1 & Kunci Jawaban)"
-            )
-
-        with col_act3:
-            csv_bytes = df_full.to_csv(index=False).encode("utf-8")
-            clean_fak = fakultas_pilihan.split(" - ")[0].replace(" ", "_").replace("/", "_") if fakultas_pilihan else "Fakultas"
-            st.download_button(
-                "📥 Unduh Rekap (CSV)",
-                data=csv_bytes,
-                file_name=f"Rekap_LJK_{clean_fak}_{time.strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-
-        with col_act4:
-            if st.button("🗑️ Evaluasi LJK Baru", use_container_width=True, help="Bersihkan hasil saat ini untuk memeriksa berkas lembar jawaban baru"):
-                if "dosen_results" in st.session_state:
-                    del st.session_state["dosen_results"]
-                if "dosen_previews" in st.session_state:
-                    del st.session_state["dosen_previews"]
-                st.session_state["dosen_submitted"] = False
-                st.rerun()
-
-        with st.expander("🔍 Pratinjau Visual Lembar Mahasiswa (Standarisasi Citra & Hasil Baca)", expanded=False):
-            if st.session_state.get("dosen_previews"):
-                previews = st.session_state["dosen_previews"]
-                total_prev = len(previews)
-
-                # Inisialisasi indeks navigasi
-                if "_preview_idx" not in st.session_state:
-                    st.session_state["_preview_idx"] = 0
-                prev_idx = int(st.session_state["_preview_idx"]) % total_prev
-
-                # Navigasi Prev / counter / Next
-                nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
-                with nav_col1:
-                    if st.button("⬅️ Sebelumnya", use_container_width=True, disabled=(total_prev <= 1)):
-                        st.session_state["_preview_idx"] = (prev_idx - 1) % total_prev
-                        st.rerun()
-                with nav_col2:
-                    sel_item = previews[prev_idx]
-                    sel_doc = sel_item["name"] if isinstance(sel_item, dict) else sel_item[0]
+        # Ringkasan Statistik (non-nilai): penilaian hanya dihitung di background untuk Google Sheet.
+        # Dibungkus st.container(key=...) supaya 3 kartu ini tetap satu baris di layar mobile.
+        with st.container(key="ljk_row_stats"):
+            stat_cols = st.columns(3)
+            for col, label, value, color in [
+                (stat_cols[0], "Dokumen Diupload", len(uploaded_files_dosen or []), "#0F172A"),
+                (stat_cols[1], "LJK Terbaca", len(results), "#0F172A"),
+                (stat_cols[2], "Status OK", n_ok, "#15803D"),
+            ]:
+                with col:
                     st.markdown(
-                        f"<div style='text-align:center; padding:6px 0; font-weight:600;'>"
-                        f"📄 {prev_idx + 1} / {total_prev} — {sel_doc}</div>",
+                        '<div class="telkom-card ljk-stat-card" style="text-align:center; padding:10px 8px !important; margin-bottom:8px !important;">'
+                        f'<div class="ljk-stat-label" style="font-size:11px; color:#64748B; font-weight:600; white-space:nowrap;">{label}</div>'
+                        f'<div class="ljk-stat-value" style="font-size:22px; font-weight:800; color:{color};">{value}</div>'
+                        '</div>',
                         unsafe_allow_html=True
                     )
-                with nav_col3:
-                    if st.button("Berikutnya ➡️", use_container_width=True, disabled=(total_prev <= 1)):
-                        st.session_state["_preview_idx"] = (prev_idx + 1) % total_prev
-                        st.rerun()
 
-                if sel_item:
-                    if isinstance(sel_item, dict):
-                        st_status = sel_item.get("status", "")
-                        align_sum = sel_item.get("align_summary", {})
-                        col_stat1, col_stat2 = st.columns([1, 1])
-                        with col_stat1:
-                            if "DETECTED" in st_status:
-                                st.success(f"📐 Status Ujung Pojok: **{st_status}**")
-                            else:
-                                st.warning(f"⚠️ Status Ujung Pojok: **{st_status}**")
-                        with col_stat2:
-                            if align_sum:
-                                q_val = align_sum.get("quality", "EVALUATED")
-                                m_dx = align_sum.get("median_dx", 0.0)
-                                m_dy = align_sum.get("median_dy", 0.0)
-                                s_dx = align_sum.get("std_dx", 0.0)
-                                s_dy = align_sum.get("std_dy", 0.0)
-                                if q_val in ("EXCELLENT", "ALIGNED"):
-                                    st.success(f"🎯 Alignment Bubble (Ground Truth): **{q_val}** (Δx: {m_dx:+.1f}±{s_dx:.1f}px, Δy: {m_dy:+.1f}±{s_dy:.1f}px)")
-                                else:
-                                    st.warning(f"⚠️ Alignment Bubble: **{q_val}** (Δx: {m_dx:+.1f}px, Δy: {m_dy:+.1f}px)")
+        st.markdown("<div style='font-size:14.5px; font-weight:700; margin:4px 0 6px 0;'>📋 Daftar Mahasiswa & Hasil Pindaian</div>", unsafe_allow_html=True)
+        if not all_ok or n_ok > 0:
+            with st.container(key="ljk_row_validasi"):
+                hdr_col1, hdr_col2 = st.columns(2)
+                with hdr_col1:
+                    if not all_ok:
+                        if st.button("✅ Validasi Semua", use_container_width=True, help="Tandai semua lembar yang berhasil terbaca sebagai tervalidasi"):
+                            for i in range(len(results)):
+                                if status_labels[i] != "Gagal":
+                                    st.session_state["dosen_validated"][i] = True
+                            st.rerun()
+                with hdr_col2:
+                    if n_ok > 0:
+                        if st.button("↩️ Un-validasi Semua", use_container_width=True, help="Batalkan validasi semua lembar"):
+                            st.session_state["dosen_validated"] = [False] * len(results)
+                            st.rerun()
 
-                        tab_pv1, tab_pv2, tab_pv3 = st.tabs([
-                            "🎯 Deteksi Jawaban OMR",
-                            "📐 Diagnostik Alignment (dx, dy)",
-                            "🖼️ Deteksi Kotak ArUco & Area Crop"
-                        ])
-                        with tab_pv1:
-                            st.image(cv_to_pil(sel_item["overlay"]), use_container_width=True, caption=f"Hasil Deteksi Jawaban: {sel_doc}")
-                        with tab_pv2:
-                            if "delta_overlay" in sel_item:
-                                st.image(cv_to_pil(sel_item["delta_overlay"]), use_container_width=True, caption=f"Vektor Delta Alignment (Ground Truth JSON vs Fisik): {sel_doc}")
-                            else:
-                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Warp: {sel_doc}")
-                        with tab_pv3:
-                            if "regmarks_overlay" in sel_item:
-                                st.image(cv_to_pil(sel_item["regmarks_overlay"]), use_container_width=True, caption=f"Deteksi Kotak ArUco & Area Crop LJK: {sel_doc}")
-                            else:
-                                st.image(cv_to_pil(sel_item["warped"]), use_container_width=True, caption=f"Hasil Warp: {sel_doc}")
-                    else:
-                        st.image(cv_to_pil(sel_item[1]), use_container_width=True, caption=f"Hasil Pindai Visual: {sel_doc}")
+        # Compact table: status icon | nama+file | NPM | fak | kode | terisi | aksi(3 btns)
+        table_widths = [0.4, 2.2, 1.2, 0.7, 0.6, 0.8, 0.95]
+        _idx_to_delete = None
+        with st.container(key="ljk_table_scroll"):
+            header_cols = st.columns(table_widths)
+            for hc, lbl in zip(header_cols, ["", "Nama / Berkas", "NPM", "Fakultas", "Kode", "Terisi", "Aksi"]):
+                hc.markdown(
+                    f"<span style='font-size:10.5px; font-weight:700; color:#64748B; "
+                    f"text-transform:uppercase; white-space:nowrap; letter-spacing:.04em;'>{lbl}</span>",
+                    unsafe_allow_html=True
+                )
+            st.markdown('<hr style="margin:2px 0 3px 0; border-color:#E2E8F0;">', unsafe_allow_html=True)
 
+            for i, rec in enumerate(results):
+                row_cols = st.columns(table_widths)
+
+                # Col 0 — status icon only
+                with row_cols[0]:
+                    render_status_icon(status_labels[i])
+
+                # Col 1 — nama mahasiswa + filename
+                with row_cols[1]:
+                    st.markdown(
+                        f"<div style='font-weight:700;color:#0F172A;font-size:12.5px;"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                        f"max-width:100%;'>{rec.get('Nama Mahasiswa','-')}</div>"
+                        f"<div style='font-size:10px;color:#94A3B8;overflow:hidden;"
+                        f"text-overflow:ellipsis;white-space:nowrap;max-width:100%;'>"
+                        f"{rec.get('File','-')}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # Col 2 — NPM
+                with row_cols[2]:
+                    st.markdown(
+                        f"<div style='font-size:12px;padding-top:3px;"
+                        f"white-space:nowrap;font-family:monospace;'>{rec.get('NPM','-')}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # Col 3 — Fakultas (abbrev only)
+                with row_cols[3]:
+                    fak_abbr = rec.get("Fakultas", "-").split(" - ")[0] if " - " in rec.get("Fakultas", "") else rec.get("Fakultas", "-")
+                    st.markdown(
+                        f"<div style='font-size:11.5px;padding-top:3px;white-space:nowrap;'>{fak_abbr}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # Col 4 — Kode Soal
+                with row_cols[4]:
+                    st.markdown(
+                        f"<div style='font-size:12px;padding-top:3px;white-space:nowrap;'>{rec.get('Kode Soal','-')}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # Col 5 — Jawaban Terisi
+                with row_cols[5]:
+                    st.markdown(
+                        f"<div style='font-size:12px;padding-top:3px;white-space:nowrap;'>{rec.get('Jawaban Terisi','-')}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # Col 6 — 3 icon action buttons: Inspect | Validate/Unvalidate | Delete
+                with row_cols[6]:
+                    btn_c1, btn_c2, btn_c3 = st.columns(3)
+                    with btn_c1:
+                        if st.button("🔍", key=f"inspect_btn_{i}",
+                                     use_container_width=True, help="Inspeksi detail"):
+                            st.session_state["_inspect_idx"] = i
+                            st.rerun()
+                    with btn_c2:
+                        if status_labels[i] == "Gagal":
+                            st.button("✅", key=f"quick_val_{i}",
+                                      use_container_width=True, disabled=True,
+                                      help="Ganti foto dulu")
+                        elif status_labels[i] == "OK":
+                            if st.button("↩️", key=f"quick_unval_{i}",
+                                         use_container_width=True,
+                                         help="Batalkan validasi"):
+                                st.session_state["dosen_validated"][i] = False
+                                st.rerun()
+                        else:
+                            if st.button("✅", key=f"quick_val_{i}",
+                                         use_container_width=True,
+                                         help="Tandai divalidasi"):
+                                st.session_state["dosen_validated"][i] = True
+                                st.rerun()
+                    with btn_c3:
+                        if st.button("🗑️", key=f"delete_btn_{i}",
+                                     use_container_width=True,
+                                     help="Hapus lembar ini dari daftar"):
+                            _idx_to_delete = i
+
+                st.markdown('<hr style="margin:1px 0; border-color:#F1F5F9;">', unsafe_allow_html=True)
+
+        # Handle delete outside the loop to avoid index mutation mid-iteration
+        if _idx_to_delete is not None:
+            st.session_state["dosen_results"].pop(_idx_to_delete)
+            st.session_state["dosen_previews"].pop(_idx_to_delete)
+            st.session_state["dosen_validated"].pop(_idx_to_delete)
+            st.toast("🗑️ Lembar dihapus dari daftar.", icon="🗑️")
+            st.rerun()
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        with st.container(key="ljk_action_row_submit"):
+            col_act1, col_act2, col_act3 = st.columns([1.8, 1.2, 1.0])
+            with col_act1:
+                if not is_submitted:
+                    if st.button(
+                        "📤 Submit ke Google Sheet",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not all_ok,
+                        help="Semua lembar harus OK sebelum bisa disubmit." if not all_ok else "Transfer data ke Google Sheet"
+                    ):
+                        try:
+                            with st.spinner("Mentransfer data ke Google Sheet..."):
+                                conn = st.connection("gsheets", type=GSheetsConnection)
+                                df_to_sync = df_full.copy()
+                                try:
+                                    existing_sheet_df = conn.read(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", ttl=0).dropna(how="all")
+                                    if not existing_sheet_df.empty and "NPM" in existing_sheet_df.columns:
+                                        combined_sheet_df = pd.concat([existing_sheet_df, df_to_sync], ignore_index=True)
+                                        combined_sheet_df = reorder_rekap_columns(combined_sheet_df)
+                                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=combined_sheet_df)
+                                    else:
+                                        conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
+                                except Exception:
+                                    conn.update(spreadsheet=TARGET_GSHEET_URL, worksheet="Sheet1", data=df_to_sync)
+                            st.session_state["dosen_submitted"] = True
+                            st.toast("✅ Data berhasil disubmit ke Google Sheet!", icon="📤")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal transfer ke Google Sheet: {str(e)}")
+                else:
+                    st.button("✅ Berhasil Disubmit", disabled=True, use_container_width=True)
+
+            with col_act2:
+                st.link_button(
+                    "🌐 Lihat Google Sheet",
+                    TARGET_GSHEET_URL,
+                    type="primary" if is_submitted else "secondary",
+                    use_container_width=True,
+                    help="Buka Google Sheet master"
+                )
+
+            with col_act3:
+                if st.button("🔄 Evaluasi Baru", use_container_width=True, help="Reset untuk berkas baru"):
+                    for k in ("dosen_results", "dosen_previews", "dosen_validated", "_inspect_idx"):
+                        st.session_state.pop(k, None)
+                    st.session_state["dosen_submitted"] = False
+                    st.rerun()
+
+        # Dipanggil tanpa syarat (bukan di dalam if st.button) supaya dialog tetap
+        # terbuka saat tombol Sebelumnya/Berikutnya/Validasi di dalamnya memicu rerun.
+        if st.session_state.get("_inspect_idx") is not None:
+            show_inspect_dialog()
 
 # ==============================================================================
 # MODE 2: KALIBRASI LJK (SUB MENU: EDITOR TEMPLATE)
@@ -2296,7 +2760,7 @@ elif mode == "Kalibrasi LJK" and sub_mode == "OMR Reader":
 
     read_thresh = st.sidebar.slider("Fill Ratio Threshold", 0.05, 0.45, default_thresh, 0.01,
                                     help="Batas ambang kepekatan tanda. Nilai lebih rendah (0.10-0.16) sangat sensitif untuk tanda silang tipis.")
-    ambig_margin = st.sidebar.slider("Margin Ganda (Ambiguity Margin)", 0.03, 0.18, 0.08, 0.01,
+    ambig_margin = st.sidebar.slider("Margin Ganda (Ambiguity Margin)", 0.03, 0.18, 0.06, 0.01,
                                      help="Selisih minimal antara opsi teratas dan opsi kedua untuk dianggap jawaban tunggal.")
     render_sidebar_footer()
 

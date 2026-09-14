@@ -273,13 +273,20 @@ def recover_missing_corner(marker_map, exp_c_ids, full_gray,
     Synthesis is used only as a last resort and only when the three detected
     markers have a coherent geometry. This preserves the old API while making
     the normal path depend on a real marker whenever possible.
+
+    Returns
+    -------
+    marker_map : dict
+        Updated with the recovered (or synthesized) corner.
+    was_synthesized : bool
+        True when synthesis was used (marker genuinely undetectable).
     """
     if len(marker_map) != 3:
-        return marker_map
+        return marker_map, False
 
     missing_lbl, predicted = _predict_missing_center(marker_map, exp_c_ids)
     if predicted is None:
-        return marker_map
+        return marker_map, False
     missing_id = exp_c_ids[missing_lbl]
 
     detector = make_fast_detector(dict_val, min_perimeter=0.003)
@@ -291,27 +298,31 @@ def recover_missing_corner(marker_map, exp_c_ids, full_gray,
     found = _local_marker_search(full_gray, detector, missing_id, predicted, radius)
     if found is not None:
         marker_map[missing_id] = found
-        return marker_map
+        return marker_map, False
 
     # Last-resort synthetic corners. This is deliberately conservative.
     ref = next(iter(marker_map.values()))
     ref_center = ref.mean(axis=0)
     synthetic = ref - ref_center + predicted
     marker_map[missing_id] = synthetic.astype(np.float32)
-    return marker_map
+    return marker_map, True  # flagged as synthesized
 
 
-def _make_roi_variants(roi):
+def _make_roi_variants(roi, skip_upscale=False):
     """Return detection-candidate images for a single ROI in order of cost.
 
-    Tries five variants: raw, CLAHE, Otsu binarization, adaptive threshold,
-    and an upscale (2×) of the raw patch. Ordered cheapest-first so detection
-    can stop at the first success without running all variants.
+    Variant order (cheapest → most expensive):
+      0 raw         — fastest; works for high-contrast, well-lit markers.
+      1 Otsu        — strong binarization; handles moderate contrast.
+      2 adaptive    — local thresholding; handles harsh shadows.
+      3 upscale 2×  — recovers small markers; omitted when skip_upscale=True.
+      4 CLAHE       — contrast equalisation; last resort for flat/low-contrast.
+
+    CLAHE is deliberately moved to last because it is the most expensive
+    preprocessing step (~250 ms on a 400×550 ROI).  For the vast majority of
+    images the marker is found in variants 0-3; CLAHE then adds no cost.
     """
     variants = [roi]
-    # CLAHE: recovers low-contrast / shadow-obscured markers.
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
-    variants.append(clahe.apply(roi))
     # Otsu: strong binarization for clean scans.
     _, otsu = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     variants.append(otsu)
@@ -320,10 +331,14 @@ def _make_roi_variants(roi):
         roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5
     )
     variants.append(adapt)
-    # 2× upscale: recovers very small markers in high-res images.
-    h, w = roi.shape[:2]
-    up = cv2.resize(roi, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
-    variants.append(up)
+    # 2× upscale: recovers very small markers.
+    if not skip_upscale:
+        h, w = roi.shape[:2]
+        up = cv2.resize(roi, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+        variants.append(up)
+    # CLAHE: last resort for low-contrast / uneven illumination.
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
+    variants.append(clahe.apply(roi))
     return variants
 
 
@@ -422,6 +437,7 @@ class CornerIdMap(dict):
         super().__init__(*args, **kwargs)
         self.boxes = None
         self.registration = None
+        self.synthetic_ids = set()  # marker IDs that were synthesized (not actually detected)
 
 
 def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None):
@@ -493,6 +509,7 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
                   "BL": (False, True)}
 
     marker_map = {}
+    synthesized_ids: set = set()  # tracks IDs recovered via synthesis
 
     for label in ("TL", "TR", "BR", "BL"):
         target_id = expected[label]
@@ -512,6 +529,7 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
 
             # ---------------------------------------------------------------
             # PASS 1: Dark-square blob → focused patch → ArUco decode
+            # Run at both frac values.
             # ---------------------------------------------------------------
             flipped = roi_patch
             if fx:
@@ -558,25 +576,72 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
                 continue  # pass 1 succeeded → next label
 
             # ---------------------------------------------------------------
-            # PASS 2: Full-ROI cascade (fallback when no blob found)
+            # PASS 2: Full-ROI cascade (fallback when no blob found).
+            #
+            # At frac=0.25 we run a single raw-image probe only: no CLAHE,
+            # no adaptive threshold, no upscale.  This catches markers that
+            # are already clearly visible in the small corner ROI without
+            # paying the full cascade cost (~250 ms CLAHE × 4 corners).  For
+            # markers that are outside the 25 % ROI (significantly tilted
+            # photos) the probe fails fast (~25 ms) and the full cascade runs
+            # at frac=0.38 where the marker is actually present.
             # ---------------------------------------------------------------
-            for det in (det_normal, det_loose):
-                if target_id in marker_map:
-                    break
-                for variant in _make_roi_variants(roi_patch):
-                    sc = (variant.shape[1] / float(roi_patch.shape[1])
-                          if roi_patch.shape[1] > 0 else 1.0)
-                    found = _aruco_decode_patch(det, variant, (x1, y1), allowed, scale=sc)
-                    if target_id in found:
-                        marker_map[target_id] = found[target_id]
-                        break
+            if frac < 0.35:
+                # Quick raw-only probe at the small ROI — det_normal only.
+                # det_loose (step=4) is ~4× slower and adds ~100 ms per corner
+                # on a failed check; full detection runs at frac=0.38 anyway.
+                found = _aruco_decode_patch(det_normal, roi_patch, (x1, y1), allowed)
+                if target_id in found:
+                    marker_map[target_id] = found[target_id]
+                for mid, pts in found.items():
+                    if mid not in marker_map:
+                        marker_map[mid] = pts
+                continue  # defer full cascade to the larger frac
+
+            # Full cascade at frac=0.38.
+            #
+            # Step 1 — det_normal on all variants (~100 ms total for a
+            #           627×836 ROI).  Finds the vast majority of markers.
+            #
+            # Step 2 — If det_normal found nothing in any variant, try
+            #           det_loose ONLY on the 2× upscale.  This recovers
+            #           small/blurry markers that the normal detector misses
+            #           (~400 ms).  Running det_loose on all variants is
+            #           avoided: when the ROI has no marker at all, Otsu-loose
+            #           and CLAHE-loose each waste 300-1100 ms.
+            roi_variants = _make_roi_variants(roi_patch)
+            for variant in roi_variants:
+                sc = (variant.shape[1] / float(roi_patch.shape[1])
+                      if roi_patch.shape[1] > 0 else 1.0)
+                found = _aruco_decode_patch(det_normal, variant, (x1, y1), allowed, scale=sc)
+                if found:
                     for mid, pts in found.items():
                         if mid not in marker_map:
                             marker_map[mid] = pts
+                if target_id in marker_map:
+                    break
+
+            if target_id not in marker_map:
+                # Step 2: det_loose on upscale variant only.
+                # roi_variants[3] is the 2× upscale (index 3 with default skip_upscale=False).
+                up_variant = roi_variants[3]  # upscale is index 3 (before CLAHE at [4])
+                sc_up = (up_variant.shape[1] / float(roi_patch.shape[1])
+                         if roi_patch.shape[1] > 0 else 1.0)
+                found = _aruco_decode_patch(det_loose, up_variant, (x1, y1), allowed, scale=sc_up)
+                for mid, pts in found.items():
+                    if mid not in marker_map:
+                        marker_map[mid] = pts
 
     # Recovery: affine prediction + local search when exactly 3 found.
     if len(marker_map) == 3:
-        marker_map = recover_missing_corner(marker_map, expected, gray, dict_val=dict_val)
+        ids_before = set(marker_map.keys())
+        marker_map, was_synthesized = recover_missing_corner(
+            marker_map, expected, gray, dict_val=dict_val
+        )
+        if was_synthesized:
+            # The synthesized marker is the one that was added during recovery.
+            newly_added = set(marker_map.keys()) - ids_before
+            synthesized_ids.update(newly_added)
 
     if len(marker_map) < 4:
         return None, None, best_dict_name, (
@@ -605,6 +670,7 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
 
     out_ids = CornerIdMap({lbl: expected[lbl] for lbl in ("TL", "TR", "BR", "BL")})
     out_ids.boxes = marker_boxes
+    out_ids.synthetic_ids = synthesized_ids
     return marker_boxes, out_ids, best_dict_name, "DETECTED"
 
 
@@ -684,7 +750,7 @@ def find_green_frame_corners(image):
     mask_hsv = cv2.inRange(hsv, lower, upper)
 
     b, g, r = cv2.split(image.astype(np.int16))
-    mask_rgb = ((g - r > 6) & (g - b > 3) & (g > 35)).astype(np.uint8) * 255
+    mask_rgb = ((g - r > 10) & (g - b > 6) & (g > 35) & (hsv[:, :, 1] >= 18)).astype(np.uint8) * 255
     mask = cv2.bitwise_or(mask_hsv, mask_rgb)
 
     # 2. Extract horizontal and vertical line segments
@@ -753,7 +819,7 @@ def find_green_frame_corners(image):
         for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
             area = cv2.contourArea(cnt)
             ratio = area / img_area
-            if ratio < 0.25:
+            if ratio < 0.18:
                 continue
             peri = cv2.arcLength(cnt, True)
             if peri <= 0:
@@ -1199,8 +1265,8 @@ def detect_corners_and_crop(
     best_aruco_reg = None     # ArUco registration data (independent of crop)
 
     for angle_index, ang in enumerate(candidate_angles):
-        # Green frame is authoritative for crop. Stop early when found.
-        if best_crop is not None and best_crop[1] in ("green_frame", "regmark"):
+        # Stop early when authoritative crop found.
+        if best_crop is not None and best_crop[1] in ("inner_corner", "green_frame", "regmark"):
             break
         if angle_index >= 2 and best_crop is not None:
             break
@@ -1208,11 +1274,10 @@ def detect_corners_and_crop(
         rot_img = _rotate_candidate(preprocessed_bgr, ang)
         rot_raw = _rotate_candidate(processing_img, ang)
 
-        # Build a rough-warped image for ArUco detection in corner ROIs.
+        # Build a rough-warped image for deskewed green frame detection.
         doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
-        doc_corners = inset_quad(doc_corners, ratio=0.020)
         doc_corners = order_points(doc_corners, target_w=canvas_w, target_h=canvas_h)
 
         rough_w = min(1800, max(1400, canvas_w))
@@ -1224,6 +1289,12 @@ def detect_corners_and_crop(
         # The green frame is the SOLE source of crop boundary.
         # ===================================================================
         green_corners = find_green_frame_corners(rot_img)
+        # If green frame was not detected directly on rot_img (e.g. tilted document on desk),
+        # detect green frame on the deskewed rough_img canvas and map back.
+        if green_corners is None and rough_img is not None and inv_rough_M is not None:
+            green_rough = find_green_frame_corners(rough_img)
+            if green_rough is not None:
+                green_corners = _map_points_back(green_rough, inv_rough_M)
         if green_corners is not None:
             green_original = green_corners / np.array([sx, sy], dtype=np.float32)
             if ang:
@@ -1233,7 +1304,7 @@ def detect_corners_and_crop(
                 )
             score = _quad_quality(green_original, image_bgr.shape)
             if score >= 0.20:
-                if best_crop is None or score > _quad_quality(best_crop[0], image_bgr.shape):
+                if best_crop is None or (best_crop[1] != "inner_corner" and score > _quad_quality(best_crop[0], image_bgr.shape)):
                     best_crop = (
                         green_original, "green_frame", None, None,
                         "DETECTED (Green Frame — Crop Boundary)"
@@ -1289,6 +1360,9 @@ def detect_corners_and_crop(
                 if len(orig_boxes) == 4:
                     final_ids = CornerIdMap(ar_ids)
                     final_ids.boxes = orig_boxes
+                    # Propagate synthesis flags from the detector result.
+                    if hasattr(ar_ids, "synthetic_ids"):
+                        final_ids.synthetic_ids = ar_ids.synthetic_ids
                     best_aruco_reg = {
                         "status": "DETECTED",
                         "marker_ids": dict(ar_ids),
@@ -1297,8 +1371,62 @@ def detect_corners_and_crop(
                         "detected_dict": detected_dict,
                         "corner_ids": final_ids,
                         "orientation_angle": ang,
+                        "has_synthetic": bool(getattr(ar_ids, "synthetic_ids", set())),
                     }
-                    _log.info("ArUco registration: 4/4 markers detected (%s)", detected_dict)
+                    _log.info("ArUco registration: 4/4 markers detected (%s) synthetic=%s",
+                              detected_dict, best_aruco_reg["has_synthetic"])
+
+                    # ===================================================================
+                    # PRIMARY CROP: Corner Black Box (Inner Point closest to LJK)
+                    # Skip inner_corner crop when any marker was synthesized — the
+                    # copied box shape gives an unreliable inner corner for that
+                    # marker.  Green frame crop (already stored in best_crop if
+                    # detected) is more accurate in that case.
+                    # ===================================================================
+                    has_synthetic = best_aruco_reg["has_synthetic"]
+                    green_frame_already = (
+                        best_crop is not None and best_crop[1] == "green_frame"
+                    )
+                    if preferred_method in ("inner_corner", "aruco", "auto", "regmark") and not (
+                        has_synthetic and green_frame_already
+                    ):
+                        marker_centers = [orig_centers[lbl] for lbl in ("TL", "TR", "BR", "BL")]
+                        doc_center = np.mean(marker_centers, axis=0)
+                        inner_corners = []
+                        for lbl in ("TL", "TR", "BR", "BL"):
+                            box = orig_boxes[lbl]
+                            center = orig_centers[lbl]
+                            unit = (doc_center - center) / max(np.linalg.norm(doc_center - center), 1e-6)
+                            inner_idx = int(np.argmax((box - center) @ unit))
+                            inner_corners.append(box[inner_idx])
+                        inner_corners = np.asarray(inner_corners, dtype=np.float32)
+
+                        # Sub-pixel refinement on grayscale image
+                        try:
+                            gray_full = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+                            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
+                            pts_in = inner_corners.reshape(-1, 1, 2).astype(np.float32)
+                            refined = cv2.cornerSubPix(gray_full, pts_in, (3, 3), (-1, -1), criteria).reshape(-1, 2)
+                            for i in range(len(inner_corners)):
+                                if np.linalg.norm(refined[i] - inner_corners[i]) <= 4.0:
+                                    inner_corners[i] = refined[i]
+                        except Exception:
+                            pass
+
+                        inner_score = _quad_quality(inner_corners, image_bgr.shape)
+                        if inner_score >= 0.35:
+                            best_crop = (
+                                inner_corners, "inner_corner", final_ids,
+                                detected_dict, "DETECTED (Corner Black Box — Inner Point)"
+                            )
+                            _log.info("Inner corner crop detected at angle=%d, score=%.2f", ang, inner_score)
+                            break
+                    elif has_synthetic and green_frame_already:
+                        _log.info(
+                            "Synthetic ArUco corner detected — keeping green_frame crop "
+                            "(more reliable than inner_corner with synthetic box)"
+                        )
+                        break
 
         # ===================================================================
         # FALLBACK CROP: RegMark (when green frame not found)
@@ -1355,9 +1483,11 @@ def detect_corners_and_crop(
               method_used,
               "available" if best_aruco_reg else "not detected")
 
-    # Final warp from original image using GREEN FRAME corners exclusively.
+    # Final warp from original image
+    preserve = (method_used == "inner_corner")
     warped_img, M = perspective_warp(
-        image_bgr, ordered_pts, canvas_w, canvas_h, interpolation=cv2.INTER_LINEAR
+        image_bgr, ordered_pts, canvas_w, canvas_h, interpolation=cv2.INTER_LINEAR,
+        preserve_order=preserve
     )
 
     # Compute normalized LJK coordinates for ArUco registration
@@ -1404,8 +1534,11 @@ def detect_corners_and_crop(
     return warped_img, ordered_pts, method_used, corner_ids, detected_dict, status, best_aruco_reg
 
 
-def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2.INTER_LINEAR):
-    src = order_points(src_points, target_w=dst_width, target_h=dst_height)
+def perspective_warp(image, src_points, dst_width, dst_height, interpolation=cv2.INTER_LINEAR, preserve_order=False):
+    if preserve_order:
+        src = np.asarray(src_points, dtype=np.float32).reshape(-1, 2)
+    else:
+        src = order_points(src_points, target_w=dst_width, target_h=dst_height)
     dst = np.array([
         [0, 0], [dst_width - 1, 0],
         [dst_width - 1, dst_height - 1], [0, dst_height - 1]
@@ -1562,7 +1695,8 @@ def draw_regmarks_overlay(image, ordered_pts, method="green_frame", corner_ids=N
              (int(round(15 * scale_factor)), hud_y - int(round(4 * scale_factor))),
              (int(round(35 * scale_factor)), hud_y - int(round(4 * scale_factor))),
              (0, 230, 0), max(2, int(round(3 * scale_factor))))
-    cv2.putText(output, "Green Frame = CROP BOUNDARY",
+    crop_title = "Corner Box (Inner) = CROP BOUNDARY" if method == "inner_corner" else "Green Frame = CROP BOUNDARY"
+    cv2.putText(output, crop_title,
                 (int(round(42 * scale_factor)), hud_y),
                 cv2.FONT_HERSHEY_SIMPLEX, leg_f_scale, (180, 255, 180), leg_f_thick, cv2.LINE_AA)
 

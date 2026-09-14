@@ -13,23 +13,44 @@ except ImportError:
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
+    HAVE_HEIF = True
 except ImportError:
-    pass
+    HAVE_HEIF = False
 
 from PIL import Image, ImageOps
 import cv2
 import numpy as np
 import io
 
-def load_image_with_exif(file_bytes_or_buffer):
+def load_image_with_exif(file_bytes_or_buffer, ext=None):
     """
     Load an image from bytes/buffer and automatically correct orientation using EXIF tags.
     Prevents smartphone camera photos from being rotated/skewed (miring).
+
+    HEIC/HEIF files are decoded directly via pillow_heif's own API rather than
+    relying on PIL's opener auto-registration, which can silently fail to be
+    picked up depending on import order/environment (seen as "cannot identify
+    image file" even when pillow_heif is installed).
     """
-    if isinstance(file_bytes_or_buffer, bytes):
-        pil_img = Image.open(io.BytesIO(file_bytes_or_buffer))
+    data = file_bytes_or_buffer if isinstance(file_bytes_or_buffer, bytes) else file_bytes_or_buffer.read()
+    ext = (ext or "").lower().lstrip(".")
+
+    pil_img = None
+    if ext in ("heic", "heif"):
+        if not HAVE_HEIF:
+            raise ValueError("Dukungan berkas HEIC/HEIF tidak tersedia. Install dengan: pip install pillow-heif")
+        heif_file = pillow_heif.open_heif(io.BytesIO(data), convert_hdr_to_8bit=True)
+        pil_img = heif_file.to_pillow()
     else:
-        pil_img = Image.open(file_bytes_or_buffer)
+        try:
+            pil_img = Image.open(io.BytesIO(data))
+        except Exception:
+            # Fallback: some phones export HEIC content under a .jpg/.jpeg extension
+            if HAVE_HEIF:
+                heif_file = pillow_heif.open_heif(io.BytesIO(data), convert_hdr_to_8bit=True)
+                pil_img = heif_file.to_pillow()
+            else:
+                raise
 
     # Correct smartphone EXIF orientation (critical for iPhone / Android scans)
     pil_img = ImageOps.exif_transpose(pil_img)
@@ -89,6 +110,6 @@ def extract_images_from_file(uploaded_file, target_dpi=200):
         raise ValueError("Library pembaca PDF (PyMuPDF / pypdfium2) belum terpasang.")
 
     else:
-        # Standard image (JPG, PNG) with EXIF auto-correction
-        bgr_img = load_image_with_exif(file_bytes)
+        # Standard image (JPG, PNG, HEIC, HEIF, WEBP, ...) with EXIF auto-correction
+        bgr_img = load_image_with_exif(file_bytes, ext=ext)
         return [(filename, bgr_img)]
