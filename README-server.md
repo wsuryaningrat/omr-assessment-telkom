@@ -40,7 +40,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 | `SCAN_MAX_SIDE` | kosong | Batas sisi gambar saat decode. Kosong = resolusi asli (akurasi identik) |
 
 ## Halaman admin
-Buka `/admin` dan masuk dengan `ADMIN_TOKEN`. Tab: **Ringkasan** (status sinkron, tombol sinkron/tarik kunci/bersihkan), **Sesi** (semua sesi pengawas), **Kunci jawaban** (unggah `.xlsx`/`.csv`, tarik dari Google Sheet, hapus, **hitung ulang nilai** semua sesi yang sudah disubmit), **Ekspor** (Excel/CSV, filter kelas).
+Buka `/admin` dan masuk dengan `ADMIN_TOKEN`. Lokal: `./run-server.sh` membuat token acak, menyimpannya di `data/.admin_token`, dan mencetaknya saat server mulai (lihat juga: `cat data/.admin_token`). Produksi: isi `ADMIN_TOKEN` di `deploy/.env` dengan nilai acak, mis. `openssl rand -base64 24`. Tab: **Ringkasan** (status sinkron, tombol sinkron/tarik kunci/bersihkan), **Sesi** (semua sesi pengawas), **Kunci jawaban** (unggah `.xlsx`/`.csv`, tarik dari Google Sheet, hapus, **hitung ulang nilai** semua sesi yang sudah disubmit), **Ekspor** (Excel/CSV, filter kelas).
 
 ## Google Sheet (opsional)
 Tanpa konfigurasi, data tetap aman di database dan bisa diekspor. Untuk sinkron otomatis:
