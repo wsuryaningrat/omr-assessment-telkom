@@ -14,7 +14,9 @@ function surfaceError(msg) {
 addEventListener("error", e => surfaceError(e.message));
 addEventListener("unhandledrejection", e => surfaceError(e.reason?.message || e.reason));
 
-const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{9,15}$/.test(d); };
+// Nomor HP: awalan +62 dikunci di UI; pengguna hanya mengisi digit setelahnya (nomor seluler diawali 8, total 9–12 digit).
+const PHONE = v => /^8\d{8,11}$/.test(v || "");
+const hpLocal = raw => { let d = String(raw || "").replace(/\D/g, ""); if (d.startsWith("62")) d = d.slice(2); return d.replace(/^0+/, ""); };
 
 function ljk() {
   return {
@@ -33,12 +35,13 @@ function ljk() {
     // ---- turunan
     get prodiOptions() { return (this.meta.fakultas_prodi || {})[this.form.fakultas] || []; },
     get phoneOk() { return PHONE(this.form.hp); },
+    cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
     get formValid() { const f = this.form; return !!(f.nama && this.phoneOk && f.ruangan && f.kelas && f.fakultas && f.prodi); },
     get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
       if (!f.nama) return "Isi nama lengkap pengawas"; if (!this.phoneOk) return "Isi nomor HP yang valid";
-      if (!f.ruangan) return "Isi ruangan"; if (!f.kelas) return "Isi nama kelas"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi";
+      if (!f.ruangan) return "Isi ruangan"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi"; if (!f.kelas) return "Isi nama kelas";
       return "Siap — pilih berkas LJK di atas";
     },
     get step() { if (this.session?.submitted) return 3; if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
@@ -50,7 +53,7 @@ function ljk() {
     },
     loadForm() {
       const p = this.session?.pengawas; if (!p) return;
-      this.form = { nama: p.nama, hp: p.hp, ruangan: p.ruangan, kelas: p.kelas || "", fakultas: p.fakultas, prodi: p.prodi };
+      this.form = { nama: p.nama, hp: hpLocal(p.hp), ruangan: p.ruangan, kelas: p.kelas || "", fakultas: p.fakultas, prodi: p.prodi };
       this.baseline = JSON.stringify(this.form);
     },
     async saveIdentity() {
@@ -58,7 +61,7 @@ function ljk() {
       const f = this.form;
       try {
         await this.api(`/api/sessions/${this.sid}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
+          body: JSON.stringify({ nama_pengawas: f.nama, hp: "+62" + f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
         const facChanged = this.baseline && JSON.parse(this.baseline).fakultas !== f.fakultas;
         this.baseline = JSON.stringify(this.form); await this.refresh();
         // status dihitung ulang dari data terbaru; lembar yang sudah divalidasi tapi kini tidak sesuai fakultas dikembalikan ke Warning
@@ -77,7 +80,7 @@ function ljk() {
     npmBad(s) { return this.npmCount(s) !== 10; },
     kodeBad(s) { return !/^\d{3}$/.test(String(s.kode_soal || "").trim()); },
     fakBad(s) { return !this.facMatch(s); },
-    fakText(s) { const v = (s.fakultas_ljk || "").toString().trim(); return v && v !== "-" ? v : "(kosong)"; },
+    fakText(s) { const v = this.abbr(s.fakultas_ljk); return v && v !== "-" ? v : "(kosong)"; },
     fillBad(s) { return this.fillPct(s) < 25; },
     terisiText(s) { return (s.terisi || "-").toString().replace(/\s+/g, ""); },
     reasons(s) {
@@ -123,10 +126,8 @@ function ljk() {
     get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
     get canSubmit() { return this.allValid && !this.session.scanning; },
     get facPick() { return (this.session?.pengawas?.fakultas || "").split(" - ")[0]; },
-    facMatch(s) {
-      const v = (s.fakultas_ljk || "").toString().trim().toUpperCase();
-      return !!this.facPick && !!v && v !== "-" && v.startsWith(this.facPick.toUpperCase());
-    },
+    abbr(v) { const t = String(v || "").trim(); const m = /\(([A-Za-z]{2,5})\)/.exec(t); return (m ? m[1] : t.split(" - ")[0]).toUpperCase(); },
+    facMatch(s) { const v = this.abbr(s.fakultas_ljk); return !!this.facPick && !!v && v !== "-" && v === this.facPick.toUpperCase(); },
     fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
     nameOf(s) { return s.nama && s.nama !== "-" ? s.nama : "(nama tidak terbaca)"; },
     get filtered() {
@@ -206,7 +207,7 @@ function ljk() {
       if (this.formValid) { this.upErr = ""; return; }
       ev.preventDefault(); this.upErr = "Lengkapi data pengawas & kelas dulu: " + this.formHint.toLowerCase() + ".";
       clientLog("guard", { hint: this.formHint });
-      document.getElementById(!this.form.nama ? "nama" : !this.phoneOk ? "hp" : !this.form.ruangan ? "rg" : !this.form.kelas ? "kl" : !this.form.fakultas ? "fk" : "pr")?.focus();
+      document.getElementById(!this.form.nama ? "nama" : !this.phoneOk ? "hp" : !this.form.ruangan ? "rg" : !this.form.fakultas ? "fk" : !this.form.prodi ? "pr" : "kl")?.focus();
     },
     onFiles(ev) {
       const input = ev.target, files = Array.from(input.files || []);
@@ -225,7 +226,7 @@ function ljk() {
         try {
           const f = this.form;
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
+            body: JSON.stringify({ nama_pengawas: f.nama, hp: "+62" + f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
           this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
         } catch (e) { this.toast(e.message, true); return; }
@@ -278,9 +279,14 @@ function ljk() {
       catch (e) { this.toast(e.message, true); }
       this.busy = false;
     },
-    open(s) { this.sel = s; this.pv = { url: "", loading: false }; document.body.style.overflow = "hidden"; },
+    open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; document.body.style.overflow = "hidden"; },
     close() { this.sel = null; document.body.style.overflow = ""; },
-    showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true }; },
+    showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true, err: "" }; },
+    pvError() {
+      if (!this.pv.url) return;                       // abaikan error dari <img> tanpa sumber
+      this.pv.loading = false; this.pv.err = "Preview tidak dapat dimuat. Coba tekan “Muat ulang preview”.";
+      clientLog("preview_fail", { id: this.sel?.id });
+    },
     async remove(s) {
       if (!(await this.ask({ title: `Hapus lembar No. ${this.numOf(s)}?`, body: `${this.nameOf(s)} (${s.file}). Gunakan ini bila foto terunggah dobel.`, ok: "Hapus", cancel: "Batal", danger: true }))) return;
       try { await this.api(`/api/sheets/${s.id}`, { method: "DELETE" }); this.close(); await this.refresh(); this.toast("Lembar dihapus"); }
@@ -291,7 +297,7 @@ function ljk() {
       const fd = new FormData(); fd.append("file", file, file.name);
       this.toast("Memproses foto baru…");
       try { await this.api(`/api/sheets/${this.sel.id}/replace`, { method: "POST", body: fd }); await this.refresh();
-            this.sel = this.session.sheets.find(x => x.id === this.sel.id) || null; this.pv = { url: "", loading: false }; this.toast("Foto diganti & dipindai ulang"); }
+            this.sel = this.session.sheets.find(x => x.id === this.sel.id) || null; this.pv = { url: "", loading: false, err: "" }; this.toast("Foto diganti & dipindai ulang"); }
       catch (e) { this.toast(e.message, true); }
     },
   };

@@ -32,6 +32,16 @@ def _kunci(db):
     return {k.name: k.data for k in db.scalars(select(Kunci))}
 
 
+def _norm_hp(raw: str):
+    """Normalkan nomor HP Indonesia ke +62xxxxxxxxxx. Kembalikan None bila tidak valid.
+    Terima: 0812…, 62812…, +62 812…, 812… (spasi/strip diabaikan). Nomor seluler: 8 + 8–11 digit."""
+    d = re.sub(r"\D", "", raw or "")
+    if d.startswith("62"):
+        d = d[2:]
+    d = d.lstrip("0")
+    return "+62" + d if re.fullmatch(r"8\d{8,11}", d) else None
+
+
 def _pengawas(s: ScanSession):
     return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
             "fakultas": s.fakultas, "prodi": s.prodi}
@@ -136,8 +146,8 @@ def _validate_identity(body: SessionIn):
         errors.append("Nama kelas wajib diisi")
     if not body.nama_pengawas.strip():
         errors.append("Nama lengkap pengawas wajib diisi")
-    if not is_valid_phone(body.hp):
-        errors.append("Nomor HP tidak valid")
+    if not _norm_hp(body.hp):
+        errors.append("Nomor HP tidak valid (contoh: +62 812 3456 7890)")
     if not body.ruangan.strip():
         errors.append("Ruangan wajib diisi")
     if body.fakultas not in FAKULTAS_PRODI:
@@ -151,7 +161,7 @@ def _validate_identity(body: SessionIn):
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
     _validate_identity(body)
-    s = ScanSession(nama_pengawas=body.nama_pengawas.strip(), hp=body.hp.strip(), ruangan=body.ruangan.strip(),
+    s = ScanSession(nama_pengawas=body.nama_pengawas.strip(), hp=_norm_hp(body.hp), ruangan=body.ruangan.strip(),
                     kelas=body.kelas.strip(), fakultas=body.fakultas, prodi=body.prodi)
     db.add(s)
     db.commit()
@@ -165,7 +175,7 @@ def update_session(sid: str, body: SessionIn, db=Depends(get_db)):
     if s.submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
     _validate_identity(body)
-    s.nama_pengawas, s.hp, s.ruangan = body.nama_pengawas.strip(), body.hp.strip(), body.ruangan.strip()
+    s.nama_pengawas, s.hp, s.ruangan = body.nama_pengawas.strip(), _norm_hp(body.hp), body.ruangan.strip()
     s.kelas, s.fakultas, s.prodi = body.kelas.strip(), body.fakultas, body.prodi
     for sh in s.sheets:
         sh.record = _apply_identity(sh.record, s)

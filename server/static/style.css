@@ -250,3 +250,23 @@ th.c,td.c{width:36px;padding-left:8px;padding-right:4px}
 .ovl{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px;z-index:2}
 .btn.rel{position:relative;overflow:hidden}
 .upstat{margin-top:8px;font-size:13px;color:var(--ink2)}
+
+/* nomor HP dengan awalan +62 terkunci */
+.hpgrp{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;background:#fff;overflow:hidden;transition:border-color .15s,box-shadow .15s}
+.hpgrp:focus-within{border-color:var(--ink);box-shadow:0 0 0 3px rgba(11,15,25,.08)}
+.hpgrp.bad{border-color:var(--bad)}
+.hpgrp .pre{display:grid;place-items:center;padding:0 10px;background:var(--soft);color:var(--ink2);font-weight:700;font-size:15px;border-right:1px solid var(--line)}
+.hpgrp input{border:0;border-radius:0;box-shadow:none!important;min-width:0}
+/* fakultas + prodi sebaris; pilihan tampil singkat (kependekan) */
+.row2{display:grid;grid-template-columns:118px 1fr;gap:10px}
+.selbox{position:relative;height:44px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;align-items:center;padding:0 30px 0 12px;transition:border-color .15s,box-shadow .15s}
+.selbox:focus-within{border-color:var(--ink);box-shadow:0 0 0 3px rgba(11,15,25,.08)}
+.selbox .face{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.selbox .face.ph{color:var(--ink3);font-weight:400}
+.selbox::after{content:"";position:absolute;right:12px;top:50%;width:7px;height:7px;border-right:2px solid var(--ink2);border-bottom:2px solid var(--ink2);transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.selbox select{position:absolute;inset:0;width:100%;height:100%;opacity:0;font-size:16px;cursor:pointer;border:0}
+.selbox.dis{background:var(--soft)}.selbox.dis .face{color:var(--ink3)}.selbox.dis select{cursor:not-allowed}
+@media(max-width:380px){.row2{grid-template-columns:96px 1fr}}
+
+.grid{grid-template-columns:1.35fr 1fr}
+@media(max-width:380px){.grid{grid-template-columns:1.25fr 1fr}}

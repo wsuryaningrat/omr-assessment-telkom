@@ -45,30 +45,41 @@
           </div>
           <div>
             <label class="f" for="hp">Nomor HP</label>
-            <input id="hp" x-model.trim="form.hp" inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx">
-            <div class="err" x-show="form.hp && !phoneOk">Nomor HP tidak valid</div>
+            <div class="hpgrp" :class="{bad: form.hp && !phoneOk}">
+              <span class="pre">+62</span>
+              <input id="hp" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="tel-national" placeholder="812 3456 7890" x-model="form.hp" @input="cleanHp()">
+            </div>
+            <div class="err" x-show="form.hp && !phoneOk">Nomor seluler diawali 8 (mis. 812 3456 7890)</div>
           </div>
           <div>
             <label class="f" for="rg">Ruangan</label>
             <input id="rg" x-model.trim="form.ruangan" placeholder="Contoh: TULT 0603">
           </div>
+          <div class="full row2">
+            <div>
+              <label class="f" for="fk">Fakultas</label>
+              <div class="selbox">
+                <span class="face" :class="{ph: !form.fakultas}" x-text="form.fakultas ? form.fakultas.split(' - ')[0] : 'Pilih'"></span>
+                <select id="fk" x-model="form.fakultas" @change="form.prodi=''" aria-label="Fakultas mahasiswa">
+                  <option value="">Pilih fakultas</option>
+                  <template x-for="f in Object.keys(meta.fakultas_prodi||{})" :key="f"><option :value="f" x-text="f"></option></template>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="f" for="pr">Program Studi</label>
+              <div class="selbox" :class="{dis: !form.fakultas}">
+                <span class="face" :class="{ph: !form.prodi}" x-text="form.prodi || (form.fakultas ? 'Pilih program studi' : 'Pilih fakultas dulu')"></span>
+                <select id="pr" x-model="form.prodi" :disabled="!form.fakultas" aria-label="Program studi mahasiswa">
+                  <option value="" x-text="form.fakultas?'Pilih program studi':'Pilih fakultas dulu'"></option>
+                  <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
+                </select>
+              </div>
+            </div>
+          </div>
           <div class="full">
             <label class="f" for="kl">Nama Kelas</label>
             <input id="kl" x-model.trim="form.kelas" placeholder="Contoh: IF-47-01">
-          </div>
-          <div class="mfull">
-            <label class="f" for="fk">Fakultas Mahasiswa</label>
-            <select id="fk" x-model="form.fakultas" @change="form.prodi=''">
-              <option value="">Pilih fakultas</option>
-              <template x-for="f in Object.keys(meta.fakultas_prodi||{})" :key="f"><option :value="f" x-text="f"></option></template>
-            </select>
-          </div>
-          <div class="mfull">
-            <label class="f" for="pr">Program Studi Mahasiswa</label>
-            <select id="pr" x-model="form.prodi" :disabled="!form.fakultas">
-              <option value="" x-text="form.fakultas?'Pilih program studi':'Pilih fakultas dulu'"></option>
-              <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
-            </select>
           </div>
         </div>
         <div class="row-act" x-show="sid">
@@ -258,8 +269,9 @@
         <button class="btn sm d" @click="remove(sel)">Hapus</button>
       </div>
       <div class="skel" x-show="pv.loading"></div>
-      <img class="pv" x-show="pv.url && !pv.loading" :src="pv.url" @load="pv.loading=false" @error="pv.loading=false; toast('Preview gagal dimuat', true)" alt="Preview hasil scan">
-      <p x-show="pv.url && !pv.loading" style="font-size:12px;color:var(--ink2);margin:6px 0 0">Hijau = jawaban terbaca · merah = terisi ganda</p>
+      <p class="mute" x-show="pv.err" style="margin:8px 0 0" x-text="pv.err"></p>
+      <template x-if="pv.url"><img class="pv" x-show="!pv.loading" :src="pv.url" @load="pv.loading=false" @error="pvError()" alt="Preview hasil scan"></template>
+      <p x-show="pv.url && !pv.loading && !pv.err" style="font-size:12px;color:var(--ink2);margin:6px 0 0">Hijau = jawaban terbaca · merah = terisi ganda</p>
       <div class="sticky-act">
         <button class="btn" style="flex:1" @click="close()">Tutup</button>
         <button class="btn p" style="flex:1.4" :disabled="sel.label==='Gagal'" @click="toggle(sel).then(()=>close())" x-text="sel.validated?'Batalkan validasi':'Validasi lembar ini'"></button>

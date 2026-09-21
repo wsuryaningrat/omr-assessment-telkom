@@ -46,6 +46,11 @@ class TestAPI(unittest.TestCase):
 
     def test_validation_rules(self):
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hp": "12"}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hp": "0712345678"}).status_code, 422)   # bukan seluler (harus 8…)
+        for ok in ("081234567890", "+62 812-3456-7890", "6281234567890", "81234567890"):
+            r = self.c.post("/api/sessions", json={**VALID, "hp": ok})
+            self.assertEqual(r.status_code, 201, ok)
+            self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hp"], "+6281234567890", ok)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "prodi": "S1 Film"}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "ruangan": " "}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": " "}).status_code, 422)
