@@ -1,17 +1,28 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", tab: "ringkasan", busy: false, kelas: "",
+    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", ready: false, errMsg: "", me: { microsoft: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
     tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
     async init() {
-      try { this.token = sessionStorage.getItem("adm_tok") || ""; } catch {}
-      if (this.token) await this.login(true);
+      const ERR = { ditolak: "Akun ini tidak terdaftar sebagai admin.", tenant: "Akun berasal dari organisasi yang tidak diizinkan.",
+        kedaluwarsa: "Sesi masuk kedaluwarsa. Silakan coba lagi.", gagal: "Login Microsoft gagal. Silakan coba lagi.", dibatalkan: "Login dibatalkan.",
+        konfigurasi: "Login Microsoft belum dikonfigurasi dengan benar (Tenant ID / Client ID) atau Microsoft tidak terjangkau. Hubungi pengelola server." };
+      const q = new URLSearchParams(location.search).get("err");
+      if (q) { this.errMsg = ERR[q] || "Login gagal."; history.replaceState(null, "", "/admin"); }
+      try { this.me = await (await fetch("/auth/me")).json(); } catch {}
+      if (this.me.authed) { await this.login(true); }
+      else {
+        try { this.token = sessionStorage.getItem("adm_tok") || ""; } catch {}
+        if (this.token && this.me.token_allowed) await this.login(true);
+      }
+      this.ready = true;
     },
     toast(text, bad = false) { this.msg = { text, bad, show: true }; clearTimeout(this._t); this._t = setTimeout(() => (this.msg.show = false), bad ? 3500 : 2200); },
     async api(path, opt = {}) {
-      const r = await fetch(path, { ...opt, headers: { ...(opt.headers || {}), "X-Admin-Token": this.token } });
+      const h = { ...(opt.headers || {}) }; if (this.token) h["X-Admin-Token"] = this.token;
+      const r = await fetch(path, { ...opt, headers: h, credentials: "same-origin" });
       if (r.status === 401) { this.logout(); throw new Error("Token tidak valid"); }
       if (!r.ok) { let d = ""; try { const j = await r.json(); d = Array.isArray(j.detail) ? j.detail.join("; ") : (j.detail || ""); } catch {} throw new Error(d || `Kesalahan ${r.status}`); }
       return r.status === 204 ? null : r;
@@ -22,7 +33,10 @@ function admin() {
       try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); }
       catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
     },
-    logout() { this.authed = false; this.token = ""; clearInterval(this._poll); try { sessionStorage.removeItem("adm_tok"); } catch {} },
+    async logout() {
+      clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
+      if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
+    },
     startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (this.authed && this.tab === "ringkasan") this.loadSummary(); }, 5000); },
     async go(t) { this.tab = t; if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },

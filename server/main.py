@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 import shutil
 import time
 import uuid
@@ -13,10 +14,11 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile as
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import select
 
 from scanner.service import FAKULTAS_PRODI, classify_scan_status
-from server import admin, config, services, worker
+from server import admin, auth, config, services, worker
 from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -133,6 +135,10 @@ async def lifespan(app):
 
 
 app = FastAPI(title="LJK Scanner API", lifespan=lifespan)
+app.add_middleware(
+    SessionMiddleware, secret_key=config.SESSION_SECRET or secrets.token_urlsafe(32), session_cookie="ljk_admin",
+    max_age=config.ADMIN_SESSION_HOURS * 3600, same_site="lax", https_only=config.PUBLIC_URL.startswith("https://"))
+app.include_router(auth.router)
 app.include_router(admin.router)
 
 

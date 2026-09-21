@@ -7,6 +7,8 @@ cd "$(dirname "$0")"
 PY=${PYTHON:-python3.11}
 [ -d .venv-server ] || { $PY -m venv .venv-server && .venv-server/bin/pip install -q -r server/requirements.txt; }
 mkdir -p data
+# pengaturan lokal & rahasia (MS_CLIENT_SECRET dll.) — berkas ini diabaikan git
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 export DATABASE_URL=${DATABASE_URL:-sqlite:///./data/omr.db}
 export UPLOAD_DIR=${UPLOAD_DIR:-./data/uploads}
 export SCAN_WORKERS=${SCAN_WORKERS:-2}
@@ -25,7 +27,8 @@ fi
 
 echo "──────────────────────────────────────────────"
 echo " Admin  : http://localhost:${PORT:-8000}/admin"
-echo " Token  : ${ADMIN_TOKEN}"
+if [ -n "${MS_CLIENT_ID:-}" ]; then echo " Login  : Microsoft (admin: ${ADMIN_EMAILS:-${ADMIN_DOMAINS:-BELUM ADA — semua akun ditolak}})"
+else echo " Token  : ${ADMIN_TOKEN}"; fi
 echo " Sheet  : $([ -n "${GSHEET_CREDENTIALS:-}" ] && echo "AKTIF (${GSHEET_CREDENTIALS})" || echo "nonaktif")"
 echo "──────────────────────────────────────────────"
 exec .venv-server/bin/uvicorn server.main:app --host 0.0.0.0 --port "${PORT:-8000}" --reload

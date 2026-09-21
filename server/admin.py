@@ -3,12 +3,12 @@ import csv
 import io
 import os
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile as FUploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile as FUploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
-from server import config, services, sheets
+from server import auth, config, services, sheets
 from server.db import Kunci, ScanSession, Sheet, SessionLocal
 
 
@@ -17,13 +17,7 @@ def get_db():
         yield db
 
 
-def need_admin(x_admin_token: str = Header(default="")):
-    token = os.environ.get("ADMIN_TOKEN", "")
-    if not token or x_admin_token != token:
-        raise HTTPException(401, "Token admin tidak valid")
-
-
-router = APIRouter(prefix="/api/admin", dependencies=[Depends(need_admin)])
+router = APIRouter(prefix="/api/admin", dependencies=[Depends(auth.require_admin)])
 
 
 @router.get("/summary")

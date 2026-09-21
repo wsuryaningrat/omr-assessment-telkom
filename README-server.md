@@ -60,3 +60,24 @@ Cara kerja: saat pengawas submit, hasil dinilai ulang dengan kunci terbaru lalu 
 | `UNSUBMITTED_RETENTION_HOURS` | 72 | Idem untuk sesi yang tidak pernah disubmit |
 | `CLEANUP_INTERVAL_S` | 1800 | Jeda pembersihan |
 | `BACKGROUND_TASKS` | 1 | Set 0 untuk mematikan tugas latar (dipakai tes) |
+
+## Login admin dengan akun Microsoft
+Bila `MS_CLIENT_ID`, `MS_TENANT_ID`, dan `MS_CLIENT_SECRET` terisi, halaman `/admin` memakai tombol **Masuk dengan Microsoft** dan token `ADMIN_TOKEN` otomatis dinonaktifkan (kecuali `ADMIN_ALLOW_TOKEN=1`). Hanya akun di `ADMIN_EMAILS` (atau domain di `ADMIN_DOMAINS`) yang diterima; bila keduanya kosong, semua akun ditolak. Sesi berlaku `ADMIN_SESSION_HOURS` jam (default 8).
+
+**Pendaftaran aplikasi (sekali saja)** di https://entra.microsoft.com → *Identity → Applications → App registrations → New registration*:
+1. Nama bebas (mis. "LJK Admin"). *Supported account types*: **Single tenant** (hanya organisasi ini).
+2. *Redirect URI*: platform **Web**, isi `http://localhost:8000/auth/callback` (lokal). Untuk produksi tambahkan `https://DOMAIN-ANDA/auth/callback` di menu *Authentication*.
+3. Halaman *Overview*: salin **Application (client) ID** → `MS_CLIENT_ID` dan **Directory (tenant) ID** → `MS_TENANT_ID`.
+4. *Certificates & secrets → New client secret*: salin kolom **Value** (hanya tampil sekali) → `MS_CLIENT_SECRET`.
+5. *API permissions*: bawaan `User.Read` (delegated) sudah cukup. Bila organisasi mensyaratkan persetujuan admin, minta tim IT menekan *Grant admin consent*.
+
+**Lokal:** simpan nilai di `.env.local` (diabaikan git), lalu jalankan `./run-server.sh`:
+```
+MS_CLIENT_ID=...
+MS_TENANT_ID=...
+MS_CLIENT_SECRET=...
+ADMIN_EMAILS=anda@kampus.ac.id
+```
+Microsoft hanya mengizinkan `http://` untuk `localhost`, jadi buka admin lewat `http://localhost:8000/admin` (bukan alamat IP). **Produksi:** wajib `https` dan `PUBLIC_URL`; lihat `deploy/.env.example`.
+
+Keamanan: sesi berupa cookie bertanda tangan (`SESSION_SECRET`), tenant diverifikasi (`tid`), state login sekali pakai, dan permintaan yang mengubah data dari asal lain ditolak (CSRF).

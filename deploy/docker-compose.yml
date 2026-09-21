@@ -20,6 +20,15 @@ services:
       UPLOAD_DIR: /data/uploads
       SCAN_WORKERS: ${SCAN_WORKERS:-2}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?isi di .env}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      SESSION_SECRET: ${SESSION_SECRET:?isi di .env (acak, panjang)}
+      MS_CLIENT_ID: ${MS_CLIENT_ID:-}
+      MS_TENANT_ID: ${MS_TENANT_ID:-}
+      MS_CLIENT_SECRET: ${MS_CLIENT_SECRET:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ADMIN_DOMAINS: ${ADMIN_DOMAINS:-}
+      GSHEET_URL: ${GSHEET_URL:-}
+      GSHEET_CREDENTIALS: ${GSHEET_CREDENTIALS:-}
     volumes: [uploads:/data/uploads]
     mem_limit: 1200m
   caddy:

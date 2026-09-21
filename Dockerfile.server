@@ -10,4 +10,4 @@ COPY server server
 COPY templates templates
 # Jumlah worker: samakan dengan jumlah core (VPS 2 CPU -> 2). Satu proses uvicorn saja;
 # paralelisme pemindaian ada di process pool, bukan di jumlah proses web.
-CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
