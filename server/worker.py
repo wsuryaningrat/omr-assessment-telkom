@@ -60,6 +60,21 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
     return out
 
 
+def init_worker(parent_pid):
+    """Pekerja ikut berhenti bila proses server (induk) mati — tanpa ini pekerja menjadi yatim dan menghabiskan RAM
+    setiap kali server di-restart/--reload atau dimatikan paksa."""
+    import threading
+    import time
+
+    def _watch():
+        while True:
+            time.sleep(2)
+            if os.getppid() != parent_pid:
+                os._exit(0)
+
+    threading.Thread(target=_watch, daemon=True, name="parent-watch").start()
+
+
 def warmup(_=None):
     _template()
     return os.getpid()

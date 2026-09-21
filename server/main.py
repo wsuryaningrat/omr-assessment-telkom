@@ -115,7 +115,7 @@ async def lifespan(app):
     global _pool
     os.makedirs(config.UPLOAD_DIR, exist_ok=True)
     init_db()
-    _pool = ProcessPoolExecutor(max_workers=config.SCAN_WORKERS)
+    _pool = ProcessPoolExecutor(max_workers=config.SCAN_WORKERS, initializer=worker.init_worker, initargs=(os.getpid(),))
     list(_pool.map(worker.warmup, range(config.SCAN_WORKERS)))  # muat template sekali per proses
     with SessionLocal() as db:  # pulihkan pekerjaan yang terputus saat restart
         pending = [f.id for f in db.scalars(select(UploadFile).where(UploadFile.state.in_(("queued", "processing"))))]
