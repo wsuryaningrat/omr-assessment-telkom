@@ -2,7 +2,7 @@ const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{
 
 function ljk() {
   return {
-    meta: {}, form: { nama: "", hp: "", ruangan: "", fakultas: "", prodi: "" },
+    meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "",
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
     _poll: null, _toast: null,
@@ -10,21 +10,47 @@ function ljk() {
     async init() {
       try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.online = false; this.toast("Server tidak terjangkau", true); }
       try { this.sid = localStorage.getItem("ljk_sid"); } catch {}
-      if (this.sid) await this.refresh(true);
+      if (this.sid) { await this.refresh(true); this.loadForm(); }
       this.ready = true;
     },
 
     // ---- turunan
     get prodiOptions() { return (this.meta.fakultas_prodi || {})[this.form.fakultas] || []; },
     get phoneOk() { return PHONE(this.form.hp); },
-    get formValid() { const f = this.form; return !!(f.nama && this.phoneOk && f.ruangan && f.fakultas && f.prodi); },
+    get formValid() { const f = this.form; return !!(f.nama && this.phoneOk && f.ruangan && f.kelas && f.fakultas && f.prodi); },
+    get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
       if (!f.nama) return "Isi nama lengkap pengawas"; if (!this.phoneOk) return "Isi nomor HP yang valid";
-      if (!f.ruangan) return "Isi ruangan"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi";
+      if (!f.ruangan) return "Isi ruangan"; if (!f.kelas) return "Isi nama kelas"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi";
       return "Siap — pilih berkas LJK di atas";
     },
-    get step() { if (this.session?.submitted) return 3; return this.session?.summary.lembar ? 2 : 1; },
+    get step() { if (this.session?.submitted) return 3; if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
+    canGo(n) { return !this.session?.submitted && this.step !== n && (n === 1 ? !!this.sid : !!this.session?.summary.lembar); },
+    go(n) {
+      if (!this.canGo(n)) return;
+      if (n === 1) this.loadForm();
+      this.view = n; this.close(); scrollTo({ top: 0 });
+    },
+    loadForm() {
+      const p = this.session?.pengawas; if (!p) return;
+      this.form = { nama: p.nama, hp: p.hp, ruangan: p.ruangan, kelas: p.kelas || "", fakultas: p.fakultas, prodi: p.prodi };
+      this.baseline = JSON.stringify(this.form);
+    },
+    async saveIdentity() {
+      if (!this.sid || !this.formValid) return false;
+      const f = this.form;
+      try {
+        await this.api(`/api/sessions/${this.sid}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
+        this.baseline = JSON.stringify(this.form); await this.refresh(); this.toast("Data pengawas disimpan"); return true;
+      } catch (e) { this.toast(e.message, true); return false; }
+    },
+    npmCells(s) {
+      const t = (s.npm && s.npm !== "-") ? String(s.npm) : "";
+      return Array.from({ length: 10 }, (_, i) => { const c = t[i] || " "; return /\d/.test(c) ? { c, k: "d" } : c === "?" ? { c: "?", k: "x" } : { c: "", k: "e" }; });
+    },
+    npmCount(s) { return this.npmCells(s).filter(c => c.k === "d").length; },
     get scanDone() { return this.session ? this.session.files.total - this.session.files.pending : 0; },
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
     get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
@@ -77,19 +103,20 @@ function ljk() {
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
-      this.form = { nama: "", hp: "", ruangan: "", fakultas: "", prodi: "" }; this.filter = "all"; scrollTo({ top: 0 });
+      this.form = { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
     },
 
     // ---- unggah
     async pick(files) {
       files = [...(files || [])]; if (!files.length) return;
+      if (!this.formValid) { this.toast(this.formHint, true); return; }
+      if (this.dirty && !(await this.saveIdentity())) return;
       if (!this.sid) {
-        if (!this.formValid) { this.toast(this.formHint, true); return; }
         try {
           const f = this.form;
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, fakultas: f.fakultas, prodi: f.prodi }) });
-          this.sid = r.id; try { localStorage.setItem("ljk_sid", this.sid); } catch {}
+            body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
+          this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
         } catch (e) { this.toast(e.message, true); return; }
       }
@@ -129,7 +156,7 @@ function ljk() {
     },
     async submit() {
       this.busy = true;
-      try { await this.api(`/api/sessions/${this.sid}/submit`, { method: "POST" }); await this.refresh(); scrollTo({ top: 0 }); }
+      try { await this.api(`/api/sessions/${this.sid}/submit`, { method: "POST" }); await this.refresh(); this.view = null; scrollTo({ top: 0 }); }
       catch (e) { this.toast(e.message, true); }
       this.busy = false;
     },

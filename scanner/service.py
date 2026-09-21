@@ -138,6 +138,7 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
         "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
         "No HP Pengawas": (pengawas_info or {}).get("hp", "-") or "-",
         "Ruangan": (pengawas_info or {}).get("ruangan", "-") or "-",
+        **({"Kelas": pengawas_info["kelas"]} if (pengawas_info or {}).get("kelas") else {}),
         "File": doc_name,
         "NPM": decoded_all.get("NPM", "-"),
         "Nama Mahasiswa": decoded_all.get("NAMA", "-"),

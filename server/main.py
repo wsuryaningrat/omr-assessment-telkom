@@ -32,7 +32,24 @@ def _kunci(db):
 
 
 def _pengawas(s: ScanSession):
-    return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "fakultas": s.fakultas, "prodi": s.prodi}
+    return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
+            "fakultas": s.fakultas, "prodi": s.prodi}
+
+
+def _apply_identity(record: dict, s: ScanSession) -> dict:
+    """Samakan kolom identitas pada hasil pindai dengan data sesi terkini (mis. setelah pengawas mengedit)."""
+    updates = {"Nama Pengawas": s.nama_pengawas, "No HP Pengawas": s.hp, "Ruangan": s.ruangan,
+               "Fakultas": s.fakultas.split(" - ")[0], "Program Studi": s.prodi}
+    out = {}
+    for k, v in record.items():
+        if k == "Kelas":
+            continue  # ditempatkan ulang tepat setelah Ruangan
+        out[k] = updates.get(k, v)
+        if k == "Ruangan" and s.kelas:
+            out["Kelas"] = s.kelas
+    if s.kelas:
+        out.setdefault("Kelas", s.kelas)
+    return out
 
 
 # --------------------------------------------------------------------------- antrian
@@ -58,10 +75,11 @@ def _on_done(file_id, fut):
         if f is None:  # sesi dihapus saat diproses
             return
         seq = len(db.scalars(select(Sheet.id).where(Sheet.session_id == f.session_id)).all())
+        sess = db.get(ScanSession, f.session_id)
         for r in results:
             seq += 1
             db.add(Sheet(session_id=f.session_id, file_id=f.id, page=r["page"], seq=seq,
-                         doc_name=r["doc_name"], scan_status=r["status"], record=r["record"]))
+                         doc_name=r["doc_name"], scan_status=r["status"], record=_apply_identity(r["record"], sess)))
         f.state = "failed" if err else "done"
         f.error = err
         db.commit()
@@ -106,13 +124,15 @@ class SessionIn(BaseModel):
     nama_pengawas: str
     hp: str
     ruangan: str
+    kelas: str
     fakultas: str
     prodi: str
 
 
-@app.post("/api/sessions", status_code=201)
-def create_session(body: SessionIn, db=Depends(get_db)):
+def _validate_identity(body: SessionIn):
     errors = []
+    if not body.kelas.strip():
+        errors.append("Nama kelas wajib diisi")
     if not body.nama_pengawas.strip():
         errors.append("Nama lengkap pengawas wajib diisi")
     if not is_valid_phone(body.hp):
@@ -125,11 +145,31 @@ def create_session(body: SessionIn, db=Depends(get_db)):
         errors.append("Program studi tidak sesuai fakultas")
     if errors:
         raise HTTPException(422, errors)
+
+
+@app.post("/api/sessions", status_code=201)
+def create_session(body: SessionIn, db=Depends(get_db)):
+    _validate_identity(body)
     s = ScanSession(nama_pengawas=body.nama_pengawas.strip(), hp=body.hp.strip(), ruangan=body.ruangan.strip(),
-                    fakultas=body.fakultas, prodi=body.prodi)
+                    kelas=body.kelas.strip(), fakultas=body.fakultas, prodi=body.prodi)
     db.add(s)
     db.commit()
     return {"id": s.id}
+
+
+@app.patch("/api/sessions/{sid}")
+def update_session(sid: str, body: SessionIn, db=Depends(get_db)):
+    """Ubah identitas pengawas/kelas; seluruh lembar pada sesi ikut diperbarui."""
+    s = _session_or_404(db, sid)
+    if s.submitted:
+        raise HTTPException(409, "Sesi sudah disubmit")
+    _validate_identity(body)
+    s.nama_pengawas, s.hp, s.ruangan = body.nama_pengawas.strip(), body.hp.strip(), body.ruangan.strip()
+    s.kelas, s.fakultas, s.prodi = body.kelas.strip(), body.fakultas, body.prodi
+    for sh in s.sheets:
+        sh.record = _apply_identity(sh.record, s)
+    db.commit()
+    return {"ok": True, "pengawas": _pengawas(s)}
 
 
 def _session_or_404(db, sid):
@@ -283,7 +323,7 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
         raise HTTPException(422, "Foto baru tidak berisi halaman")
     up = db.get(UploadFile, sh.file_id)
     up.path, up.name, up.size = dest, file.filename, size
-    sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], res[0]["record"], False
+    sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _apply_identity(res[0]["record"], s), False
     db.commit()
     return _sheet_view(sh)
 
@@ -338,7 +378,10 @@ def export_csv(db=Depends(get_db)):
     rows = []
     for sh in db.scalars(select(Sheet).join(ScanSession).where(ScanSession.submitted.is_(True)).order_by(Sheet.session_id, Sheet.seq)):
         rows.append(sh.record)
-    cols = []
+    prefix = ["Submit Date", "Nama Pengawas", "No HP Pengawas", "Ruangan", "Kelas", "File", "NPM", "Nama Mahasiswa",
+              "Fakultas", "Program Studi", "Fakultas (LJK)", "Kode Soal", "Jawaban Terisi"]
+    seen = {k for r in rows for k in r}
+    cols = [c for c in prefix if c in seen]
     for r in rows:
         for k in r:
             if k not in cols:

@@ -20,7 +20,7 @@ from tests.regression.fixtures import KUNCI  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GOLDEN = json.load(open(os.path.join(ROOT, "tests", "regression", "golden_scan.json"), encoding="utf-8"))
-VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603",
+VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "IF-47-01",
          "fakultas": "FIF - Fakultas Informatika", "prodi": "S1 Informatika"}
 
 
@@ -48,6 +48,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hp": "12"}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "prodi": "S1 Film"}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "ruangan": " "}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": " "}).status_code, 422)
         self.assertEqual(self.c.get("/api/meta").json()["fakultas_prodi"].keys(), __import__("scanner.service", fromlist=["x"]).FAKULTAS_PRODI.keys())
 
     def test_ui_is_served(self):
@@ -93,6 +94,28 @@ class TestAPI(unittest.TestCase):
         row = next(csv.DictReader(io.StringIO(csv_text)))
         for k in ("Jawaban Terisi", "Nilai", "Jumlah Benar", "Jumlah Salah", "Jumlah Kosong", "NPM", "Kode Soal") + tuple(x for x in gold if x.startswith("soal_")):
             self.assertEqual(row[k], str(gold[k]), k)
+
+    def test_edit_identity_updates_sheets_and_export(self):
+        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
+        self.wait(sid)
+        new = {**VALID, "nama_pengawas": "Siti Aminah", "kelas": "SI-46-02", "ruangan": "GKU 101",
+               "fakultas": "FRI - Fakultas Rekayasa Industri", "prodi": "S1 Sistem Informasi"}
+        self.assertEqual(self.c.patch(f"/api/sessions/{sid}", json=new).status_code, 200)
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertEqual((d["pengawas"]["nama"], d["pengawas"]["kelas"]), ("Siti Aminah", "SI-46-02"))
+        self.assertEqual(self.c.patch(f"/api/sessions/{sid}", json={**new, "kelas": ""}).status_code, 422)
+        self.c.post(f"/api/sessions/{sid}/validate-all")
+        self.c.post(f"/api/sessions/{sid}/submit")
+        import csv, io
+        rows = list(csv.DictReader(io.StringIO(self.c.get("/api/admin/export.csv", headers={"X-Admin-Token": "rahasia"}).text)))
+        mine = [r for r in rows if r["Nama Pengawas"] == "Siti Aminah"]
+        self.assertEqual(len(mine), 1)
+        self.assertEqual((mine[0]["Kelas"], mine[0]["Ruangan"], mine[0]["Fakultas"], mine[0]["Program Studi"]),
+                         ("SI-46-02", "GKU 101", "FRI", "S1 Sistem Informasi"))
+        self.assertEqual(list(rows[0].keys())[:5], ["Submit Date", "Nama Pengawas", "No HP Pengawas", "Ruangan", "Kelas"])
+        self.assertEqual(self.c.patch(f"/api/sessions/{sid}", json=new).status_code, 409)  # sudah disubmit
 
     def test_many_files_concurrent(self):
         sid = self.c.post("/api/sessions", json=VALID).json()["id"]

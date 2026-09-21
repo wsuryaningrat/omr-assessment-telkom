@@ -152,3 +152,19 @@ input::placeholder{color:var(--ink3)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 @media(max-width:560px){.hm{display:none}.ms{display:inline}.pill{padding:0;width:12px;height:12px;border:0;background:none}.pill::before{width:10px;height:10px}.pill.off::before{background:var(--bad)}}
+
+.mute{color:var(--ink2);font-size:13px}
+.row-act{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.backrow{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.step.click{cursor:pointer}.step.click:hover{border-color:var(--ink3)}
+/* NPM: 10 kotak, terisi = gelap, kosong = putus-putus, ganda = merah */
+.npm{display:inline-flex;gap:2px}
+.npm i{width:17px;height:22px;border:1px solid var(--line);border-radius:4px;display:grid;place-items:center;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-style:normal;background:#fff;color:var(--ink)}
+.npm i.d{background:var(--ink);border-color:var(--ink);color:#fff}
+.npm i.e{border-style:dashed;border-color:#C9CED8;background:var(--bg)}
+.npm i.x{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.npm.lg i{width:24px;height:30px;font-size:15px;border-radius:5px}
+.npmc{font-size:11.5px;margin-top:3px;font-weight:600}.npmc.full{color:var(--ok)}.npmc.part{color:var(--warn)}
+@media(max-width:380px){.npm i{width:15px;height:20px;font-size:11px}}
+
+.rc .kv2 dt{white-space:nowrap}.rc .npmc{margin-top:2px}

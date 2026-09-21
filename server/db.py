@@ -34,6 +34,7 @@ class ScanSession(Base):
     nama_pengawas: Mapped[str] = mapped_column(String(200))
     hp: Mapped[str] = mapped_column(String(40))
     ruangan: Mapped[str] = mapped_column(String(100))
+    kelas: Mapped[str] = mapped_column(String(100), default="")
     fakultas: Mapped[str] = mapped_column(String(100))
     prodi: Mapped[str] = mapped_column(String(150))
     submitted: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -79,3 +80,13 @@ class Kunci(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    _migrate()
+
+
+def _migrate():
+    """Migrasi ringan: tambah kolom baru pada tabel lama (create_all tidak mengubah tabel yang ada)."""
+    from sqlalchemy import inspect, text
+    cols = {c["name"] for c in inspect(engine).get_columns("scan_session")}
+    if "kelas" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE scan_session ADD COLUMN kelas VARCHAR(100) DEFAULT ''"))

@@ -15,7 +15,7 @@ import time
 
 import httpx
 
-VALID = {"nama_pengawas": "Uji Beban", "hp": "081234567890", "ruangan": "LOAD",
+VALID = {"nama_pengawas": "Uji Beban", "hp": "081234567890", "ruangan": "LOAD", "kelas": "UJI-01",
          "fakultas": "FIF - Fakultas Informatika", "prodi": "S1 Informatika"}
 
 

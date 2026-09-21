@@ -45,7 +45,7 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
     if not tpl:
         raise RuntimeError("Template pemindai tidak ditemukan")
     k_cache = _int_keys(kunci)
-    info = {"hp": pengawas["hp"], "ruangan": pengawas["ruangan"], "prodi": pengawas["prodi"]}
+    info = {"hp": pengawas["hp"], "ruangan": pengawas["ruangan"], "prodi": pengawas["prodi"], "kelas": pengawas.get("kelas", "")}
     out = []
     for page, (doc_name, img_bgr) in enumerate(iter_images_from_file(PathUpload(path, name), target_dpi=200, max_side=SCAN_MAX_SIDE)):
         if only_page is not None and page != only_page:

@@ -27,8 +27,8 @@
 <main class="wrap" x-show="ready">
 
   <nav class="steps" aria-label="Tahap">
-    <div class="step" :class="step===1?'on':(step>1?'done':'')"><span class="n" x-text="step>1?'✓':'1'"></span><div><b><span class="hm">1. </span>Unggah<span class="hm"> LJK</span></b><small x-text="session?.summary.lembar ? session.summary.lembar+' LJK terbaca' : 'Identitas & berkas'"></small></div></div>
-    <div class="step" :class="step===2?'on':(step>2?'done':'todo')"><span class="n" x-text="step>2?'✓':'2'"></span><div><b><span class="hm">2. </span>Validasi</b><small>Periksa identitas & jawaban</small></div></div>
+    <div class="step" :class="[step===1?'on':(step>1?'done':''), canGo(1)?'click':'']" @click="go(1)"><span class="n" x-text="step>1?'✓':'1'"></span><div><b><span class="hm">1. </span>Data<span class="hm"> & Unggah</span></b><small x-text="session?.summary.lembar ? session.summary.lembar+' LJK terbaca' : 'Pengawas, kelas, foto'"></small></div></div>
+    <div class="step" :class="[step===2?'on':(step>2?'done':'todo'), canGo(2)?'click':'']" @click="go(2)"><span class="n" x-text="step>2?'✓':'2'"></span><div><b><span class="hm">2. </span>Validasi</b><small>Periksa identitas & jawaban</small></div></div>
     <div class="step" :class="step===3?'on':'todo'"><span class="n">3</span><div><b><span class="hm">3. </span>Selesai</b><small>Submit ke rekap</small></div></div>
   </nav>
 
@@ -36,62 +36,54 @@
   <section x-show="step===1">
     <div class="two split">
       <div class="card">
-        <template x-if="!sid">
-          <div>
-            <h2>Identitas Pengawas</h2>
-            <p class="sub">Wajib diisi sebelum mengunggah LJK.</p>
-            <div class="grid">
-              <div class="full">
-                <label class="f" for="nama">Nama Lengkap Pengawas</label>
-                <input id="nama" x-model.trim="form.nama" autocomplete="name" placeholder="Nama lengkap">
-              </div>
-              <div>
-                <label class="f" for="hp">Nomor HP</label>
-                <input id="hp" x-model.trim="form.hp" inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx">
-                <div class="err" x-show="form.hp && !phoneOk">Nomor HP tidak valid</div>
-              </div>
-              <div>
-                <label class="f" for="rg">Ruangan</label>
-                <input id="rg" x-model.trim="form.ruangan" placeholder="Contoh: TULT 0603">
-              </div>
-              <div class="mfull">
-                <label class="f" for="fk">Fakultas Mahasiswa</label>
-                <select id="fk" x-model="form.fakultas" @change="form.prodi=''">
-                  <option value="">Pilih fakultas</option>
-                  <template x-for="f in Object.keys(meta.fakultas_prodi||{})" :key="f"><option :value="f" x-text="f"></option></template>
-                </select>
-              </div>
-              <div class="mfull">
-                <label class="f" for="pr">Program Studi Mahasiswa</label>
-                <select id="pr" x-model="form.prodi" :disabled="!form.fakultas">
-                  <option value="" x-text="form.fakultas?'Pilih program studi':'Pilih fakultas dulu'"></option>
-                  <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
-                </select>
-              </div>
-            </div>
+        <h2>Data Pengawas & Kelas</h2>
+        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Wajib diisi sebelum mengunggah foto LJK.'"></p>
+        <div class="grid">
+          <div class="full">
+            <label class="f" for="nama">Nama Lengkap Pengawas</label>
+            <input id="nama" x-model.trim="form.nama" autocomplete="name" placeholder="Nama lengkap">
           </div>
-        </template>
-        <template x-if="sid && session">
           <div>
-            <h2>Identitas Pengawas</h2>
-            <p class="sub">Tersimpan untuk sesi ini.</p>
-            <dl class="who">
-              <dt>Nama</dt><dd x-text="session.pengawas.nama"></dd>
-              <dt>Nomor HP</dt><dd x-text="session.pengawas.hp"></dd>
-              <dt>Ruangan</dt><dd x-text="session.pengawas.ruangan"></dd>
-              <dt>Fakultas</dt><dd x-text="session.pengawas.fakultas"></dd>
-              <dt>Program studi</dt><dd x-text="session.pengawas.prodi"></dd>
-            </dl>
+            <label class="f" for="hp">Nomor HP</label>
+            <input id="hp" x-model.trim="form.hp" inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx">
+            <div class="err" x-show="form.hp && !phoneOk">Nomor HP tidak valid</div>
           </div>
-        </template>
+          <div>
+            <label class="f" for="rg">Ruangan</label>
+            <input id="rg" x-model.trim="form.ruangan" placeholder="Contoh: TULT 0603">
+          </div>
+          <div class="full">
+            <label class="f" for="kl">Nama Kelas</label>
+            <input id="kl" x-model.trim="form.kelas" placeholder="Contoh: IF-47-01">
+          </div>
+          <div class="mfull">
+            <label class="f" for="fk">Fakultas Mahasiswa</label>
+            <select id="fk" x-model="form.fakultas" @change="form.prodi=''">
+              <option value="">Pilih fakultas</option>
+              <template x-for="f in Object.keys(meta.fakultas_prodi||{})" :key="f"><option :value="f" x-text="f"></option></template>
+            </select>
+          </div>
+          <div class="mfull">
+            <label class="f" for="pr">Program Studi Mahasiswa</label>
+            <select id="pr" x-model="form.prodi" :disabled="!form.fakultas">
+              <option value="" x-text="form.fakultas?'Pilih program studi':'Pilih fakultas dulu'"></option>
+              <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
+            </select>
+          </div>
+        </div>
+        <div class="row-act" x-show="sid">
+          <button class="btn p sm" @click="saveIdentity()" :disabled="!dirty || !formValid || busy">Simpan perubahan</button>
+          <span class="mute" x-show="dirty && !formValid">Lengkapi semua isian dulu</span>
+          <span class="mute" x-show="!dirty">Tersimpan ✓</span>
+        </div>
       </div>
 
       <div class="card">
-        <h2>Unggah Lembar Jawaban (LJK)</h2>
+        <h2>Unggah Foto LJK</h2>
         <p class="sub">Sistem otomatis mendeteksi marker, merapikan posisi, dan membaca bulatan.</p>
-        <label class="drop" :class="{hot: dragging, lock: !sid && !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
+        <label class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg></span>
-          <b x-text="(!sid && !formValid) ? 'Lengkapi identitas dulu' : 'Ambil foto atau pilih berkas LJK'"></b>
+          <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.summary.lembar ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
           <p>JPG · PNG · HEIC · PDF — maks. <span x-text="meta.max_upload_mb||10"></span> MB per berkas, boleh banyak sekaligus</p>
           <span class="btn p sm">Pilih berkas dari perangkat</span>
           <input type="file" multiple accept="image/*,.pdf,.heic,.heif" hidden @change="pick($event.target.files); $event.target.value=''">
@@ -104,12 +96,20 @@
           <div class="prog"><span><span class="spin"></span> Memindai LJK…</span><span x-text="scanDone+' / '+(session?.files.total||0)+' berkas'"></span></div>
           <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
         </div>
+        <div class="row-act" x-show="session?.summary.lembar">
+          <span class="mute"><b x-text="session?.summary.lembar"></b> lembar sudah terbaca</span>
+          <button class="btn p sm" style="margin-left:auto" @click="go(2)">Lanjut ke validasi →</button>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- TAHAP 2 -->
   <section x-show="step===2">
+    <div class="backrow">
+      <button class="btn sm" @click="go(1)">← Ubah data / tambah foto</button>
+      <span class="mute" x-text="[session?.pengawas?.nama, session?.pengawas?.ruangan, session?.pengawas?.kelas].filter(Boolean).join(' · ')"></span>
+    </div>
     <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:12px">
       <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+session.files.total"></span></div>
       <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
@@ -138,13 +138,13 @@
 
       <!-- tabel desktop -->
       <div class="tbl"><table>
-        <thead><tr><th>Status</th><th>Nama mahasiswa</th><th>NPM</th><th>Fakultas (LJK)</th><th>Kode soal</th><th>Jawaban terisi</th><th style="text-align:right">Aksi</th></tr></thead>
+        <thead><tr><th>Status</th><th>Nama mahasiswa</th><th>NPM (10 digit)</th><th>Fakultas (LJK)</th><th>Kode soal</th><th>Jawaban terisi</th><th style="text-align:right">Aksi</th></tr></thead>
         <tbody>
           <template x-for="s in filtered" :key="s.id">
             <tr @click="open(s)">
               <td><span class="chip" :class="rowCls(s)" x-text="s.label==='OK'?'✓ OK':(s.label==='Gagal'?'✕ Gagal':'⚠ Periksa')"></span></td>
               <td><div class="nm" x-text="nameOf(s)"></div><div class="fl" x-text="s.file"></div></td>
-              <td class="mono" x-text="s.npm"></td>
+              <td><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></td>
               <td><span class="chip" x-text="s.fakultas_ljk||'-'"></span> <span class="chip warn" x-show="!facMatch(s)" title="Berbeda dari fakultas yang dipilih pengawas" x-text="'≠ '+facPick"></span></td>
               <td class="mono" x-text="s.kode_soal"></td>
               <td><div class="fill"><span class="mono" x-text="s.terisi"></span><div class="bar"><i :class="{low: fillPct(s)<50}" :style="`width:${fillPct(s)}%`"></i></div></div></td>
@@ -165,7 +165,7 @@
               <div class="nm" x-text="nameOf(s)"></div>
               <div class="fl" x-text="s.file"></div>
               <dl class="kv2">
-                <dt>NPM</dt><dd class="mono" x-text="s.npm"></dd>
+                <dt>NPM</dt><dd><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></dd>
                 <dt>Fakultas</dt><dd><span x-text="s.fakultas_ljk||'-'"></span> <span x-show="!facMatch(s)" style="color:var(--warn)" x-text="'(≠ '+facPick+')'"></span></dd>
                 <dt>Kode soal</dt><dd class="mono" x-text="s.kode_soal"></dd>
                 <dt>Terisi</dt><dd class="mono" x-text="s.terisi"></dd>
@@ -190,7 +190,11 @@
   </section>
 </main>
 
-<div class="bottom" x-show="ready && step===1 && !sid"><div class="in"><span class="hint" x-text="formHint"></span></div></div>
+<div class="bottom" x-show="ready && step===1"><div class="in">
+  <span class="hint" x-text="!sid ? formHint : (dirty ? (formValid ? 'Ada perubahan data yang belum disimpan' : formHint) : (session?.summary.lembar ? 'Data tersimpan' : 'Siap — pilih foto LJK'))"></span>
+  <button class="btn" x-show="sid && dirty" @click="saveIdentity()" :disabled="!formValid || busy">Simpan</button>
+  <button class="btn p" x-show="session?.summary.lembar" @click="go(2)" :disabled="dirty">Lanjut ke validasi →</button>
+</div></div>
 <div class="bottom" x-show="ready && step===2"><div class="in">
   <span class="sum"><b x-text="session?.summary.ok||0"></b> dari <b x-text="session?.summary.lembar||0"></b> lembar tervalidasi</span>
   <button class="btn" @click="validateAll(!allValid)" :disabled="!session?.summary.lembar" x-text="allValid ? 'Batalkan semua' : 'Validasi semua'"></button>
@@ -206,7 +210,7 @@
       <h3 x-text="nameOf(sel)"></h3>
       <span class="chip" :class="rowCls(sel)" x-text="sel.label"></span> <span class="mono" style="font-size:12px;color:var(--ink2)" x-text="sel.file"></span>
       <dl class="kv">
-        <dt>NPM</dt><dd class="mono" x-text="sel.npm"></dd>
+        <dt>NPM</dt><dd><div class="npm lg"><template x-for="(c,i) in npmCells(sel)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(sel)===10?'full':'part'" x-text="npmCount(sel)+'/10 digit'+(npmCount(sel)<10?' — periksa preview':'')"></div></dd>
         <dt>Fakultas (LJK)</dt><dd><span x-text="sel.fakultas_ljk||'-'"></span> <span x-show="!facMatch(sel)" style="color:var(--warn)" x-text="'≠ pilihan pengawas ('+facPick+')'"></span></dd>
         <dt>Kode soal</dt><dd class="mono" x-text="sel.kode_soal"></dd>
         <dt>Jawaban terisi</dt><dd class="mono" x-text="sel.terisi"></dd>
