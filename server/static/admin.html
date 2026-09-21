@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex">
+<title>Admin — Evaluasi LJK</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/admin.css">
+<script defer src="/vendor/alpine.min.js"></script>
+<script src="/admin.js"></script>
+</head>
+<body x-data="admin()" x-cloak>
+
+<header><div class="in">
+  <div class="brand"><img class="full" src="/logo.png" alt="Telkom University"><img class="mark" src="/icon.png" alt=""><h1>Admin LJK<small>Rekap, kunci jawaban, sinkron</small></h1></div>
+  <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
+</div></header>
+
+<main class="wrap">
+
+  <!-- masuk -->
+  <section x-show="!authed" class="card" style="max-width:420px;margin:24px auto">
+    <h2>Masuk admin</h2>
+    <p class="sub">Masukkan token admin server (<code>ADMIN_TOKEN</code>).</p>
+    <label class="f" for="tok">Token</label>
+    <input id="tok" type="password" x-model="token" @keydown.enter="login()" autocomplete="current-password" placeholder="Token admin">
+    <div class="err" x-show="loginErr" x-text="loginErr"></div>
+    <button class="btn p" style="margin-top:12px;width:100%" @click="login()" :disabled="!token">Masuk</button>
+  </section>
+
+  <template x-if="authed">
+  <div>
+    <nav class="tabs2">
+      <template x-for="t in tabs" :key="t.id"><button :class="{on: tab===t.id}" @click="go(t.id)" x-text="t.label"></button></template>
+    </nav>
+
+    <!-- ringkasan -->
+    <section x-show="tab==='ringkasan'">
+      <div class="stats s4">
+        <div class="stat"><small>Sesi pengawas</small><b x-text="sum.sessions"></b></div>
+        <div class="stat st-ok"><small>Sudah submit</small><b x-text="sum.submitted"></b></div>
+        <div class="stat"><small>Lembar tersimpan</small><b x-text="sum.sheets_submitted"></b></div>
+        <div class="stat" :class="sum.unsynced ? 'st-warn' : ''"><small>Belum tersinkron</small><b x-text="sum.unsynced"></b></div>
+      </div>
+      <div class="card">
+        <h2>Google Sheet</h2>
+        <p class="sub" x-show="!sum.gsheet_configured">Belum dikonfigurasi. Atur <code>GSHEET_URL</code> dan <code>GSHEET_CREDENTIALS</code> di server. Data tetap aman di database dan bisa diekspor.</p>
+        <dl class="who" x-show="sum.gsheet_configured">
+          <dt>Status</dt><dd><span class="chip validated">Terhubung</span></dd>
+          <dt>Sinkron terakhir</dt><dd x-text="fmt(sum.state?.sync_last)"></dd>
+          <dt>Kunci terakhir ditarik</dt><dd x-text="fmt(sum.state?.kunci_last)"></dd>
+          <dt x-show="sum.state?.sync_last_error">Error terakhir</dt><dd class="bad" x-show="sum.state?.sync_last_error" x-text="sum.state?.sync_last_error"></dd>
+          <dt x-show="sum.state?.kunci_error">Error kunci</dt><dd class="bad" x-show="sum.state?.kunci_error" x-text="sum.state?.kunci_error"></dd>
+        </dl>
+        <div class="row-act">
+          <button class="btn p sm" @click="act('/api/admin/sync/run','Sinkron dijalankan')" :disabled="!sum.gsheet_configured || busy">Sinkron sekarang</button>
+          <button class="btn sm" @click="act('/api/admin/kunci/sync','Kunci ditarik dari Sheet')" :disabled="!sum.gsheet_configured || busy">Tarik kunci dari Sheet</button>
+          <button class="btn sm" @click="act('/api/admin/cleanup','Pembersihan dijalankan')" :disabled="busy">Bersihkan berkas lama</button>
+          <span class="mute" x-show="sum.sync_failed" x-text="sum.sync_failed + ' sesi gagal sinkron berulang — tekan “Sinkron sekarang” untuk mencoba lagi'"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- sesi -->
+    <section x-show="tab==='sesi'">
+      <div class="card flush">
+        <div class="tools">
+          <div class="tt"><h2>Sesi pengawas</h2></div>
+          <div class="f">
+            <input type="search" placeholder="Cari pengawas / kelas / ruangan…" x-model.trim="ses.q" @input.debounce.300ms="ses.page=1; loadSessions()">
+            <select x-model="ses.status" @change="ses.page=1; loadSessions()">
+              <option value="all">Semua</option><option value="submitted">Sudah submit</option><option value="open">Belum submit</option><option value="unsynced">Belum tersinkron</option>
+            </select>
+          </div>
+        </div>
+        <div class="tbl"><table>
+          <thead><tr><th>Pengawas</th><th>Ruangan</th><th>Kelas</th><th>Fak.</th><th class="c" style="width:auto">Lembar</th><th>Status</th><th>Sheet</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="i in ses.items" :key="i.id">
+              <tr>
+                <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
+                <td x-text="i.ruangan"></td><td x-text="i.kelas||'-'"></td><td class="mono" x-text="i.fakultas"></td>
+                <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
+                <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
+                <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>
+                <td><button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table></div>
+        <p class="empty" x-show="!ses.items.length">Belum ada sesi.</p>
+        <div class="pagebar">
+          <span class="mute" x-text="ses.total+' sesi'"></span>
+          <span class="pgnav">
+            <button class="btn sm" @click="ses.page--; loadSessions()" :disabled="ses.page<=1">←</button>
+            <span class="mute" x-text="ses.page+' / '+Math.max(1,Math.ceil(ses.total/ses.size))"></span>
+            <button class="btn sm" @click="ses.page++; loadSessions()" :disabled="ses.page*ses.size>=ses.total">→</button>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- kunci -->
+    <section x-show="tab==='kunci'">
+      <div class="card">
+        <h2>Kunci jawaban</h2>
+        <p class="sub">Dinilai otomatis saat submit memakai kunci terbaru. Kode soal LJK dicocokkan dengan nama kunci (mis. 048 ↔ kj048).</p>
+        <div class="tbl"><table>
+          <thead><tr><th>Nama</th><th>Soal</th><th>Sumber</th><th>Diperbarui</th><th></th></tr></thead>
+          <tbody><template x-for="k in kunci" :key="k.name"><tr>
+            <td class="nm mono" x-text="k.name"></td><td class="mono" x-text="k.soal"></td><td x-text="k.source"></td><td x-text="fmt(k.updated_at)"></td>
+            <td style="text-align:right"><button class="btn sm d" @click="delKunci(k.name)">Hapus</button></td>
+          </tr></template></tbody>
+        </table></div>
+        <p class="empty" x-show="!kunci.length">Belum ada kunci jawaban.</p>
+        <div class="row-act">
+          <span class="btn p sm rel">Unggah kunci (.xlsx / .csv)<input type="file" class="ovl" accept=".xlsx,.xls,.csv" @change="uploadKunci($event)"></span>
+          <button class="btn sm" @click="act('/api/admin/kunci/sync','Kunci ditarik dari Sheet').then(loadKunci)" :disabled="!sum.gsheet_configured || busy">Tarik dari Google Sheet</button>
+          <span class="mute">.xlsx: satu tab = satu kode soal · .csv: nama berkas = kode soal, kolom nomor,jawaban</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ekspor -->
+    <section x-show="tab==='ekspor'">
+      <div class="card">
+        <h2>Ekspor rekap</h2>
+        <p class="sub">Seluruh lembar dari sesi yang sudah disubmit.</p>
+        <div class="grid" style="max-width:520px">
+          <div class="full"><label class="f" for="kelas">Filter kelas (opsional)</label><input id="kelas" x-model.trim="kelas" placeholder="Contoh: IF-47-01"></div>
+        </div>
+        <div class="row-act">
+          <button class="btn p sm" @click="download('/api/admin/export.xlsx?kelas='+encodeURIComponent(kelas),'rekap_ljk.xlsx')">Unduh Excel (.xlsx)</button>
+          <button class="btn sm" @click="download('/api/admin/export.csv?kelas='+encodeURIComponent(kelas),'rekap_ljk.csv')">Unduh CSV</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  </template>
+</main>
+
+<div class="toast" :class="{bad: msg.bad}" x-show="msg.show" x-text="msg.text" x-transition.opacity role="status"></div>
+</body>
+</html>

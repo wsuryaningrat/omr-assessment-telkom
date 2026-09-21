@@ -1,6 +1,5 @@
 """API pemindaian LJK (FastAPI). Pemindaian berjalan di process pool, bukan di event loop."""
-import csv
-import io
+import asyncio
 import logging
 import os
 import re
@@ -11,16 +10,15 @@ from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile as FUploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from scanner.service import FAKULTAS_PRODI, classify_scan_status, is_valid_phone
-from server import config, worker
-from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
+from scanner.service import FAKULTAS_PRODI, classify_scan_status
+from server import admin, config, services, worker
+from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 _pool: ProcessPoolExecutor | None = None
 
 
@@ -29,6 +27,7 @@ def _safe_name(name):
 
 
 def _kunci(db):
+    from server.db import Kunci
     return {k.name: k.data for k in db.scalars(select(Kunci))}
 
 
@@ -96,6 +95,19 @@ def _on_done(file_id, fut):
         db.commit()
 
 
+async def _loop(fn, every, first_delay=0):
+    """Jalankan fn (blocking) berkala di thread terpisah; kegagalan dicatat, loop tidak berhenti."""
+    await asyncio.sleep(first_delay)
+    while True:
+        try:
+            await asyncio.to_thread(fn)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logging.getLogger("uvicorn.error").exception("tugas latar %s gagal", getattr(fn, "__name__", fn))
+        await asyncio.sleep(every)
+
+
 @asynccontextmanager
 async def lifespan(app):
     global _pool
@@ -107,21 +119,26 @@ async def lifespan(app):
         pending = [f.id for f in db.scalars(select(UploadFile).where(UploadFile.state.in_(("queued", "processing"))))]
     for fid in pending:
         _enqueue(fid)
+    tasks = []
+    if os.environ.get("BACKGROUND_TASKS", "1") == "1":
+        tasks = [
+            asyncio.create_task(_loop(services.sync_pending_once, config.SYNC_INTERVAL_S, 5)),
+            asyncio.create_task(_loop(services.sync_kunci_once, config.KUNCI_SYNC_INTERVAL_S, 3)),
+            asyncio.create_task(_loop(services.cleanup_once, config.CLEANUP_INTERVAL_S, 30)),
+        ]
     yield
+    for t in tasks:
+        t.cancel()
     _pool.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(title="LJK Scanner API", lifespan=lifespan)
+app.include_router(admin.router)
 
 
 def get_db():
     with SessionLocal() as db:
         yield db
-
-
-def _need_admin(x_admin_token: str = Header(default="")):
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(401, "Token admin tidak valid")
 
 
 # --------------------------------------------------------------------------- meta & sesi
@@ -394,42 +411,11 @@ def submit(sid: str, db=Depends(get_db)):
     if bad:
         raise HTTPException(409, f"{len(bad)} lembar belum tervalidasi")
     from datetime import datetime, timezone
+    services.regrade_session(db, s)   # kunci bisa diunggah setelah pemindaian
     s.submitted, s.submitted_at = True, datetime.now(timezone.utc)
+    s.synced_at, s.sync_attempts, s.sync_error, s.sync_next = None, 0, None, None
     db.commit()
     return {"ok": True, "lembar": len(s.sheets)}
-
-
-# --------------------------------------------------------------------------- admin
-@app.put("/api/admin/kunci/{name}", dependencies=[Depends(_need_admin)])
-def put_kunci(name: str, data: dict, db=Depends(get_db)):
-    k = db.get(Kunci, name)
-    if k is None:
-        db.add(Kunci(name=name, data=data))
-    else:
-        k.data = data
-    db.commit()
-    return {"ok": True, "soal": len(data)}
-
-
-@app.get("/api/admin/export.csv", dependencies=[Depends(_need_admin)])
-def export_csv(db=Depends(get_db)):
-    rows = []
-    for sh in db.scalars(select(Sheet).join(ScanSession).where(ScanSession.submitted.is_(True)).order_by(Sheet.session_id, Sheet.seq)):
-        rows.append(sh.record)
-    prefix = ["Submit Date", "Nama Pengawas", "No HP Pengawas", "Ruangan", "Kelas", "File", "NPM", "Nama Mahasiswa",
-              "Fakultas", "Program Studi", "Fakultas (LJK)", "Kode Soal", "Jawaban Terisi"]
-    seen = {k for r in rows for k in r}
-    cols = [c for c in prefix if c in seen]
-    for r in rows:
-        for k in r:
-            if k not in cols:
-                cols.append(k)
-    buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=cols)
-    w.writeheader()
-    w.writerows(rows)
-    return Response(buf.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=rekap_ljk.csv"})
 
 
 @app.post("/api/clientlog", status_code=204)
@@ -441,6 +427,11 @@ def clientlog(data: dict):
 @app.get("/api/health")
 def health():
     return {"ok": True, "workers": config.SCAN_WORKERS}
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "admin.html"))
 
 
 # UI statis (tanpa build). Dipasang terakhir agar tidak menimpa rute /api.

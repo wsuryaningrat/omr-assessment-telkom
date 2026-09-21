@@ -40,6 +40,11 @@ class ScanSession(Base):
     submitted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     submitted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # sinkron ke Google Sheet (outbox): synced_at kosong = belum terkirim
+    synced_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sync_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_next: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     files: Mapped[list["UploadFile"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     sheets: Mapped[list["Sheet"]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Sheet.seq")
 
@@ -76,6 +81,8 @@ class Kunci(Base):
     __tablename__ = "kunci"
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
     data: Mapped[dict] = mapped_column(JSON)  # {"1": "A", "2": "C", ...}
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # manual | gsheet | upload
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 def init_db():
@@ -86,7 +93,18 @@ def init_db():
 def _migrate():
     """Migrasi ringan: tambah kolom baru pada tabel lama (create_all tidak mengubah tabel yang ada)."""
     from sqlalchemy import inspect, text
-    cols = {c["name"] for c in inspect(engine).get_columns("scan_session")}
-    if "kelas" not in cols:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE scan_session ADD COLUMN kelas VARCHAR(100) DEFAULT ''"))
+    wanted = {
+        "scan_session": {
+            "kelas": "VARCHAR(100) DEFAULT ''",
+            "synced_at": "TIMESTAMP", "sync_attempts": "INTEGER DEFAULT 0",
+            "sync_error": "TEXT", "sync_next": "TIMESTAMP",
+        },
+        "kunci": {"source": "VARCHAR(20) DEFAULT 'manual'", "updated_at": "TIMESTAMP"},
+    }
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, cols in wanted.items():
+            have = {c["name"] for c in insp.get_columns(table)}
+            for name, ddl in cols.items():
+                if name not in have:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

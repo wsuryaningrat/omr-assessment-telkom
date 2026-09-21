@@ -9,10 +9,6 @@ import tempfile
 import time
 import unittest
 
-_tmp = tempfile.mkdtemp()
-os.environ.update(DATABASE_URL=f"sqlite:///{_tmp}/t.db", UPLOAD_DIR=f"{_tmp}/up",
-                  SCAN_WORKERS="2", ADMIN_TOKEN="rahasia", MAX_UPLOAD_MB="10")
-
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402

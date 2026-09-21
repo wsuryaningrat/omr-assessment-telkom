@@ -1,0 +1,10 @@
+.tabs2{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;scrollbar-width:none}
+.tabs2 button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:8px 16px;font:inherit;font-weight:600;font-size:14px;cursor:pointer;color:var(--ink2);white-space:nowrap}
+.tabs2 button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.stats.s4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:640px){.stats.s4{grid-template-columns:repeat(2,1fr)}}
+.wrap{padding-bottom:40px}
+code{background:var(--soft);padding:1px 6px;border-radius:5px;font-size:12.5px}
+.who dd.bad{color:var(--bad)}
+.tbl{overflow-x:auto}
+@media(max-width:820px){.tbl{display:block}}

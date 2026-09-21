@@ -1,0 +1,61 @@
+function admin() {
+  return {
+    token: "", authed: false, loginErr: "", tab: "ringkasan", busy: false, kelas: "",
+    tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
+    msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
+
+    async init() {
+      try { this.token = sessionStorage.getItem("adm_tok") || ""; } catch {}
+      if (this.token) await this.login(true);
+    },
+    toast(text, bad = false) { this.msg = { text, bad, show: true }; clearTimeout(this._t); this._t = setTimeout(() => (this.msg.show = false), bad ? 3500 : 2200); },
+    async api(path, opt = {}) {
+      const r = await fetch(path, { ...opt, headers: { ...(opt.headers || {}), "X-Admin-Token": this.token } });
+      if (r.status === 401) { this.logout(); throw new Error("Token tidak valid"); }
+      if (!r.ok) { let d = ""; try { const j = await r.json(); d = Array.isArray(j.detail) ? j.detail.join("; ") : (j.detail || ""); } catch {} throw new Error(d || `Kesalahan ${r.status}`); }
+      return r.status === 204 ? null : r;
+    },
+    async json(path, opt) { const r = await this.api(path, opt); return r ? r.json() : null; },
+    async login(silent = false) {
+      this.loginErr = "";
+      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); }
+      catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
+    },
+    logout() { this.authed = false; this.token = ""; clearInterval(this._poll); try { sessionStorage.removeItem("adm_tok"); } catch {} },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (this.authed && this.tab === "ringkasan") this.loadSummary(); }, 5000); },
+    async go(t) { this.tab = t; if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); },
+    async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
+    async loadSessions() {
+      const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
+      try { const d = await this.json("/api/admin/sessions?" + p); Object.assign(this.ses, { items: d.items, total: d.total }); } catch (e) { this.toast(e.message, true); }
+    },
+    async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
+    async act(path, okMsg) {
+      this.busy = true;
+      try { const d = await this.json(path, { method: "POST" }); this.toast(okMsg + (d && d.synced !== undefined ? ` (${d.synced} sesi terkirim)` : "")); await this.loadSummary(); }
+      catch (e) { this.toast(e.message, true); }
+      this.busy = false;
+    },
+    async uploadKunci(ev) {
+      const f = ev.target.files[0]; if (!f) return;
+      const fd = new FormData(); fd.append("file", f, f.name);
+      try { const d = await this.json("/api/admin/kunci/upload", { method: "POST", body: fd }); this.toast("Kunci diunggah: " + Object.keys(d.kunci).join(", ")); await this.loadKunci(); }
+      catch (e) { this.toast(e.message, true); }
+      ev.target.value = "";
+    },
+    async delKunci(name) {
+      if (!confirm(`Hapus kunci "${name}"?`)) return;
+      try { await this.api("/api/admin/kunci/" + encodeURIComponent(name), { method: "DELETE" }); this.toast("Kunci dihapus"); await this.loadKunci(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async download(path, filename) {
+      try {
+        const r = await this.api(path), b = await r.blob(), a = document.createElement("a");
+        a.href = URL.createObjectURL(b); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      } catch (e) { this.toast(e.message, true); }
+    },
+    fmt(t) { if (!t) return "-"; try { return new Date(t).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }); } catch { return t; } },
+  };
+}

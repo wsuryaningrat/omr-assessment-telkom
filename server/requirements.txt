@@ -11,3 +11,6 @@ pillow>=10.0.0
 pillow-heif>=1.1.0
 pymupdf>=1.24
 pypdfium2>=5.0.0
+gspread>=6.0
+google-auth>=2.20
+openpyxl>=3.1
