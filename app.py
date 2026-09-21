@@ -34,7 +34,10 @@ from core.detector import (
     regularize_grid
 )
 from core.decoder import decode_field
-from core.pdf_utils import extract_images_from_file
+from core.pdf_utils import extract_images_from_file, iter_images_from_file
+
+# Sisi terpanjang maksimum foto saat di-decode (canvas template 1700x2400).
+SCAN_MAX_SIDE = 2400
 from core.utils import (
     draw_field_overlay,
     draw_all_fields_overlay,
@@ -1141,19 +1144,16 @@ def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_peng
         student_record["Jumlah Kosong"] = "-"
         student_record["Kunci Terpakai"] = "-"
 
-    overlay_img = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
-
+    # Tidak menyimpan citra (overlay/warped) — hanya status, supaya RAM per sesi kecil.
     preview = {
         "name": doc_name,
-        "overlay": overlay_img,
-        "warped": warped,
         "status": status,
         "method": method
     }
     return student_record, preview
 
 
-@st.dialog("🔍 Inspeksi Lembar Jawaban", width="large")
+@st.dialog("🔍 Detail Lembar Jawaban", width="large")
 def show_inspect_dialog():
     # A Streamlit dialog only stays open across st.rerun() when the call site that
     # opens it is reached unconditionally on every script run (gated by session_state,
@@ -1220,9 +1220,9 @@ def show_inspect_dialog():
         pengawas_v = st.session_state.get("_nama_pengawas", "-")
         with st.spinner("Memproses foto baru..."):
             try:
-                pages = extract_images_from_file(new_photo, target_dpi=200)
-                if pages and template:
-                    doc_name, img_bgr = pages[0]
+                first_page = next(iter_images_from_file(new_photo, target_dpi=200, max_side=SCAN_MAX_SIDE), None)
+                if first_page and template:
+                    doc_name, img_bgr = first_page
                     new_rec, new_prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache_v, st.session_state.get("_pengawas_info"))
                     st.session_state["dosen_results"][idx] = new_rec
                     st.session_state["dosen_previews"][idx] = new_prev
@@ -1242,17 +1242,6 @@ def show_inspect_dialog():
     )
     if is_gagal:
         st.warning(f"⚠️ Ujung pojok LJK tidak terdeteksi (**{st_status}**) — ganti dengan foto baru di atas.")
-
-    st.markdown("**🎯 Hasil Scan**")
-    # st.image collapses to a tiny width when it's a direct child of a dialog's
-    # own flow (its container measures 0/fit-content before the image loads) —
-    # wrapping it in a real stColumn gives it a stable width to measure against.
-    img_col = st.columns(1)[0]
-    with img_col:
-        if isinstance(prev, dict) and prev.get("overlay") is not None:
-            st.image(cv_to_pil(prev["overlay"]), use_container_width=True)
-        else:
-            st.info("Tidak ada citra hasil scan.")
 
 # ------------------------------------------------------------------------------
 # TOP TELKOM BRAND HEADER
@@ -1557,15 +1546,6 @@ if mode == "Portal Evaluasi LJK":
             st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")
             st.stop()
 
-        all_pages_to_process = []
-        with st.spinner("Mengekstrak seluruh halaman dokumen..."):
-            for uf in uploaded_files_dosen:
-                try:
-                    pages = extract_images_from_file(uf, target_dpi=200)
-                    all_pages_to_process.extend(pages)
-                except Exception as e:
-                    st.error(f"Error memproses berkas {getattr(uf, 'name', 'LJK')}: {str(e)}")
-
         # Pastikan kunci jawaban terbaru tersinkronisasi dari Google Sheet sebelum penilaian
         try:
             conn_kj = st.connection("gsheets", type=GSheetsConnection)
@@ -1574,16 +1554,23 @@ if mode == "Portal Evaluasi LJK":
             pass
         k_cache = st.session_state.get("kunci_jawaban_cache", {})
 
-        n_pages = len(all_pages_to_process)
-        prog = st.progress(0, text=f"Memindai 0 / {n_pages} lembar...")
+        # Streaming: decode -> pindai -> buang, satu halaman per iterasi (RAM ~1 gambar).
+        n_files = len(uploaded_files_dosen)
+        prog = st.progress(0, text=f"Memindai berkas 0 / {n_files}...")
         dosen_results = []
         dosen_previews = []
 
-        for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-            student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info)
-            dosen_results.append(student_record)
-            dosen_previews.append(preview)
-            prog.progress((idx + 1) / n_pages, text=f"Memindai {idx + 1} / {n_pages} lembar...")
+        for f_idx, uf in enumerate(uploaded_files_dosen):
+            try:
+                for doc_name, img_bgr in iter_images_from_file(uf, target_dpi=200, max_side=SCAN_MAX_SIDE):
+                    student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info)
+                    del img_bgr
+                    dosen_results.append(student_record)
+                    dosen_previews.append(preview)
+                    prog.progress(f_idx / n_files, text=f"Memindai berkas {f_idx + 1} / {n_files} — {len(dosen_results)} lembar terbaca...")
+            except Exception as e:
+                st.error(f"Error memproses berkas {getattr(uf, 'name', 'LJK')}: {str(e)}")
+            prog.progress((f_idx + 1) / n_files, text=f"Memindai berkas {f_idx + 1} / {n_files} — {len(dosen_results)} lembar terbaca...")
 
         st.session_state["dosen_results"] = dosen_results
         st.session_state["dosen_previews"] = dosen_previews
@@ -1617,7 +1604,7 @@ if mode == "Portal Evaluasi LJK":
         elif all_ok:
             st.info("💡 Semua lembar sudah divalidasi — klik **Submit Hasil LJK ke Google Sheet** di bawah.")
         else:
-            st.info(f"💡 **{len(results) - n_ok} dari {len(results)}** lembar masih perlu divalidasi. Klik **Inspeksi** per baris (ganti foto bila gagal), atau **Validasi Semua**.")
+            st.info(f"💡 **{len(results) - n_ok} dari {len(results)}** lembar masih perlu divalidasi. Periksa identitas (nama, NPM, kode soal) dan keterisian jawaban di tiap baris, lalu klik ✅ (🔍 untuk ganti foto bila gagal), atau **Validasi Semua**.")
 
         df_full = pd.DataFrame(results)
         df_full = reorder_rekap_columns(df_full)
@@ -1726,7 +1713,7 @@ if mode == "Portal Evaluasi LJK":
                     btn_c1, btn_c2, btn_c3 = st.columns(3)
                     with btn_c1:
                         if st.button("🔍", key=f"inspect_btn_{i}",
-                                     use_container_width=True, help="Inspeksi detail"):
+                                     use_container_width=True, help="Detail / ganti foto"):
                             st.session_state["_inspect_idx"] = i
                             st.rerun()
                     with btn_c2:

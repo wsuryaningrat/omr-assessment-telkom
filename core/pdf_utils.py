@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 import io
 
-def load_image_with_exif(file_bytes_or_buffer, ext=None):
+def load_image_with_exif(file_bytes_or_buffer, ext=None, max_side=None):
     """
     Load an image from bytes/buffer and automatically correct orientation using EXIF tags.
     Prevents smartphone camera photos from being rotated/skewed (miring).
@@ -52,64 +52,88 @@ def load_image_with_exif(file_bytes_or_buffer, ext=None):
             else:
                 raise
 
+    # Perkecil sejak decode (JPEG draft mode) supaya foto 12 MP tidak pernah
+    # menempati RAM penuh (~36 MB) — cukup sisi terpanjang <= max_side.
+    if max_side:
+        try:
+            pil_img.draft("RGB", (max_side, max_side))
+        except Exception:
+            pass
+
     # Correct smartphone EXIF orientation (critical for iPhone / Android scans)
     pil_img = ImageOps.exif_transpose(pil_img)
     pil_img = pil_img.convert("RGB")
+    if max_side and max(pil_img.size) > max_side:
+        scale = max_side / float(max(pil_img.size))
+        pil_img = pil_img.resize(
+            (max(1, round(pil_img.width * scale)), max(1, round(pil_img.height * scale))),
+            Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.BICUBIC,
+        )
     bgr_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
     return bgr_img
 
 
-def extract_images_from_file(uploaded_file, target_dpi=200):
+def iter_images_from_file(uploaded_file, target_dpi=200, max_side=None):
     """
-    Extracts one or more OpenCV BGR images from an uploaded file (JPG, PNG, or multi-page PDF).
-    Uses high-performance, crash-proof PyMuPDF (fitz) on macOS with fallback to pypdfium2.
-    Returns a list of tuples: [(page_name, bgr_image), ...]
+    Generator: yields (page_name, bgr_image) satu halaman per iterasi supaya pemanggil
+    bisa memproses lalu membuang gambar sebelum halaman berikutnya di-decode
+    (RAM tetap ~1 gambar, bukan seluruh dokumen). Mendukung JPG/PNG/HEIC/WEBP dan PDF
+    multi-halaman (PyMuPDF, fallback pypdfium2). `max_side` membatasi sisi terpanjang.
     """
     file_bytes = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
     filename = uploaded_file.name if hasattr(uploaded_file, "name") else "document"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if ext == "pdf":
-        images = []
-        if HAVE_PYMUPDF:
+    def _limit(bgr):
+        if max_side and max(bgr.shape[:2]) > max_side:
+            f = max_side / float(max(bgr.shape[:2]))
+            bgr = cv2.resize(bgr, (max(1, round(bgr.shape[1] * f)), max(1, round(bgr.shape[0] * f))), interpolation=cv2.INTER_AREA)
+        return bgr
+
+    if ext != "pdf":
+        yield filename, load_image_with_exif(file_bytes, ext=ext, max_side=max_side)
+        return
+
+    yielded = 0
+    if HAVE_PYMUPDF:
+        try:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
             try:
-                doc = fitz.open(stream=file_bytes, filetype="pdf")
-                zoom = target_dpi / 72.0
-                mat = fitz.Matrix(zoom, zoom)
+                mat = fitz.Matrix(target_dpi / 72.0, target_dpi / 72.0)
                 num_pages = len(doc)
                 for page_idx in range(num_pages):
-                    page = doc.load_page(page_idx)
-                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    pix = doc.load_page(page_idx).get_pixmap(matrix=mat, alpha=False)
                     img_np = np.frombuffer(pix.samples, dtype=np.uint8).reshape((pix.height, pix.width, 3))
-                    bgr_img = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                    page_name = f"{filename} (Hal {page_idx + 1}/{num_pages})" if num_pages > 1 else filename
-                    images.append((page_name, bgr_img))
+                    bgr_img = _limit(cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR))
+                    del pix, img_np
+                    yielded += 1
+                    yield (f"{filename} (Hal {page_idx + 1}/{num_pages})" if num_pages > 1 else filename), bgr_img
+            finally:
                 doc.close()
-                return images
-            except Exception as e:
-                images = []
+            return
+        except Exception:
+            if yielded:
+                raise
 
-        if HAVE_PDFIUM:
-            try:
-                pdf = pdfium.PdfDocument(file_bytes)
-                num_pages = len(pdf)
-                scale = target_dpi / 72.0
-                for page_idx in range(num_pages):
-                    page = pdf[page_idx]
-                    pil_img = page.render(scale=scale).to_pil()
-                    pil_img = pil_img.convert("RGB")
-                    bgr_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                    page_name = f"{filename} (Hal {page_idx + 1}/{num_pages})" if num_pages > 1 else filename
-                    images.append((page_name, bgr_img))
-                    page.close()
-                pdf.close()
-                return images
-            except Exception as e:
-                raise ValueError(f"Gagal membaca PDF {filename}: {str(e)}")
+    if HAVE_PDFIUM:
+        try:
+            pdf = pdfium.PdfDocument(file_bytes)
+            num_pages = len(pdf)
+            scale = target_dpi / 72.0
+            for page_idx in range(num_pages):
+                page = pdf[page_idx]
+                pil_img = page.render(scale=scale).to_pil().convert("RGB")
+                bgr_img = _limit(cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
+                page.close()
+                yield (f"{filename} (Hal {page_idx + 1}/{num_pages})" if num_pages > 1 else filename), bgr_img
+            pdf.close()
+            return
+        except Exception as e:
+            raise ValueError(f"Gagal membaca PDF {filename}: {str(e)}")
 
-        raise ValueError("Library pembaca PDF (PyMuPDF / pypdfium2) belum terpasang.")
+    raise ValueError("Library pembaca PDF (PyMuPDF / pypdfium2) belum terpasang.")
 
-    else:
-        # Standard image (JPG, PNG, HEIC, HEIF, WEBP, ...) with EXIF auto-correction
-        bgr_img = load_image_with_exif(file_bytes, ext=ext)
-        return [(filename, bgr_img)]
+
+def extract_images_from_file(uploaded_file, target_dpi=200):
+    """Versi list dari iter_images_from_file (dipakai mode kalibrasi/reader)."""
+    return list(iter_images_from_file(uploaded_file, target_dpi=target_dpi))
