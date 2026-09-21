@@ -1,8 +1,12 @@
 try:
-    import fitz  # PyMuPDF
+    import pymupdf as fitz  # PyMuPDF (nama baru)
     HAVE_PYMUPDF = True
 except ImportError:
-    HAVE_PYMUPDF = False
+    try:
+        import fitz  # PyMuPDF versi lama
+        HAVE_PYMUPDF = True
+    except ImportError:
+        HAVE_PYMUPDF = False
 
 try:
     import pypdfium2 as pdfium
