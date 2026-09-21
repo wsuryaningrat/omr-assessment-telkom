@@ -31,3 +31,7 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "").rstrip("/")     # mis. https://ljk
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "")         # kosong = acak per proses (sesi hilang saat restart)
 ADMIN_SESSION_HOURS = int(os.environ.get("ADMIN_SESSION_HOURS", "8"))
 ADMIN_ALLOW_TOKEN = os.environ.get("ADMIN_ALLOW_TOKEN", "0") == "1"   # izinkan ADMIN_TOKEN walau login Microsoft aktif
+
+# ---- Login admin dengan Google (akun Gmail / Google Workspace). Bisa aktif bersamaan dengan Microsoft.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")

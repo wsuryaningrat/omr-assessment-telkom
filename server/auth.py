@@ -20,7 +20,17 @@ SAFE = {"GET", "HEAD", "OPTIONS"}
 
 
 def enabled() -> bool:
+    """Login Microsoft terkonfigurasi."""
     return bool(config.MS_CLIENT_ID and config.MS_TENANT_ID and config.MS_CLIENT_SECRET)
+
+
+def google_enabled() -> bool:
+    return bool(config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET)
+
+
+def sso_enabled() -> bool:
+    """Ada penyedia login (Microsoft/Google) aktif -> ADMIN_TOKEN dinonaktifkan kecuali ADMIN_ALLOW_TOKEN=1."""
+    return enabled() or google_enabled()
 
 
 def set_app(a):
@@ -93,7 +103,7 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
         return sess
     token = os.environ.get("ADMIN_TOKEN", "")
     token_ok = bool(token) and hmac.compare_digest(x_admin_token.encode(), token.encode())
-    if token_ok and (not enabled() or config.ADMIN_ALLOW_TOKEN):
+    if token_ok and (not sso_enabled() or config.ADMIN_ALLOW_TOKEN):
         return {"email": "token", "name": "ADMIN_TOKEN"}
     raise HTTPException(401, "Belum masuk sebagai admin")
 
@@ -101,8 +111,9 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
 @router.get("/auth/me")
 def me(request: Request):
     s = current_admin(request)
-    return {"microsoft": enabled(), "authed": bool(s), "email": (s or {}).get("email"), "name": (s or {}).get("name"),
-            "token_allowed": (not enabled()) or config.ADMIN_ALLOW_TOKEN}
+    return {"microsoft": enabled(), "google": google_enabled(), "authed": bool(s),
+            "email": (s or {}).get("email"), "name": (s or {}).get("name"), "via": (s or {}).get("via"),
+            "token_allowed": (not sso_enabled()) or config.ADMIN_ALLOW_TOKEN}
 
 
 @router.get("/auth/login")
@@ -147,7 +158,7 @@ def callback(request: Request):
     email = (claims.get("preferred_username") or claims.get("email") or "").strip().lower()
     if not is_allowed(email):
         return _back("ditolak")
-    request.session["admin"] = {"email": email, "name": claims.get("name", ""), "iat": int(time.time())}
+    request.session["admin"] = {"email": email, "name": claims.get("name", ""), "iat": int(time.time()), "via": "microsoft"}
     return RedirectResponse("/admin", status_code=302)
 
 
@@ -156,3 +167,90 @@ def logout(request: Request):
     if "session" in request.scope:
         request.session.clear()
     return JSONResponse({"ok": True})
+
+
+# ============================================================================= Google
+_GFLOWS = {}           # state -> (nonce, code_verifier, waktu)
+_g_override = None
+
+
+def set_google(g):
+    """Untuk pengujian: ganti pertukaran kode Google dengan tiruan (objek dengan .exchange(code, verifier, redirect_uri))."""
+    global _g_override
+    _g_override = g
+
+
+class _GoogleOIDC:
+    """Tukar kode -> ID token, lalu verifikasi tanda tangan, audience, issuer, kedaluwarsa (google-auth)."""
+
+    def exchange(self, code, verifier, redirect_uri):
+        import httpx
+        from google.auth.transport import requests as grequests
+        from google.oauth2 import id_token
+        r = httpx.post("https://oauth2.googleapis.com/token", timeout=15, data={
+            "code": code, "client_id": config.GOOGLE_CLIENT_ID, "client_secret": config.GOOGLE_CLIENT_SECRET,
+            "redirect_uri": redirect_uri, "grant_type": "authorization_code", "code_verifier": verifier})
+        r.raise_for_status()
+        return id_token.verify_oauth2_token(r.json()["id_token"], grequests.Request(), config.GOOGLE_CLIENT_ID)
+
+
+def _google_redirect_uri(request: Request) -> str:
+    return (config.PUBLIC_URL or str(request.base_url).rstrip("/")) + "/auth/google/callback"
+
+
+def is_allowed_google(claims: dict) -> bool:
+    """Default-deny. Email harus terverifikasi & ada di ADMIN_EMAILS, atau domain Workspace (klaim `hd`) ada di ADMIN_DOMAINS.
+    Domain email biasa (mis. gmail.com) TIDAK pernah cukup — kalau tidak, semua pengguna Gmail bisa jadi admin."""
+    if not claims.get("email_verified"):
+        return False
+    email = (claims.get("email") or "").strip().lower()
+    if email and email in config.ADMIN_EMAILS:
+        return True
+    return bool(claims.get("hd")) and claims["hd"].lower() in config.ADMIN_DOMAINS
+
+
+@router.get("/auth/google/login")
+def google_login(request: Request):
+    import base64
+    import hashlib
+    import secrets as _sec
+    from urllib.parse import urlencode
+    if not google_enabled():
+        raise HTTPException(404, "Login Google belum dikonfigurasi")
+    state, nonce, verifier = _sec.token_urlsafe(24), _sec.token_urlsafe(16), _sec.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    with _LOCK:
+        now = time.time()
+        for k in [k for k, v in _GFLOWS.items() if now - v[2] > 600]:
+            _GFLOWS.pop(k, None)
+        _GFLOWS[state] = (nonce, verifier, now)
+    q = urlencode({"client_id": config.GOOGLE_CLIENT_ID, "redirect_uri": _google_redirect_uri(request), "response_type": "code",
+                   "scope": "openid email profile", "state": state, "nonce": nonce, "code_challenge": challenge,
+                   "code_challenge_method": "S256", "prompt": "select_account"})
+    return RedirectResponse("https://accounts.google.com/o/oauth2/v2/auth?" + q, status_code=302)
+
+
+@router.get("/auth/google/callback")
+def google_callback(request: Request):
+    if not google_enabled():
+        raise HTTPException(404, "Login Google belum dikonfigurasi")
+    params = dict(request.query_params)
+    if params.get("error"):
+        return _back("dibatalkan")
+    with _LOCK:
+        entry = _GFLOWS.pop(params.get("state", ""), None)
+    if not entry or time.time() - entry[2] > 600 or not params.get("code"):
+        return _back("kedaluwarsa")
+    nonce, verifier, _ = entry
+    try:
+        claims = (_g_override or _GoogleOIDC()).exchange(params["code"], verifier, _google_redirect_uri(request))
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("uvicorn.error").error("Login Google gagal: %s", str(e)[:300])
+        return _back("gagal")
+    if not hmac.compare_digest(str(claims.get("nonce", "")), nonce):
+        return _back("gagal")
+    if not is_allowed_google(claims):
+        return _back("ditolak")
+    request.session["admin"] = {"email": claims["email"].strip().lower(), "name": claims.get("name", ""),
+                                "iat": int(time.time()), "via": "google"}
+    return RedirectResponse("/admin", status_code=302)

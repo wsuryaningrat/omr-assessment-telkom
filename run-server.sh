@@ -27,7 +27,9 @@ fi
 
 echo "──────────────────────────────────────────────"
 echo " Admin  : http://localhost:${PORT:-8000}/admin"
-if [ -n "${MS_CLIENT_ID:-}" ]; then echo " Login  : Microsoft (admin: ${ADMIN_EMAILS:-${ADMIN_DOMAINS:-BELUM ADA — semua akun ditolak}})"
+if [ -n "${MS_CLIENT_ID:-}" ] || [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+  echo " Login  : $([ -n "${GOOGLE_CLIENT_ID:-}" ] && echo -n "Google ")$([ -n "${MS_CLIENT_ID:-}" ] && echo -n "Microsoft ")"
+  echo " Admin  : ${ADMIN_EMAILS:-${ADMIN_DOMAINS:-BELUM ADA — semua akun ditolak}}"
 else echo " Token  : ${ADMIN_TOKEN}"; fi
 echo " Sheet  : $([ -n "${GSHEET_CREDENTIALS:-}" ] && echo "AKTIF (${GSHEET_CREDENTIALS})" || echo "nonaktif")"
 echo "──────────────────────────────────────────────"

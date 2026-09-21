@@ -1,14 +1,14 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", ready: false, errMsg: "", me: { microsoft: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
+    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", ready: false, errMsg: "", me: { microsoft: false, google: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
     tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
     async init() {
       const ERR = { ditolak: "Akun ini tidak terdaftar sebagai admin.", tenant: "Akun berasal dari organisasi yang tidak diizinkan.",
-        kedaluwarsa: "Sesi masuk kedaluwarsa. Silakan coba lagi.", gagal: "Login Microsoft gagal. Silakan coba lagi.", dibatalkan: "Login dibatalkan.",
-        konfigurasi: "Login Microsoft belum dikonfigurasi dengan benar (Tenant ID / Client ID) atau Microsoft tidak terjangkau. Hubungi pengelola server." };
+        kedaluwarsa: "Sesi masuk kedaluwarsa. Silakan coba lagi.", gagal: "Login gagal. Silakan coba lagi.", dibatalkan: "Login dibatalkan.",
+        konfigurasi: "Login belum dikonfigurasi dengan benar atau penyedia login tidak terjangkau. Hubungi pengelola server." };
       const q = new URLSearchParams(location.search).get("err");
       if (q) { this.errMsg = ERR[q] || "Login gagal."; history.replaceState(null, "", "/admin"); }
       try { this.me = await (await fetch("/auth/me")).json(); } catch {}

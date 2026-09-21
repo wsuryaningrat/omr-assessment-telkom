@@ -61,7 +61,22 @@ Cara kerja: saat pengawas submit, hasil dinilai ulang dengan kunci terbaru lalu 
 | `CLEANUP_INTERVAL_S` | 1800 | Jeda pembersihan |
 | `BACKGROUND_TASKS` | 1 | Set 0 untuk mematikan tugas latar (dipakai tes) |
 
-## Login admin dengan akun Microsoft
+## Login admin (Google dan/atau Microsoft)
+Halaman `/admin` mendukung **Google** (Gmail/Workspace) dan **Microsoft** (Entra ID); keduanya bisa aktif bersamaan. Begitu salah satu aktif, `ADMIN_TOKEN` dinonaktifkan (kecuali `ADMIN_ALLOW_TOKEN=1`). Akun yang boleh masuk ditentukan `ADMIN_EMAILS` (default: semua ditolak).
+
+### Google (paling mudah, cukup akun Gmail)
+Di https://console.cloud.google.com/apis/credentials (proyek apa pun):
+1. *OAuth consent screen* / *Google Auth Platform*: tipe **External**, isi nama aplikasi & email dukungan. Biarkan status **Testing**, lalu di *Audience → Test users* tambahkan Gmail para admin (maks. 100; tidak perlu verifikasi Google).
+2. *Credentials → Create credentials → OAuth client ID*, jenis **Web application**. *Authorized redirect URIs*: `http://localhost:8000/auth/google/callback` (lokal) dan `https://DOMAIN-ANDA/auth/google/callback` (produksi).
+3. Salin **Client ID** dan **Client secret** ke `.env.local`:
+```
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+ADMIN_EMAILS=anda@gmail.com
+```
+Email harus terverifikasi & tercantum di `ADMIN_EMAILS`. `ADMIN_DOMAINS` untuk Google hanya berlaku bagi domain **Google Workspace** (klaim `hd`); domain `gmail.com` tidak pernah dianggap cukup.
+
+### Microsoft (Entra ID)
 Bila `MS_CLIENT_ID`, `MS_TENANT_ID`, dan `MS_CLIENT_SECRET` terisi, halaman `/admin` memakai tombol **Masuk dengan Microsoft** dan token `ADMIN_TOKEN` otomatis dinonaktifkan (kecuali `ADMIN_ALLOW_TOKEN=1`). Hanya akun di `ADMIN_EMAILS` (atau domain di `ADMIN_DOMAINS`) yang diterima; bila keduanya kosong, semua akun ditolak. Sesi berlaku `ADMIN_SESSION_HOURS` jam (default 8).
 
 **Pendaftaran aplikasi (sekali saja)** di https://entra.microsoft.com → *Identity → Applications → App registrations → New registration*:
