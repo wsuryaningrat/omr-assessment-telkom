@@ -1,5 +1,18 @@
-# Ganti dengan domain Anda (HTTPS otomatis). Untuk uji tanpa domain: ":80"
-:80 {
-	request_body { max_size 12MB }
-	reverse_proxy api:8000 { flush_interval -1 }
+# HTTPS otomatis (Let's Encrypt) untuk domain di env DOMAIN.
+# Uji tanpa domain (hanya HTTP, tanpa login Google/Microsoft): DOMAIN=:80
+{$DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 12MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy api:8000 {
+		flush_interval -1
+	}
 }

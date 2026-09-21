@@ -215,6 +215,19 @@ class TestServices(unittest.TestCase):
         r = self.c.post("/api/admin/regrade?pull=true", headers=ADM).json()
         self.assertEqual((r["gsheet_configured"], r["kunci_ditarik"]), (True, 1))
 
+    def test_record_key_order_survives_database_roundtrip(self):
+        """Urutan kolom rekap (ekspor/Sheet) bergantung pada urutan kunci JSON. PostgreSQL `jsonb` mengacaknya; kolom JSON biasa tidak."""
+        from server.db import Sheet, UploadFile, engine
+        sid = self.submitted_session("ORD-1")
+        order = ["Zebra", "Alpha", "Nama Pengawas", "NPM", "b", "aa", "Kelas"]      # sengaja bukan alfabet/panjang
+        with SessionLocal() as db:
+            sh = db.query(Sheet).filter(Sheet.session_id == sid).first()
+            sh.record = {k: "x" for k in order}
+            db.commit()
+        with SessionLocal() as db:
+            got = list(db.query(Sheet).filter(Sheet.session_id == sid).first().record.keys())
+        self.assertEqual(got, order, f"urutan kunci berubah di {engine.dialect.name}")
+
     def test_cleanup_removes_old_upload_folders_only(self):
         old, fresh = self.submitted_session("OLD"), self.submitted_session("NEW")
         self.submit(old); self.submit(fresh)

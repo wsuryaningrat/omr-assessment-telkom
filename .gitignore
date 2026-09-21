@@ -34,3 +34,8 @@ Thumbs.db
 data/
 deploy/.env
 .env.local
+
+# Rahasia deployment
+deploy/secrets/*
+!deploy/secrets/.gitkeep
+!deploy/secrets/.gitignore

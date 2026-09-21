@@ -1,0 +1,2 @@
+# Hanya untuk pengembangan/uji (tidak dipasang di image produksi)
+pgserver>=0.1.4      # PostgreSQL tertanam untuk tools/test_postgres.py

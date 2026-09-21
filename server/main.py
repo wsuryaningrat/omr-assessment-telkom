@@ -10,12 +10,12 @@ import uuid
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile as FUploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile as FUploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from scanner.service import FAKULTAS_PRODI, classify_scan_status
 from server import admin, auth, config, services, worker
@@ -134,7 +134,10 @@ async def lifespan(app):
     _pool.shutdown(wait=False, cancel_futures=True)
 
 
-app = FastAPI(title="LJK Scanner API", lifespan=lifespan)
+app = FastAPI(
+    title="LJK Scanner API", lifespan=lifespan,
+    docs_url="/docs" if config.EXPOSE_DOCS else None, redoc_url=None,
+    openapi_url="/openapi.json" if config.EXPOSE_DOCS else None)
 app.add_middleware(
     SessionMiddleware, secret_key=config.SESSION_SECRET or secrets.token_urlsafe(32), session_cookie="ljk_admin",
     max_age=config.ADMIN_SESSION_HOURS * 3600, same_site="lax", https_only=config.PUBLIC_URL.startswith("https://"))
@@ -270,6 +273,9 @@ async def upload_files(sid: str, files: list[FUploadFile] = File(...), db=Depend
     s = _session_or_404(db, sid)
     if s.submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
+    have = db.scalar(select(func.count()).select_from(UploadFile).where(UploadFile.session_id == s.id)) or 0
+    if have + len(files) > config.MAX_FILES_PER_SESSION:
+        raise HTTPException(413, f"Batas {config.MAX_FILES_PER_SESSION} berkas per sesi terlampaui")
     folder = os.path.join(config.UPLOAD_DIR, s.id)
     os.makedirs(folder, exist_ok=True)
     ids = []
@@ -424,9 +430,23 @@ def submit(sid: str, db=Depends(get_db)):
     return {"ok": True, "lembar": len(s.sheets)}
 
 
+_CLOG = {}
+
+
 @app.post("/api/clientlog", status_code=204)
-def clientlog(data: dict):
-    """Log diagnostik dari browser (mis. kegagalan upload di ponsel) agar terlihat di terminal server."""
+def clientlog(data: dict, request: Request):
+    """Log diagnostik dari browser (mis. kegagalan upload di ponsel) agar terlihat di terminal server.
+    Publik & tanpa login, jadi dibatasi lajunya per IP supaya tidak bisa dipakai memenuhi log."""
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    recent = [t for t in _CLOG.get(ip, []) if now - t < 60]
+    if len(recent) >= config.CLIENTLOG_PER_MIN:
+        _CLOG[ip] = recent
+        return
+    recent.append(now)
+    _CLOG[ip] = recent
+    if len(_CLOG) > 5000:
+        _CLOG.clear()
     logging.getLogger("uvicorn.error").info("CLIENT %s", str(data)[:600])
 
 

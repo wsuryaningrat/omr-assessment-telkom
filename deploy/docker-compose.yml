@@ -1,5 +1,11 @@
-# VPS 2 CPU / 2 GB: Postgres + API (+ Caddy untuk HTTPS). Jalankan dari root repo:
-#   docker compose -f deploy/docker-compose.yml up -d --build
+# Produksi VPS (2 vCPU / 2 GB): PostgreSQL + API + Caddy (HTTPS otomatis).
+# Jalankan dari root repo:  docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+name: ljk
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,36 +13,60 @@ services:
     environment:
       POSTGRES_DB: omr
       POSTGRES_USER: omr
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi di .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di deploy/.env}
     volumes: [pgdata:/var/lib/postgresql/data]
-    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=40"]
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "effective_cache_size=512MB", "-c", "max_connections=40"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omr -d omr"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     mem_limit: 384m
+    logging: *logging
+    # sengaja TANPA "ports": database tidak boleh terbuka ke internet
+
   api:
     build: { context: .., dockerfile: Dockerfile.server }
+    image: ljk-api:latest
     restart: unless-stopped
-    depends_on: [db]
+    depends_on:
+      db: { condition: service_healthy }
     environment:
       DATABASE_URL: postgresql+psycopg://omr:${POSTGRES_PASSWORD}@db:5432/omr
       UPLOAD_DIR: /data/uploads
       SCAN_WORKERS: ${SCAN_WORKERS:-2}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:?isi di .env}
-      PUBLIC_URL: ${PUBLIC_URL:-}
-      SESSION_SECRET: ${SESSION_SECRET:?isi di .env (acak, panjang)}
+      EXPOSE_DOCS: "0"
+      PUBLIC_URL: ${PUBLIC_URL:?isi PUBLIC_URL (https://domain-anda) di deploy/.env}
+      SESSION_SECRET: ${SESSION_SECRET:?isi SESSION_SECRET (acak, panjang) di deploy/.env}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ADMIN_DOMAINS: ${ADMIN_DOMAINS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       MS_CLIENT_ID: ${MS_CLIENT_ID:-}
       MS_TENANT_ID: ${MS_TENANT_ID:-}
       MS_CLIENT_SECRET: ${MS_CLIENT_SECRET:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
-      ADMIN_DOMAINS: ${ADMIN_DOMAINS:-}
       GSHEET_URL: ${GSHEET_URL:-}
       GSHEET_CREDENTIALS: ${GSHEET_CREDENTIALS:-}
-    volumes: [uploads:/data/uploads]
-    mem_limit: 1200m
+      SYNC_SINCE: ${SYNC_SINCE:-}
+      UPLOAD_RETENTION_HOURS: ${UPLOAD_RETENTION_HOURS:-24}
+    volumes:
+      - uploads:/data/uploads
+      - ./secrets:/run/secrets:ro        # mis. gsheet.toml -> GSHEET_CREDENTIALS=/run/secrets/gsheet.toml
+    mem_limit: 1300m
+    stop_grace_period: 20s
+    logging: *logging
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    depends_on: [api]
-    ports: ["80:80", "443:443"]
-    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy_data:/data]
-volumes: { pgdata: {}, uploads: {}, caddy_data: {} }
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      DOMAIN: ${DOMAIN:?isi DOMAIN (mis. ljk.contoh.id, atau :80 untuk uji tanpa domain) di deploy/.env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro, caddy_data:/data, caddy_config:/config]
+    mem_limit: 128m
+    logging: *logging
+
+volumes: { pgdata: {}, uploads: {}, caddy_data: {}, caddy_config: {} }

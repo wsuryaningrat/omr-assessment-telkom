@@ -135,6 +135,35 @@ class TestAPI(unittest.TestCase):
         self.assertIsNotNone(self.c.get(f"/api/sessions/{sid}").json()["submitted_at"])
         self.assertEqual(self.c.post("/api/sheets/validate-batch", json={"ids": ids[:1]}).status_code, 409)
 
+    def test_file_cap_per_session(self):
+        from server import config
+        old = config.MAX_FILES_PER_SESSION
+        config.MAX_FILES_PER_SESSION = 2
+        try:
+            sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+            data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+            two = [("files", (f"c{i}.pdf", data, "application/pdf")) for i in range(2)]
+            self.assertEqual(self.c.post(f"/api/sessions/{sid}/files", files=two).status_code, 202)
+            r = self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("c9.pdf", data, "application/pdf"))])
+            self.assertEqual(r.status_code, 413)                  # sudah 2 -> berkas ke-3 ditolak
+        finally:
+            config.MAX_FILES_PER_SESSION = old
+
+    def test_clientlog_is_rate_limited(self):
+        from server import config, main
+        main._CLOG.clear()
+        old = config.CLIENTLOG_PER_MIN
+        config.CLIENTLOG_PER_MIN = 3
+        try:
+            with self.assertLogs("uvicorn.error", level="INFO") as cm:
+                for i in range(8):
+                    self.assertEqual(self.c.post("/api/clientlog", json={"ev": "t", "i": i}).status_code, 204)
+            logged = [l for l in cm.output if "CLIENT" in l]
+            self.assertEqual(len(logged), 3)                     # sisanya diabaikan diam-diam
+        finally:
+            config.CLIENTLOG_PER_MIN = old
+            main._CLOG.clear()
+
     def test_many_files_concurrent(self):
         sid = self.c.post("/api/sessions", json=VALID).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()

@@ -35,3 +35,8 @@ ADMIN_ALLOW_TOKEN = os.environ.get("ADMIN_ALLOW_TOKEN", "0") == "1"   # izinkan 
 # ---- Login admin dengan Google (akun Gmail / Google Workspace). Bisa aktif bersamaan dengan Microsoft.
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+# ---- Pengetatan untuk server publik
+EXPOSE_DOCS = os.environ.get("EXPOSE_DOCS", "1") == "1"          # produksi: EXPOSE_DOCS=0 (sembunyikan /docs & /openapi.json)
+MAX_FILES_PER_SESSION = int(os.environ.get("MAX_FILES_PER_SESSION", "300"))   # cegah disk penuh oleh sesi yang menyalahgunakan
+CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # batas laju /api/clientlog per IP

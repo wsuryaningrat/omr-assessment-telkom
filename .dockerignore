@@ -1,0 +1,27 @@
+# Konteks build = seluruh repo; image hanya butuh core/ scanner/ server/ templates/.
+.git
+.claude
+.venv
+.venv-server
+venv
+data
+**/__pycache__
+*.pyc
+.streamlit
+.env
+.env.*
+deploy/.env
+deploy/secrets
+omr
+omr-v2
+artefact
+frontend
+tests
+tools
+docs
+*.pdf
+*.xlsx
+app.py
+legacy_app_v1.py
+calibrator.py
+README*.md
