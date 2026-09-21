@@ -43,7 +43,15 @@ function ljk() {
       try {
         await this.api(`/api/sessions/${this.sid}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
-        this.baseline = JSON.stringify(this.form); await this.refresh(); this.toast("Data pengawas disimpan"); return true;
+        const facChanged = this.baseline && JSON.parse(this.baseline).fakultas !== f.fakultas;
+        this.baseline = JSON.stringify(this.form); await this.refresh();
+        // status dihitung ulang dari data terbaru; lembar yang sudah divalidasi tapi kini tidak sesuai fakultas dikembalikan ke Warning
+        const stale = facChanged ? (this.session?.sheets || []).filter(s => s.validated && this.fakBad(s)) : [];
+        if (stale.length) {
+          try { await this.api("/api/sheets/validate-batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: stale.map(s => s.id), value: false }) }); await this.refresh(); } catch {}
+          this.toast(`Data disimpan — ${stale.length} lembar perlu dicek ulang karena fakultas berbeda`, true);
+        } else this.toast("Data pengawas disimpan");
+        return true;
       } catch (e) { this.toast(e.message, true); return false; }
     },
     // ---- status & aturan peringatan
@@ -74,10 +82,10 @@ function ljk() {
       if (this.fillBad(s)) r.push("Terisi rendah");
       return r.join(" · ");
     },
-    status(s) { return s.validated ? "validated" : (this.reasons(s).length ? "warning" : "check"); },
-    statusText(s) { return { validated: "Validated", warning: "Warning", check: "Check" }[this.status(s)]; },
+    status(s) { return s.validated ? "validated" : (this.reasons(s).length ? "warning" : "pending"); },
+    statusText(s) { return { validated: "Validated", warning: "Warning", pending: "Belum" }[this.status(s)]; },
     get cnt() {
-      const c = { total: 0, check: 0, warning: 0, validated: 0 };
+      const c = { total: 0, pending: 0, warning: 0, validated: 0 };
       for (const s of this.session?.sheets || []) { c.total++; c[this.status(s)]++; }
       return c;
     },

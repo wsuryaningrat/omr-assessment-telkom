@@ -109,6 +109,7 @@
     <div class="backrow">
       <button class="btn sm" @click="go(1)">← Ubah data / tambah foto</button>
       <span class="mute" x-text="[session?.pengawas?.nama, session?.pengawas?.ruangan, session?.pengawas?.kelas].filter(Boolean).join(' · ')"></span>
+      <span class="fakinfo" :title="session?.pengawas?.fakultas+' — '+session?.pengawas?.prodi"><small>Fakultas mahasiswa</small><b x-text="facPick"></b><span class="mute" x-text="session?.pengawas?.prodi"></span></span>
     </div>
     <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:10px">
       <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+session.files.total"></span></div>
@@ -117,11 +118,10 @@
 
     <div class="stats">
       <button class="stat" @click="filter='all'; page=0"><small>Total lembar</small><b x-text="cnt.total"></b></button>
-      <button class="stat st-check" :class="{sel: filter==='check'}" @click="setFilter('check')"><small>Check</small><b x-text="cnt.check"></b></button>
       <button class="stat st-warn" :class="{sel: filter==='warning'}" @click="setFilter('warning')"><small>Warning</small><b x-text="cnt.warning"></b></button>
       <button class="stat st-ok" :class="{sel: filter==='validated'}" @click="setFilter('validated')"><small>Validated</small><b x-text="cnt.validated"></b></button>
     </div>
-    <p class="legend"><span class="lg"><i class="dot check"></i><b>Check</b><span class="d"> menunggu diperiksa</span></span><span class="lg"><i class="dot warning"></i><b>Warning</b><span class="d"> ada data janggal</span></span><span class="lg"><i class="dot validated"></i><b>Validated</b><span class="d"> sudah divalidasi</span></span></p>
+    <p class="legend"><span class="lg"><i class="dot warning"></i><b>Warning</b><span class="d"> ada data janggal, cek ulang</span></span><span class="lg"><i class="dot validated"></i><b>Validated</b><span class="d"> sudah divalidasi pengawas</span></span></p>
 
     <template x-for="f in (session?.files.failed||[])" :key="f.name+f.error"><div class="fail"><b x-text="f.name"></b>: <span x-text="f.error"></span></div></template>
 
@@ -131,8 +131,8 @@
         <div class="f">
           <input type="search" placeholder="Cari nama / NPM…" x-model.trim="q" @input="page=0" aria-label="Cari">
           <select x-model="filter" @change="page=0" aria-label="Filter status">
-            <option value="all">Semua status</option><option value="check">Check</option>
-            <option value="warning">Warning</option><option value="validated">Validated</option>
+            <option value="all">Semua status</option><option value="warning">Warning</option>
+            <option value="validated">Validated</option><option value="pending">Belum divalidasi</option>
           </select>
         </div>
       </div>
