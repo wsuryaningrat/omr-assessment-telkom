@@ -1,6 +1,6 @@
 function admin() {
   return {
-    token: "", authed: false, loginErr: "", tab: "ringkasan", busy: false, kelas: "",
+    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", tab: "ringkasan", busy: false, kelas: "",
     tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
@@ -43,6 +43,17 @@ function admin() {
       try { const d = await this.json("/api/admin/kunci/upload", { method: "POST", body: fd }); this.toast("Kunci diunggah: " + Object.keys(d.kunci).join(", ")); await this.loadKunci(); }
       catch (e) { this.toast(e.message, true); }
       ev.target.value = "";
+    },
+    async regrade(pull) {
+      if (!confirm(pull ? "Tarik kunci dari Google Sheet lalu hitung ulang nilai semua sesi yang sudah disubmit?" : "Hitung ulang nilai semua sesi yang sudah disubmit dengan kunci saat ini?")) return;
+      this.busy = true; this.regradeRes = null;
+      try {
+        const q = new URLSearchParams({ kelas: this.regradeKelas, pull: pull ? "true" : "false" });
+        this.regradeRes = await this.json("/api/admin/regrade?" + q, { method: "POST" });
+        if (!this.regradeRes.error) this.toast(`Selesai — ${this.regradeRes.changed} lembar berubah`);
+        await this.loadKunci();
+      } catch (e) { this.toast(e.message, true); }
+      this.busy = false;
     },
     async delKunci(name) {
       if (!confirm(`Hapus kunci "${name}"?`)) return;

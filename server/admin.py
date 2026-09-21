@@ -132,6 +132,19 @@ def kunci_sync():
     return services.sync_kunci_once()
 
 
+@router.post("/regrade")
+def regrade(kelas: str = "", pull: bool = False):
+    """Hitung ulang nilai semua sesi yang sudah disubmit dengan kunci terbaru.
+    pull=true: tarik kunci dari Google Sheet dulu (bila terkonfigurasi)."""
+    pulled = services.sync_kunci_once() if pull else None
+    res = services.regrade_all(kelas)
+    if pulled is not None:
+        res["kunci_ditarik"] = pulled.get("kunci", 0)
+        res["kunci_error"] = pulled.get("error")
+        res["gsheet_configured"] = pulled.get("configured", False)
+    return res
+
+
 # ---------------------------------------------------------------- sinkron Google Sheet
 @router.post("/sync/run")
 def sync_run(retry_failed: bool = True, db=Depends(get_db)):

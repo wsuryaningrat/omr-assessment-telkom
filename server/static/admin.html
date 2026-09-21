@@ -122,6 +122,31 @@
           <span class="mute">.xlsx: satu tab = satu kode soal · .csv: nama berkas = kode soal, kolom nomor,jawaban</span>
         </div>
       </div>
+
+      <div class="card">
+        <h2>Hitung ulang nilai</h2>
+        <p class="sub">Dipakai setelah kunci jawaban diubah atau diunggah. Semua lembar pada sesi yang <b>sudah disubmit</b> dinilai ulang dengan kunci terbaru. Sesi yang belum disubmit otomatis dinilai saat submit.</p>
+        <div class="grid" style="max-width:520px">
+          <div class="full"><label class="f" for="rgk">Batasi ke kelas (opsional)</label><input id="rgk" x-model.trim="regradeKelas" placeholder="Kosongkan untuk semua kelas"></div>
+        </div>
+        <div class="row-act">
+          <button class="btn p sm" @click="regrade(sum.gsheet_configured)" :disabled="busy || !kunci.length" x-text="sum.gsheet_configured ? 'Sinkron kunci dari Sheet & hitung ulang' : 'Hitung ulang nilai'"></button>
+          <button class="btn sm" x-show="sum.gsheet_configured" @click="regrade(false)" :disabled="busy || !kunci.length">Hitung ulang saja (tanpa tarik dari Sheet)</button>
+        </div>
+        <div class="resbox" x-show="regradeRes">
+          <template x-if="regradeRes && regradeRes.error"><p class="bad" x-text="regradeRes.error"></p></template>
+          <template x-if="regradeRes && !regradeRes.error">
+            <dl class="who">
+              <dt>Sesi diperiksa</dt><dd x-text="regradeRes.sessions"></dd>
+              <dt>Lembar diperiksa</dt><dd x-text="regradeRes.sheets"></dd>
+              <dt>Nilai berubah</dt><dd><b x-text="regradeRes.changed"></b> lembar di <span x-text="regradeRes.changed_sessions"></span> sesi</dd>
+              <dt x-show="regradeRes.no_key">Kunci tidak ditemukan</dt><dd class="bad" x-show="regradeRes.no_key"><span x-text="regradeRes.no_key"></span> lembar (kode soal tidak cocok dengan nama kunci)</dd>
+              <dt x-show="regradeRes.kunci_ditarik !== undefined">Kunci ditarik dari Sheet</dt><dd x-show="regradeRes.kunci_ditarik !== undefined" x-text="regradeRes.kunci_ditarik + ' kunci'"></dd>
+            </dl>
+            <p class="warnbox" x-show="regradeRes.changed_in_synced" style="margin-top:8px"><b x-text="regradeRes.changed_in_synced"></b> sesi yang nilainya berubah <b>sudah terkirim</b> ke Google Sheet, jadi baris di Sheet itu kini usang. Data terbaru ada di database — unduh dari tab <b>Ekspor</b>.</p>
+          </template>
+        </div>
+      </div>
     </section>
 
     <!-- ekspor -->

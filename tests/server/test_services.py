@@ -187,6 +187,34 @@ class TestServices(unittest.TestCase):
         self.assertEqual(header[:5], ["Submit Date", "Nama Pengawas", "No HP Pengawas", "Ruangan", "Kelas"])
         self.assertEqual({row[header.index("Kelas")].value for row in ws.iter_rows(min_row=2)}, {"XL-01"})
 
+    def test_regrade_all_after_key_change(self):
+        sid = self.submitted_session("RG-01")
+        self.submit(sid)                                   # disubmit TANPA kunci -> Nilai "-"
+        def nilai():
+            rows = list(csv.DictReader(io.StringIO(self.c.get(f"/api/admin/export.csv?sid={sid}", headers=ADM).text)))
+            return rows[0]["Nilai"], rows[0]["Kunci Terpakai"]
+        self.assertEqual(self.c.post("/api/admin/regrade", headers=ADM).json()["error"], "Belum ada kunci jawaban")
+        self.assertEqual(nilai()[0], "-")
+        self.c.put("/api/admin/kunci/A", json={str(q): a for q, a in KUNCI["A"].items()}, headers=ADM)
+        r1 = self.c.post("/api/admin/regrade?kelas=RG-01", headers=ADM).json()
+        self.assertEqual((r1["sessions"], r1["changed"], r1["changed_in_synced"]), (1, 1, 0))
+        self.assertNotEqual(nilai()[0], "-")
+        self.assertEqual(self.c.post("/api/admin/regrade?kelas=RG-01", headers=ADM).json()["changed"], 0)   # idempoten
+        # kunci berubah -> nilai berubah; sesi yang sudah terkirim ke Sheet dilaporkan usang
+        services.sync_pending_once()
+        before = nilai()[0]
+        self.c.put("/api/admin/kunci/A", json={str(q): "D" for q in range(1, 76)}, headers=ADM)
+        r2 = self.c.post("/api/admin/regrade?kelas=RG-01", headers=ADM).json()
+        self.assertEqual((r2["changed"], r2["changed_in_synced"]), (1, 1))
+        self.assertNotEqual(nilai()[0], before)
+        # filter kelas lain tidak tersentuh
+        self.assertEqual(self.c.post("/api/admin/regrade?kelas=TIDAK-ADA", headers=ADM).json()["sessions"], 0)
+
+    def test_regrade_pull_from_sheet(self):
+        self.fake.kunci = {"kj777": {q: "A" for q in range(1, 11)}}
+        r = self.c.post("/api/admin/regrade?pull=true", headers=ADM).json()
+        self.assertEqual((r["gsheet_configured"], r["kunci_ditarik"]), (True, 1))
+
     def test_cleanup_removes_old_upload_folders_only(self):
         old, fresh = self.submitted_session("OLD"), self.submitted_session("NEW")
         self.submit(old); self.submit(fresh)

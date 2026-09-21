@@ -8,3 +8,4 @@ code{background:var(--soft);padding:1px 6px;border-radius:5px;font-size:12.5px}
 .who dd.bad{color:var(--bad)}
 .tbl{overflow-x:auto}
 @media(max-width:820px){.tbl{display:block}}
+.resbox{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.resbox .bad{margin:0}

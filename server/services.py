@@ -33,6 +33,43 @@ def regrade_session(db, s: ScanSession):
     return len(s.sheets)
 
 
+GRADE_FIELDS = ("Nilai", "Jumlah Benar", "Jumlah Salah", "Jumlah Kosong", "Kunci Terpakai", "Jawaban Terisi")
+
+
+def regrade_all(kelas: str = "", only_changed_report: bool = True):
+    """Hitung ulang nilai SEMUA lembar pada sesi yang sudah disubmit memakai kunci terbaru di DB.
+
+    Mengembalikan ringkasan: berapa lembar berubah, dan berapa sesi berubah yang barisnya SUDAH terkirim ke
+    Google Sheet (baris di Sheet itu kini usang; unduh ulang dari admin atau tulis ulang snapshot)."""
+    out = {"sessions": 0, "sheets": 0, "changed": 0, "changed_sessions": 0, "changed_in_synced": 0, "no_key": 0}
+    with SessionLocal() as db:
+        k = kunci_int(db)
+        if not k:
+            return {**out, "error": "Belum ada kunci jawaban"}
+        q = select(ScanSession).where(ScanSession.submitted.is_(True))
+        if kelas:
+            q = q.where(ScanSession.kelas == kelas)
+        for s in db.scalars(q):
+            out["sessions"] += 1
+            changed_here = 0
+            for sh in s.sheets:
+                out["sheets"] += 1
+                before = {f: sh.record.get(f) for f in GRADE_FIELDS}
+                rec = grade_student_record(dict(sh.record), k)
+                if rec.get("Kunci Terpakai") == "Tidak Ditemukan":
+                    out["no_key"] += 1
+                if {f: rec.get(f) for f in GRADE_FIELDS} != before:
+                    sh.record = rec
+                    changed_here += 1
+            if changed_here:
+                out["changed"] += changed_here
+                out["changed_sessions"] += 1
+                if s.synced_at is not None:
+                    out["changed_in_synced"] += 1
+        db.commit()
+    return out
+
+
 # --------------------------------------------------------------------------- sinkron rekap
 def _backoff(attempts: int) -> dt.timedelta:
     return dt.timedelta(seconds=min(15 * 2 ** attempts, 3600))
