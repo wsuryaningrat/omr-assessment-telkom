@@ -18,3 +18,5 @@ SYNC_MAX_ATTEMPTS = int(os.environ.get("SYNC_MAX_ATTEMPTS", "10"))
 KUNCI_SYNC_INTERVAL_S = int(os.environ.get("KUNCI_SYNC_INTERVAL_S", "600"))
 CLEANUP_INTERVAL_S = int(os.environ.get("CLEANUP_INTERVAL_S", "1800"))
 UNSUBMITTED_RETENTION_HOURS = int(os.environ.get("UNSUBMITTED_RETENTION_HOURS", "72"))
+# Hanya sinkronkan sesi yang disubmit pada/setelah waktu ini (ISO 8601, mis. 2026-09-22T00:00:00Z). Mencegah data uji lama ikut terkirim.
+SYNC_SINCE = os.environ.get("SYNC_SINCE", "")

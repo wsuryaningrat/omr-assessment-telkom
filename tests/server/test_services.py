@@ -132,6 +132,30 @@ class TestServices(unittest.TestCase):
         st = {i["id"]: i["synced"] for i in self.c.get("/api/admin/sessions", headers=ADM).json()["items"]}
         self.assertEqual((st[good], st[bad]), (True, False))
 
+    def test_sync_since_skips_older_sessions(self):
+        sid = self.submitted_session("SINCE1")
+        self.submit(sid)
+        old = config.SYNC_SINCE
+        try:
+            config.SYNC_SINCE = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)).isoformat()
+            self.assertEqual(services.sync_pending_once()["synced"], 0)        # sesi lebih lama dari batas -> dilewati
+            self.assertEqual(len(self.fake.calls), 0)
+            config.SYNC_SINCE = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+            self.assertEqual(services.sync_pending_once()["synced"], 1)        # setelah batas -> terkirim
+        finally:
+            config.SYNC_SINCE = old
+
+    def test_toml_credentials_reuse_streamlit_secrets(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+            f.write('[connections.gsheets]\nspreadsheet = "https://docs.google.com/spreadsheets/d/ABC/edit"\n'
+                    'type = "service_account"\nproject_id = "p"\nclient_email = "x@p.iam.gserviceaccount.com"\nprivate_key = "K"\n')
+        creds, url = sheets.load_toml_credentials(f.name)
+        os.unlink(f.name)
+        self.assertEqual(url, "https://docs.google.com/spreadsheets/d/ABC/edit")
+        self.assertEqual(creds["client_email"], "x@p.iam.gserviceaccount.com")
+        self.assertNotIn("spreadsheet", creds)                                  # bukan bagian kredensial
+
     def test_sync_not_configured_is_noop(self):
         sheets.set_client(None)
         self.assertEqual(services.sync_pending_once()["configured"], False)

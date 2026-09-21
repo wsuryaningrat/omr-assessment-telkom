@@ -6,6 +6,18 @@ import threading
 from server import config
 
 
+def load_toml_credentials(path):
+    """Baca berkas Streamlit secrets.toml ([connections.gsheets]) -> (kredensial service account, URL spreadsheet).
+    Memakai berkas yang sama dengan versi Streamlit sehingga kunci privat tidak perlu disalin."""
+    import tomllib
+    with open(path, "rb") as f:
+        cfg = tomllib.load(f)["connections"]["gsheets"]
+    url = cfg.get("spreadsheet", "")
+    keys = ("type", "project_id", "private_key_id", "private_key", "client_email", "client_id",
+            "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain")
+    return {k: cfg[k] for k in keys if k in cfg}, url
+
+
 class SheetsUnavailable(RuntimeError):
     """Google Sheet belum dikonfigurasi (GSHEET_URL / GSHEET_CREDENTIALS)."""
 
@@ -22,6 +34,8 @@ class GSheetsClient:
             c = self.credentials
             if c.lstrip().startswith("{"):
                 self._gc = gspread.service_account_from_dict(json.loads(c))
+            elif c.lower().endswith(".toml"):
+                self._gc = gspread.service_account_from_dict(load_toml_credentials(c)[0])
             else:
                 self._gc = gspread.service_account(filename=c)
         return self._gc
@@ -82,8 +96,13 @@ def get_client():
     global _client
     if _override is not None:
         return _override
-    if not (config.GSHEET_URL and config.GSHEET_CREDENTIALS):
+    if not config.GSHEET_CREDENTIALS:
+        return None
+    url = config.GSHEET_URL
+    if not url and config.GSHEET_CREDENTIALS.lower().endswith(".toml"):
+        url = load_toml_credentials(config.GSHEET_CREDENTIALS)[1]   # URL dari secrets.toml bila GSHEET_URL tidak diisi
+    if not url:
         return None
     if _client is None:
-        _client = GSheetsClient(config.GSHEET_URL, config.GSHEET_CREDENTIALS, config.GSHEET_WORKSHEET)
+        _client = GSheetsClient(url, config.GSHEET_CREDENTIALS, config.GSHEET_WORKSHEET)
     return _client

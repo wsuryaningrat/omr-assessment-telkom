@@ -47,13 +47,13 @@ def sync_pending_once(limit: int = 30):
     if client is None:
         return {"configured": False, "synced": 0}
     now = _now()
+    cond = [ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None),
+            ScanSession.sync_attempts < config.SYNC_MAX_ATTEMPTS,
+            (ScanSession.sync_next.is_(None)) | (ScanSession.sync_next <= now)]
+    if config.SYNC_SINCE:   # abaikan sesi lama (mis. data uji) sebelum batas waktu ini
+        cond.append(ScanSession.submitted_at >= dt.datetime.fromisoformat(config.SYNC_SINCE.replace("Z", "+00:00")))
     with SessionLocal() as db:
-        due = list(db.scalars(
-            select(ScanSession).where(
-                ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None),
-                ScanSession.sync_attempts < config.SYNC_MAX_ATTEMPTS,
-                (ScanSession.sync_next.is_(None)) | (ScanSession.sync_next <= now),
-            ).order_by(ScanSession.submitted_at).limit(limit)))
+        due = list(db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.submitted_at).limit(limit)))
         if not due:
             return {"configured": True, "synced": 0}
 
