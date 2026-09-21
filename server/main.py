@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile as FUploadFile
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -353,3 +354,7 @@ def export_csv(db=Depends(get_db)):
 @app.get("/api/health")
 def health():
     return {"ok": True, "workers": config.SCAN_WORKERS}
+
+
+# UI statis (tanpa build). Dipasang terakhir agar tidak menimpa rute /api.
+app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="ui")

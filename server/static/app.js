@@ -1,0 +1,142 @@
+const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{9,15}$/.test(d); };
+
+function ljk() {
+  return {
+    meta: {}, form: { nama: "", hp: "", ruangan: "", fakultas: "", prodi: "" },
+    ready: false, sid: null, session: null, sel: null, filter: "all", dragging: false, busy: false,
+    up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
+    _poll: null, _toast: null,
+
+    async init() {
+      try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.toast("Server tidak terjangkau", true); }
+      try { this.sid = localStorage.getItem("ljk_sid"); } catch {}
+      if (this.sid) await this.refresh(true);
+      this.ready = true;
+    },
+
+    // ---- turunan
+    get prodiOptions() { return (this.meta.fakultas_prodi || {})[this.form.fakultas] || []; },
+    get phoneOk() { return PHONE(this.form.hp); },
+    get formValid() { const f = this.form; return !!(f.nama && this.phoneOk && f.ruangan && f.fakultas && f.prodi); },
+    get formHint() {
+      const f = this.form;
+      if (!f.nama) return "Isi nama lengkap pengawas"; if (!this.phoneOk) return "Isi nomor HP yang valid";
+      if (!f.ruangan) return "Isi ruangan"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi";
+      return "Siap — pilih berkas LJK di atas";
+    },
+    get step() { if (this.session?.submitted) return 3; return this.session?.summary.lembar ? 2 : 1; },
+    get scanDone() { return this.session ? this.session.files.total - this.session.files.pending : 0; },
+    get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
+    get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
+    get canSubmit() { return this.allValid && !this.session.scanning; },
+    get filtered() {
+      const l = this.session?.sheets || [];
+      return this.filter === "todo" ? l.filter(s => s.label === "Perlu Validasi") : this.filter === "bad" ? l.filter(s => s.label === "Gagal") : l;
+    },
+    rowCls(s) { return s.label === "OK" ? "ok" : s.label === "Gagal" ? "bad" : "warn"; },
+
+    // ---- util
+    toast(text, bad = false) {
+      this.msg = { text, bad }; clearTimeout(this._toast);
+      this._toast = setTimeout(() => (this.msg = { text: "", bad: false }), 2600);
+    },
+    async api(path, opt = {}) {
+      const r = await fetch(path, opt);
+      if (!r.ok) {
+        let d = ""; try { const j = await r.json(); d = Array.isArray(j.detail) ? j.detail.join("; ") : (j.detail || ""); } catch {}
+        throw new Error(d || `Kesalahan ${r.status}`);
+      }
+      return r.status === 204 ? null : r.json();
+    },
+
+    // ---- sesi & polling
+    async refresh(initial = false) {
+      try { this.session = await this.api(`/api/sessions/${this.sid}`); }
+      catch (e) { if (initial) { this.forget(); } else { this.toast(e.message, true); } return; }
+      if (this.session.scanning) this.poll();
+    },
+    poll() {
+      if (this._poll) return;
+      this._poll = setInterval(async () => {
+        try { this.session = await this.api(`/api/sessions/${this.sid}`); } catch {}
+        if (!this.session?.scanning) { clearInterval(this._poll); this._poll = null; }
+      }, 1000);
+    },
+    forget() { try { localStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
+    resetAll() {
+      if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
+      clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
+      this.form = { nama: "", hp: "", ruangan: "", fakultas: "", prodi: "" }; this.filter = "all"; scrollTo({ top: 0 });
+    },
+
+    // ---- unggah
+    async pick(files) {
+      files = [...(files || [])]; if (!files.length) return;
+      if (!this.sid) {
+        if (!this.formValid) { this.toast(this.formHint, true); return; }
+        try {
+          const f = this.form;
+          const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nama_pengawas: f.nama, hp: f.hp, ruangan: f.ruangan, fakultas: f.fakultas, prodi: f.prodi }) });
+          this.sid = r.id; try { localStorage.setItem("ljk_sid", this.sid); } catch {}
+          await this.refresh();
+        } catch (e) { this.toast(e.message, true); return; }
+      }
+      const max = (this.meta.max_upload_mb || 10) * 1048576;
+      const ok = files.filter(f => f.size <= max);
+      if (ok.length < files.length) this.toast(`${files.length - ok.length} berkas > ${this.meta.max_upload_mb} MB dilewati`, true);
+      this.up = { done: 0, total: ok.length };
+      let i = 0, fail = 0;
+      const worker = async () => {
+        while (i < ok.length) {
+          const f = ok[i++], fd = new FormData(); fd.append("files", f, f.name);
+          try { await this.api(`/api/sessions/${this.sid}/files`, { method: "POST", body: fd }); } catch (e) { fail++; this.toast(`${f.name}: ${e.message}`, true); }
+          this.up.done++;
+          if (this.up.done % 3 === 0 || this.up.done === ok.length) this.refresh();
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);   // 3 unggahan paralel
+      await this.refresh();
+      if (!fail) this.toast(`${ok.length} berkas diunggah`);
+    },
+
+    // ---- aksi
+    async toggle(s) {
+      const want = !s.validated, prev = s.validated;
+      this.apply(s.id, want);                                  // optimistis
+      try { await this.api(`/api/sheets/${s.id}/${want ? "validate" : "unvalidate"}`, { method: "POST" }); }
+      catch (e) { this.apply(s.id, prev); this.toast(e.message, true); }
+    },
+    apply(id, v) {
+      const s = this.session.sheets.find(x => x.id === id); if (!s || s.validated === v) return;
+      s.validated = v; s.label = v ? "OK" : "Perlu Validasi";
+      const m = this.session.summary; m.ok += v ? 1 : -1; m.perlu_validasi += v ? -1 : 1;
+    },
+    async validateAll(value) {
+      try { await this.api(`/api/sessions/${this.sid}/validate-all?value=${value}`, { method: "POST" }); await this.refresh(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async submit() {
+      this.busy = true;
+      try { await this.api(`/api/sessions/${this.sid}/submit`, { method: "POST" }); await this.refresh(); scrollTo({ top: 0 }); }
+      catch (e) { this.toast(e.message, true); }
+      this.busy = false;
+    },
+    open(s) { this.sel = s; this.pv = { url: "", loading: false }; document.body.style.overflow = "hidden"; },
+    close() { this.sel = null; document.body.style.overflow = ""; },
+    showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true }; },
+    async remove(s) {
+      if (!confirm("Hapus lembar ini dari daftar?")) return;
+      try { await this.api(`/api/sheets/${s.id}`, { method: "DELETE" }); this.close(); await this.refresh(); this.toast("Lembar dihapus"); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async replace(file) {
+      if (!file) return;
+      const fd = new FormData(); fd.append("file", file, file.name);
+      this.toast("Memproses foto baru…");
+      try { await this.api(`/api/sheets/${this.sel.id}/replace`, { method: "POST", body: fd }); await this.refresh();
+            this.sel = this.session.sheets.find(x => x.id === this.sel.id) || null; this.pv = { url: "", loading: false }; this.toast("Foto diganti & dipindai ulang"); }
+      catch (e) { this.toast(e.message, true); }
+    },
+  };
+}

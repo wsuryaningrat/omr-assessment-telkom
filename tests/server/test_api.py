@@ -50,6 +50,13 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "ruangan": " "}).status_code, 422)
         self.assertEqual(self.c.get("/api/meta").json()["fakultas_prodi"].keys(), __import__("scanner.service", fromlist=["x"]).FAKULTAS_PRODI.keys())
 
+    def test_ui_is_served(self):
+        r = self.c.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Evaluasi LJK", r.text)
+        self.assertEqual(self.c.get("/app.js").status_code, 200)
+        self.assertEqual(self.c.get("/api/health").json()["ok"], True)
+
     def test_upload_rejects_bad_type_and_admin_needs_token(self):
         sid = self.c.post("/api/sessions", json=VALID).json()["id"]
         r = self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("x.exe", b"MZ", "application/octet-stream"))])
