@@ -81,13 +81,15 @@
       <div class="card">
         <h2>Unggah Foto LJK</h2>
         <p class="sub">Sistem otomatis mendeteksi marker, merapikan posisi, dan membaca bulatan.</p>
-        <label class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
+        <div class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg></span>
           <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.summary.lembar ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
           <p>JPG · PNG · HEIC · PDF — maks. <span x-text="meta.max_upload_mb||10"></span> MB per berkas, boleh banyak sekaligus</p>
           <span class="btn p sm">Pilih berkas dari perangkat</span>
-          <input type="file" multiple accept="image/*,.pdf,.heic,.heif" hidden @change="pick($event.target.files); $event.target.value=''">
-        </label>
+          <input type="file" class="ovl" multiple accept="image/*,.pdf,.heic,.heif" aria-label="Pilih berkas LJK" @click="guardPick($event)" @change="onFiles($event)">
+        </div>
+        <div class="err" style="margin-top:8px;font-size:13px" x-show="upErr" x-text="upErr"></div>
+        <div class="upstat" x-show="upStatus" x-text="upStatus"></div>
         <div style="margin-top:12px" x-show="up.total>0 && up.done<up.total">
           <div class="prog"><span>Mengunggah…</span><span x-text="up.done+' / '+up.total"></span></div>
           <div class="bar"><i :style="`width:${up.total?up.done/up.total*100:0}%`"></i></div>
@@ -112,7 +114,7 @@
       <span class="fakinfo" :title="session?.pengawas?.fakultas+' — '+session?.pengawas?.prodi"><small>Fakultas mahasiswa</small><b x-text="facPick"></b><span class="mute" x-text="session?.pengawas?.prodi"></span></span>
     </div>
     <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:10px">
-      <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+session.files.total"></span></div>
+      <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+(session?.files.total||0)"></span></div>
       <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
     </div>
 
@@ -121,7 +123,7 @@
       <button class="stat st-warn" :class="{sel: filter==='warning'}" @click="setFilter('warning')"><small>Warning</small><b x-text="cnt.warning"></b></button>
       <button class="stat st-ok" :class="{sel: filter==='validated'}" @click="setFilter('validated')"><small>Validated</small><b x-text="cnt.validated"></b></button>
     </div>
-    <p class="legend"><span class="lg"><i class="dot warning"></i><b>Warning</b><span class="d"> ada data janggal, cek ulang</span></span><span class="lg"><i class="dot validated"></i><b>Validated</b><span class="d"> sudah divalidasi pengawas</span></span></p>
+    <p class="legend"><span class="lg"><i class="dot check"></i><b>Checking</b><span class="d"> menunggu validasi</span></span><span class="lg"><i class="dot warning"></i><b>Warning</b><span class="d"> ada data janggal, cek ulang</span></span><span class="lg"><i class="dot validated"></i><b>Validated</b><span class="d"> sudah divalidasi pengawas</span></span></p>
 
     <template x-for="f in (session?.files.failed||[])" :key="f.name+f.error"><div class="fail"><b x-text="f.name"></b>: <span x-text="f.error"></span></div></template>
 
@@ -132,7 +134,7 @@
           <input type="search" placeholder="Cari nama / NPM…" x-model.trim="q" @input="page=0" aria-label="Cari">
           <select x-model="filter" @change="page=0" aria-label="Filter status">
             <option value="all">Semua status</option><option value="warning">Warning</option>
-            <option value="validated">Validated</option><option value="pending">Belum divalidasi</option>
+            <option value="validated">Validated</option><option value="pending">Checking</option>
           </select>
         </div>
       </div>
@@ -252,7 +254,7 @@
       </dl>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn sm" @click="showPreview()" :disabled="sel.label==='Gagal'||pv.loading" x-text="pv.url?'Muat ulang preview':'Tampilkan preview'"></button>
-        <label class="btn sm">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" hidden @change="replace($event.target.files[0]); $event.target.value=''"></label>
+        <span class="btn sm rel">Ganti foto<input type="file" class="ovl" accept="image/*,.pdf,.heic,.heif" aria-label="Ganti foto" @change="onReplace($event)"></span>
         <button class="btn sm d" @click="remove(sel)">Hapus</button>
       </div>
       <div class="skel" x-show="pv.loading"></div>

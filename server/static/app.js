@@ -1,10 +1,25 @@
+// ---- log diagnostik ke server (membantu melacak masalah di ponsel)
+function clientLog(ev, data) {
+  try {
+    const body = JSON.stringify({ ev, ua: navigator.userAgent.slice(0, 120), w: innerWidth, ...data });
+    if (navigator.sendBeacon) navigator.sendBeacon("/api/clientlog", new Blob([body], { type: "application/json" }));
+    else fetch("/api/clientlog", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+  } catch {}
+}
+function surfaceError(msg) {
+  clientLog("error", { msg: String(msg).slice(0, 300) });
+  try { const a = Alpine.$data(document.body); a.toast("Terjadi kesalahan: " + String(msg).slice(0, 120), true); } catch {}
+}
+addEventListener("error", e => surfaceError(e.message));
+addEventListener("unhandledrejection", e => surfaceError(e.reason?.message || e.reason));
+
 const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{9,15}$/.test(d); };
 
 function ljk() {
   return {
     meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
-    dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
+    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
     _poll: null, _toast: null,
 
     async init() {
@@ -83,7 +98,7 @@ function ljk() {
       return r.join(" · ");
     },
     status(s) { return s.validated ? "validated" : (this.reasons(s).length ? "warning" : "pending"); },
-    statusText(s) { return { validated: "Validated", warning: "Warning", pending: "Belum" }[this.status(s)]; },
+    statusText(s) { return { validated: "Validated", warning: "Warning", pending: "Checking" }[this.status(s)]; },
     get cnt() {
       const c = { total: 0, pending: 0, warning: 0, validated: 0 };
       for (const s of this.session?.sheets || []) { c.total++; c[this.status(s)]++; }
@@ -183,9 +198,25 @@ function ljk() {
     },
 
     // ---- unggah
+    guardPick(ev) {
+      // Bila isian belum lengkap: batalkan pembukaan pemilih berkas dan tampilkan alasan langsung di layar.
+      if (this.formValid) { this.upErr = ""; return; }
+      ev.preventDefault(); this.upErr = "Lengkapi data pengawas & kelas dulu: " + this.formHint.toLowerCase() + ".";
+      clientLog("guard", { hint: this.formHint });
+      document.getElementById(!this.form.nama ? "nama" : !this.phoneOk ? "hp" : !this.form.ruangan ? "rg" : !this.form.kelas ? "kl" : !this.form.fakultas ? "fk" : "pr")?.focus();
+    },
+    onFiles(ev) {
+      const input = ev.target, files = Array.from(input.files || []);
+      clientLog("pick", { n: files.length, valid: this.formValid, sid: !!this.sid, types: files.slice(0, 3).map(f => f.type || f.name.split(".").pop()), sizes: files.slice(0, 3).map(f => f.size) });
+      this.upStatus = files.length ? `${files.length} berkas dipilih…` : "Tidak ada berkas yang terbaca — coba pilih lagi.";
+      if (!files.length) return;
+      this.pick(files).finally(() => { try { input.value = ""; } catch {} });
+    },
+    onReplace(ev) { const input = ev.target, f = input.files && input.files[0]; if (f) this.replace(f).finally(() => { try { input.value = ""; } catch {} }); },
     async pick(files) {
       files = [...(files || [])]; if (!files.length) return;
-      if (!this.formValid) { this.toast(this.formHint, true); return; }
+      if (!this.formValid) { this.upErr = "Lengkapi data dulu: " + this.formHint.toLowerCase() + "."; this.toast(this.formHint, true); return; }
+      this.upErr = "";
       if (this.dirty && !(await this.saveIdentity())) return;
       if (!this.sid) {
         try {
@@ -199,7 +230,8 @@ function ljk() {
       const max = (this.meta.max_upload_mb || 10) * 1048576;
       const ok = files.filter(f => f.size <= max);
       if (ok.length < files.length) this.toast(`${files.length - ok.length} berkas > ${this.meta.max_upload_mb} MB dilewati`, true);
-      this.up = { done: 0, total: ok.length };
+      this.up = { done: 0, total: ok.length }; this.upStatus = `Mengunggah ${ok.length} berkas…`;
+      clientLog("upload_start", { n: ok.length });
       let i = 0, fail = 0;
       const worker = async () => {
         while (i < ok.length) {
@@ -211,6 +243,8 @@ function ljk() {
       };
       await Promise.all([worker(), worker(), worker()]);   // 3 unggahan paralel
       await this.refresh();
+      this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal.` : `${ok.length} berkas terunggah — sedang dipindai…`;
+      clientLog("upload_done", { ok: ok.length - fail, fail });
       if (!fail) this.toast(`${ok.length} berkas diunggah`);
     },
 

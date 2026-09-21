@@ -1,6 +1,7 @@
 """API pemindaian LJK (FastAPI). Pemindaian berjalan di process pool, bukan di event loop."""
 import csv
 import io
+import logging
 import os
 import re
 import shutil
@@ -419,6 +420,12 @@ def export_csv(db=Depends(get_db)):
     w.writerows(rows)
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": "attachment; filename=rekap_ljk.csv"})
+
+
+@app.post("/api/clientlog", status_code=204)
+def clientlog(data: dict):
+    """Log diagnostik dari browser (mis. kegagalan upload di ponsel) agar terlihat di terminal server."""
+    logging.getLogger("uvicorn.error").info("CLIENT %s", str(data)[:600])
 
 
 @app.get("/api/health")
