@@ -3,12 +3,12 @@ const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{
 function ljk() {
   return {
     meta: {}, form: { nama: "", hp: "", ruangan: "", fakultas: "", prodi: "" },
-    ready: false, sid: null, session: null, sel: null, filter: "all", dragging: false, busy: false,
+    ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
     _poll: null, _toast: null,
 
     async init() {
-      try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.toast("Server tidak terjangkau", true); }
+      try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.online = false; this.toast("Server tidak terjangkau", true); }
       try { this.sid = localStorage.getItem("ljk_sid"); } catch {}
       if (this.sid) await this.refresh(true);
       this.ready = true;
@@ -29,9 +29,20 @@ function ljk() {
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
     get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
     get canSubmit() { return this.allValid && !this.session.scanning; },
+    get facPick() { return (this.session?.pengawas?.fakultas || "").split(" - ")[0]; },
+    facMatch(s) {
+      const v = (s.fakultas_ljk || "").toString().trim().toUpperCase();
+      return !v || v === "-" || !this.facPick || v.startsWith(this.facPick.toUpperCase());
+    },
+    fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
+    nameOf(s) { return s.nama && s.nama !== "-" ? s.nama : "(nama tidak terbaca)"; },
     get filtered() {
-      const l = this.session?.sheets || [];
-      return this.filter === "todo" ? l.filter(s => s.label === "Perlu Validasi") : this.filter === "bad" ? l.filter(s => s.label === "Gagal") : l;
+      let l = this.session?.sheets || [];
+      if (this.filter === "todo") l = l.filter(s => s.label === "Perlu Validasi");
+      else if (this.filter === "ok") l = l.filter(s => s.label === "OK");
+      else if (this.filter === "bad") l = l.filter(s => s.label === "Gagal");
+      const q = this.q.toLowerCase();
+      return q ? l.filter(s => `${s.nama} ${s.npm} ${s.file}`.toLowerCase().includes(q)) : l;
     },
     rowCls(s) { return s.label === "OK" ? "ok" : s.label === "Gagal" ? "bad" : "warn"; },
 

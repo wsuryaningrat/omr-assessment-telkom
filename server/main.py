@@ -144,7 +144,7 @@ def _sheet_view(sh: Sheet):
     return {
         "id": sh.id, "seq": sh.seq, "file": r.get("File"),
         "nama": r.get("Nama Mahasiswa"), "npm": r.get("NPM"), "kode_soal": r.get("Kode Soal"),
-        "fakultas_ljk": r.get("Fakultas (LJK)"), "terisi": r.get("Jawaban Terisi"),
+        "fakultas_ljk": r.get("Fakultas (LJK)"), "fakultas": r.get("Fakultas"), "terisi": r.get("Jawaban Terisi"),
         "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
         "validated": sh.validated,
     }
