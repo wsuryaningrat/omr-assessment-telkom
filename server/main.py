@@ -198,6 +198,7 @@ def get_session(sid: str, db=Depends(get_db)):
     sheets = [_sheet_view(x) for x in s.sheets]
     return {
         "id": s.id, "pengawas": _pengawas(s), "submitted": s.submitted,
+        "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         "files": {"total": len(files), "pending": pending, "failed": [
             {"name": f.name, "error": f.error} for f in files if f.state == "failed"]},
         "scanning": pending > 0,
@@ -295,6 +296,32 @@ def validate_all(sid: str, value: bool = True, db=Depends(get_db)):
             sh.validated = True
     db.commit()
     return {"ok": True}
+
+
+class BatchIn(BaseModel):
+    ids: list[str]
+    value: bool = True
+
+
+@app.post("/api/sheets/validate-batch")
+def validate_batch(body: BatchIn, db=Depends(get_db)):
+    """Validasi/batalkan validasi sekumpulan lembar (mis. halaman yang sedang ditampilkan)."""
+    sheets = list(db.scalars(select(Sheet).where(Sheet.id.in_(body.ids))))
+    if not sheets:
+        return {"changed": 0}
+    if len({x.session_id for x in sheets}) != 1:
+        raise HTTPException(422, "Lembar harus berasal dari satu sesi")
+    if db.get(ScanSession, sheets[0].session_id).submitted:
+        raise HTTPException(409, "Sesi sudah disubmit")
+    changed = 0
+    for sh in sheets:
+        if body.value and classify_scan_status({"status": sh.scan_status}, False) == "Gagal":
+            continue  # lembar gagal tidak bisa divalidasi
+        if sh.validated != body.value:
+            sh.validated = body.value
+            changed += 1
+    db.commit()
+    return {"changed": changed}
 
 
 @app.delete("/api/sheets/{shid}", status_code=204)

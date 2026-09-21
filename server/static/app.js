@@ -2,7 +2,7 @@ const PHONE = v => { const d = (v || "").replace(/[\s\-()+]/g, ""); return /^\d{
 
 function ljk() {
   return {
-    meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "",
+    meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
     _poll: null, _toast: null,
@@ -48,9 +48,9 @@ function ljk() {
     },
     npmCells(s) {
       const t = (s.npm && s.npm !== "-") ? String(s.npm) : "";
-      return Array.from({ length: 10 }, (_, i) => { const c = t[i] || " "; return /\d/.test(c) ? { c, k: "d" } : c === "?" ? { c: "?", k: "x" } : { c: "", k: "e" }; });
+      return Array.from({ length: 10 }, (_, i) => { const c = t[i] || ""; return c.trim(); });
     },
-    npmCount(s) { return this.npmCells(s).filter(c => c.k === "d").length; },
+    npmCount(s) { return this.npmCells(s).filter(c => /^\d$/.test(c)).length; },
     get scanDone() { return this.session ? this.session.files.total - this.session.files.pending : 0; },
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
     get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
@@ -58,7 +58,7 @@ function ljk() {
     get facPick() { return (this.session?.pengawas?.fakultas || "").split(" - ")[0]; },
     facMatch(s) {
       const v = (s.fakultas_ljk || "").toString().trim().toUpperCase();
-      return !v || v === "-" || !this.facPick || v.startsWith(this.facPick.toUpperCase());
+      return !!this.facPick && !!v && v !== "-" && v.startsWith(this.facPick.toUpperCase());
     },
     fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
     nameOf(s) { return s.nama && s.nama !== "-" ? s.nama : "(nama tidak terbaca)"; },
@@ -69,6 +69,30 @@ function ljk() {
       else if (this.filter === "bad") l = l.filter(s => s.label === "Gagal");
       const q = this.q.toLowerCase();
       return q ? l.filter(s => `${s.nama} ${s.npm} ${s.file}`.toLowerCase().includes(q)) : l;
+    },
+    numOf(s) { return (this.session?.sheets || []).findIndex(x => x.id === s.id) + 1; },
+    get pageCount() { return Math.max(1, Math.ceil(this.filtered.length / this.pageSize)); },
+    get curPage() { return Math.min(Math.max(0, this.page), this.pageCount - 1); },
+    get paged() { const a = this.curPage * this.pageSize; return this.filtered.slice(a, a + this.pageSize); },
+    get rangeText() {
+      const n = this.filtered.length; if (!n) return "0 lembar";
+      const a = this.curPage * this.pageSize; return `Menampilkan ${a + 1}–${Math.min(a + this.pageSize, n)} dari ${n} lembar`;
+    },
+    get pageTodo() { return this.paged.filter(s => s.label === "Perlu Validasi").length; },
+    get pageAllValid() { return this.paged.length > 0 && this.paged.every(s => s.validated || s.label === "Gagal") && this.paged.some(s => s.validated); },
+    toTable() { document.querySelector(".tools")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
+    async validatePage() {
+      const want = !this.pageAllValid;
+      const ids = this.paged.filter(s => want ? (!s.validated && s.label !== "Gagal") : s.validated).map(s => s.id);
+      if (!ids.length) { this.toast("Tidak ada lembar yang perlu diubah"); return; }
+      ids.forEach(id => this.apply(id, want));                 // optimistis
+      try { await this.api("/api/sheets/validate-batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, value: want }) });
+            this.toast(want ? `${ids.length} lembar divalidasi` : `Validasi ${ids.length} lembar dibatalkan`); }
+      catch (e) { this.toast(e.message, true); await this.refresh(); }
+    },
+    get submittedAt() {
+      const t = this.session?.submitted_at; if (!t) return "-";
+      try { return new Date(t).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }); } catch { return t; }
     },
     rowCls(s) { return s.label === "OK" ? "ok" : s.label === "Gagal" ? "bad" : "warn"; },
 
@@ -164,7 +188,7 @@ function ljk() {
     close() { this.sel = null; document.body.style.overflow = ""; },
     showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true }; },
     async remove(s) {
-      if (!confirm("Hapus lembar ini dari daftar?")) return;
+      if (!confirm(`Hapus lembar No. ${this.numOf(s)} (${this.nameOf(s)}) dari daftar?\nGunakan ini bila foto terunggah dobel.`)) return;
       try { await this.api(`/api/sheets/${s.id}`, { method: "DELETE" }); this.close(); await this.refresh(); this.toast("Lembar dihapus"); }
       catch (e) { this.toast(e.message, true); }
     },

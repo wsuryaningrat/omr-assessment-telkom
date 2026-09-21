@@ -157,14 +157,40 @@ input::placeholder{color:var(--ink3)}
 .row-act{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .backrow{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .step.click{cursor:pointer}.step.click:hover{border-color:var(--ink3)}
-/* NPM: 10 kotak, terisi = gelap, kosong = putus-putus, ganda = merah */
-.npm{display:inline-flex;gap:2px}
-.npm i{width:17px;height:22px;border:1px solid var(--line);border-radius:4px;display:grid;place-items:center;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-style:normal;background:#fff;color:var(--ink)}
-.npm i.d{background:var(--ink);border-color:var(--ink);color:#fff}
-.npm i.e{border-style:dashed;border-color:#C9CED8;background:var(--bg)}
-.npm i.x{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
-.npm.lg i{width:24px;height:30px;font-size:15px;border-radius:5px}
+/* NPM: 10 kotak, hanya garis tepi, latar polos, teks hitam */
+.npm{display:inline-flex;gap:3px}
+.npm i{width:17px;height:22px;border:1px solid #9AA3B2;border-radius:3px;display:grid;place-items:center;font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;font-style:normal;background:#fff;color:#000}
+.npm.lg i{width:24px;height:30px;font-size:15px;border-radius:4px}
 .npmc{font-size:11.5px;margin-top:3px;font-weight:600}.npmc.full{color:var(--ok)}.npmc.part{color:var(--warn)}
+.fak{font-weight:600}.fak.bad{color:var(--bad)}
+th.c,td.c{text-align:center;width:44px;color:var(--ink2)}
+.btn.ico{width:34px;padding:0}
+.pagebar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:10px 0}
+.pagebar.top{margin-top:0}
+.pgnav{display:flex;align-items:center;gap:10px}
+@media(max-width:560px){.pagebar.top .btn{flex:1}.pgnav{width:100%;justify-content:space-between}}
+.rc .num{width:24px;height:24px;border-radius:7px;background:var(--soft);color:var(--ink2);font:700 12px/24px ui-monospace,Menlo,monospace;text-align:center;flex:none}
+.rc .side{display:flex;flex-direction:column;gap:6px}
+.tick.del{color:var(--bad);border-color:var(--line)}
+/* langkah 3 selesai = hijau */
+.step.finish{background:var(--ok-bg);border-color:var(--ok)}
+.step.finish .n{background:var(--ok)}
+.step.finish b{color:var(--ok)}
+/* terima kasih */
+.thanks{text-align:center;padding:30px 18px;border-color:var(--ok-line)}
+.thanks h2{margin:0 0 4px;font-size:22px}
+.thanks .sub{max-width:520px;margin:0 auto 18px}
+.sumgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:640px;margin:0 auto 16px}
+.sumbox{background:var(--ok-bg);border:1px solid var(--ok-line);border-radius:12px;padding:12px 10px}
+.sumbox small{display:block;color:var(--ink2);font-size:12px}
+.sumbox b{display:block;font-size:26px;font-family:ui-monospace,Menlo,monospace;color:var(--ok);line-height:1.2}
+.sumbox b.t{font-size:14px;font-family:inherit;padding-top:7px;color:var(--ink)}
+.sumwho{max-width:520px;margin:0 auto;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+@media(max-width:560px){.sumgrid{grid-template-columns:1fr 1fr}.sumgrid .sumbox:last-child{grid-column:1/-1}}
 @media(max-width:380px){.npm i{width:15px;height:20px;font-size:11px}}
 
 .rc .kv2 dt{white-space:nowrap}.rc .npmc{margin-top:2px}
+.thanks .ok-ic{width:56px;height:56px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center;margin:0 auto 12px;font-size:28px;border:1px solid var(--ok-line)}
+.npmrow{margin:2px 0 8px}.npmrow small{display:block;color:var(--ink2);font-size:12px;margin-bottom:3px}
+.rc .npm{gap:2px}.rc .npm i{width:16px;height:21px;font-size:11.5px}
+.rc .side .tick{width:40px;height:40px}

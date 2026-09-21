@@ -117,6 +117,23 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(list(rows[0].keys())[:5], ["Submit Date", "Nama Pengawas", "No HP Pengawas", "Ruangan", "Kelas"])
         self.assertEqual(self.c.patch(f"/api/sessions/{sid}", json=new).status_code, 409)  # sudah disubmit
 
+    def test_validate_batch_only_given_ids(self):
+        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", (f"b{i}.pdf", data, "application/pdf")) for i in range(4)])
+        d = self.wait(sid)
+        ids = [x["id"] for x in d["sheets"]]
+        r = self.c.post("/api/sheets/validate-batch", json={"ids": ids[:2], "value": True}).json()
+        self.assertEqual(r["changed"], 2)
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertEqual((d["summary"]["ok"], d["summary"]["perlu_validasi"]), (2, 2))
+        self.assertEqual(self.c.post("/api/sheets/validate-batch", json={"ids": ids[:2], "value": False}).json()["changed"], 2)
+        self.assertEqual(self.c.get(f"/api/sessions/{sid}").json()["summary"]["ok"], 0)
+        self.c.post(f"/api/sessions/{sid}/validate-all")
+        self.c.post(f"/api/sessions/{sid}/submit")
+        self.assertIsNotNone(self.c.get(f"/api/sessions/{sid}").json()["submitted_at"])
+        self.assertEqual(self.c.post("/api/sheets/validate-batch", json={"ids": ids[:1]}).status_code, 409)
+
     def test_many_files_concurrent(self):
         sid = self.c.post("/api/sessions", json=VALID).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()

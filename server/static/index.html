@@ -29,7 +29,7 @@
   <nav class="steps" aria-label="Tahap">
     <div class="step" :class="[step===1?'on':(step>1?'done':''), canGo(1)?'click':'']" @click="go(1)"><span class="n" x-text="step>1?'✓':'1'"></span><div><b><span class="hm">1. </span>Data<span class="hm"> & Unggah</span></b><small x-text="session?.summary.lembar ? session.summary.lembar+' LJK terbaca' : 'Pengawas, kelas, foto'"></small></div></div>
     <div class="step" :class="[step===2?'on':(step>2?'done':'todo'), canGo(2)?'click':'']" @click="go(2)"><span class="n" x-text="step>2?'✓':'2'"></span><div><b><span class="hm">2. </span>Validasi</b><small>Periksa identitas & jawaban</small></div></div>
-    <div class="step" :class="step===3?'on':'todo'"><span class="n">3</span><div><b><span class="hm">3. </span>Selesai</b><small>Submit ke rekap</small></div></div>
+    <div class="step" :class="step===3?'finish':'todo'"><span class="n" x-text="step===3?'✓':'3'"></span><div><b><span class="hm">3. </span>Selesai</b><small x-text="step===3?'Data tersimpan':'Submit ke rekap'"></small></div></div>
   </nav>
 
   <!-- TAHAP 1 -->
@@ -128,29 +128,36 @@
       <div class="tools">
         <div class="tt"><h2>Daftar Mahasiswa & Hasil Pindaian</h2><p>Periksa identitas dan keterisian jawaban, lalu validasi. Klik baris untuk detail.</p></div>
         <div class="f">
-          <input type="search" placeholder="Cari nama / NPM…" x-model.trim="q" aria-label="Cari">
-          <select x-model="filter" aria-label="Filter status">
+          <input type="search" placeholder="Cari nama / NPM…" x-model.trim="q" @input="page=0" aria-label="Cari">
+          <select x-model="filter" @change="page=0" aria-label="Filter status">
             <option value="all">Semua status</option><option value="todo">Perlu validasi</option>
             <option value="ok">Tervalidasi</option><option value="bad">Gagal terbaca</option>
           </select>
         </div>
       </div>
 
+      <div class="pagebar top">
+        <span class="mute" x-text="rangeText"></span>
+        <button class="btn sm" @click="validatePage()" :disabled="!paged.length || busy" x-text="pageAllValid ? 'Batalkan validasi '+paged.length+' di halaman ini' : '✓ Validasi '+pageTodo+' di halaman ini'"></button>
+      </div>
+
       <!-- tabel desktop -->
       <div class="tbl"><table>
-        <thead><tr><th>Status</th><th>Nama mahasiswa</th><th>NPM (10 digit)</th><th>Fakultas (LJK)</th><th>Kode soal</th><th>Jawaban terisi</th><th style="text-align:right">Aksi</th></tr></thead>
+        <thead><tr><th class="c">No</th><th>Status</th><th>Nama mahasiswa</th><th>NPM (10 digit)</th><th>Fakultas</th><th>Kode soal</th><th>Jawaban terisi</th><th style="text-align:right">Aksi</th></tr></thead>
         <tbody>
-          <template x-for="s in filtered" :key="s.id">
+          <template x-for="s in paged" :key="s.id">
             <tr @click="open(s)">
+              <td class="c mono" x-text="numOf(s)"></td>
               <td><span class="chip" :class="rowCls(s)" x-text="s.label==='OK'?'✓ OK':(s.label==='Gagal'?'✕ Gagal':'⚠ Periksa')"></span></td>
               <td><div class="nm" x-text="nameOf(s)"></div><div class="fl" x-text="s.file"></div></td>
-              <td><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></td>
-              <td><span class="chip" x-text="s.fakultas_ljk||'-'"></span> <span class="chip warn" x-show="!facMatch(s)" title="Berbeda dari fakultas yang dipilih pengawas" x-text="'≠ '+facPick"></span></td>
+              <td><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i x-text="c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></td>
+              <td><span class="fak" :class="{bad: !facMatch(s)}" :title="facMatch(s)?'':'Berbeda dari fakultas yang diisi pengawas ('+facPick+')'" x-text="s.fakultas_ljk && s.fakultas_ljk!=='-' ? s.fakultas_ljk : '(kosong)'"></span></td>
               <td class="mono" x-text="s.kode_soal"></td>
               <td><div class="fill"><span class="mono" x-text="s.terisi"></span><div class="bar"><i :class="{low: fillPct(s)<50}" :style="`width:${fillPct(s)}%`"></i></div></div></td>
               <td @click.stop><div class="acts">
                 <button class="btn sm" @click="open(s)">Detail</button>
                 <button class="btn sm" :class="s.validated?'':'p'" :disabled="s.label==='Gagal'" @click="toggle(s)" x-text="s.validated?'Batalkan':'Validasi'"></button>
+                <button class="btn sm ico d" @click="remove(s)" title="Hapus lembar ini" aria-label="Hapus"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>
               </div></td>
             </tr>
           </template>
@@ -159,33 +166,62 @@
 
       <!-- kartu mobile -->
       <div class="only-m">
-        <template x-for="s in filtered" :key="s.id">
+        <template x-for="s in paged" :key="s.id">
           <div class="rc" :class="rowCls(s)">
+            <span class="num" x-text="numOf(s)"></span>
             <div class="main" @click="open(s)">
               <div class="nm" x-text="nameOf(s)"></div>
               <div class="fl" x-text="s.file"></div>
+              <div class="npmrow"><small>NPM</small><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i x-text="c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></div>
               <dl class="kv2">
-                <dt>NPM</dt><dd><div class="npm"><template x-for="(c,i) in npmCells(s)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(s)===10?'full':'part'" x-text="npmCount(s)+'/10 digit'"></div></dd>
-                <dt>Fakultas</dt><dd><span x-text="s.fakultas_ljk||'-'"></span> <span x-show="!facMatch(s)" style="color:var(--warn)" x-text="'(≠ '+facPick+')'"></span></dd>
+                <dt>Fakultas</dt><dd><span class="fak" :class="{bad: !facMatch(s)}" x-text="s.fakultas_ljk && s.fakultas_ljk!=='-' ? s.fakultas_ljk : '(kosong)'"></span></dd>
                 <dt>Kode soal</dt><dd class="mono" x-text="s.kode_soal"></dd>
                 <dt>Terisi</dt><dd class="mono" x-text="s.terisi"></dd>
               </dl>
             </div>
-            <button class="tick" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" :aria-label="s.validated?'Batalkan validasi':'Validasi'" x-text="s.validated?'✓':'○'"></button>
+            <div class="side">
+              <button class="tick" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" :aria-label="s.validated?'Batalkan validasi':'Validasi'" x-text="s.validated?'✓':'○'"></button>
+              <button class="tick del" @click="remove(s)" aria-label="Hapus lembar"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>
+            </div>
           </div>
         </template>
       </div>
       <p class="empty" x-show="!filtered.length" x-text="session?.scanning?'Menunggu hasil pindai…':'Tidak ada lembar yang cocok.'"></p>
+
+      <div class="pagebar" x-show="filtered.length">
+        <label class="mute">Tampilkan
+          <select x-model.number="pageSize" @change="page=0" style="width:auto;height:34px;font-size:13px;padding-right:28px;margin-left:4px">
+            <option value="10">10</option><option value="20">20</option><option value="50">50</option>
+          </select> per halaman</label>
+        <span class="pgnav">
+          <button class="btn sm" @click="page=curPage-1; toTable()" :disabled="curPage<=0">← Sebelumnya</button>
+          <span class="mute" x-text="(curPage+1)+' / '+pageCount"></span>
+          <button class="btn sm" @click="page=curPage+1; toTable()" :disabled="curPage>=pageCount-1">Berikutnya →</button>
+        </span>
+      </div>
     </div>
   </section>
 
   <!-- TAHAP 3 -->
   <section x-show="step===3">
-    <div class="card done">
+    <div class="card thanks">
       <div class="ok-ic">✓</div>
-      <h2 style="margin:0 0 4px">Data berhasil disubmit</h2>
-      <p class="sub" style="margin-bottom:16px"><span x-text="session?.summary.lembar"></span> lembar LJK tersimpan ke rekap.</p>
-      <button class="btn p" @click="resetAll()">Evaluasi baru</button>
+      <h2>Terima kasih, <span x-text="session?.pengawas?.nama"></span>!</h2>
+      <p class="sub">Terima kasih telah mengawasi pelaksanaan ujian. Seluruh lembar jawaban yang Anda periksa sudah tersimpan ke rekap.</p>
+      <div class="sumgrid">
+        <div class="sumbox"><small>Foto / lembar diperiksa</small><b x-text="session?.summary.lembar"></b></div>
+        <div class="sumbox"><small>Tervalidasi</small><b x-text="session?.summary.ok"></b></div>
+        <div class="sumbox"><small>Waktu submit</small><b class="t" x-text="submittedAt"></b></div>
+      </div>
+      <dl class="who sumwho">
+        <dt>Nama pengawas</dt><dd x-text="session?.pengawas?.nama"></dd>
+        <dt>Nomor HP</dt><dd x-text="session?.pengawas?.hp"></dd>
+        <dt>Ruangan</dt><dd x-text="session?.pengawas?.ruangan"></dd>
+        <dt>Nama kelas</dt><dd x-text="session?.pengawas?.kelas || '-'"></dd>
+        <dt>Fakultas</dt><dd x-text="session?.pengawas?.fakultas"></dd>
+        <dt>Program studi</dt><dd x-text="session?.pengawas?.prodi"></dd>
+      </dl>
+      <button class="btn p" style="margin-top:16px" @click="resetAll()">Evaluasi baru</button>
     </div>
   </section>
 </main>
@@ -210,8 +246,8 @@
       <h3 x-text="nameOf(sel)"></h3>
       <span class="chip" :class="rowCls(sel)" x-text="sel.label"></span> <span class="mono" style="font-size:12px;color:var(--ink2)" x-text="sel.file"></span>
       <dl class="kv">
-        <dt>NPM</dt><dd><div class="npm lg"><template x-for="(c,i) in npmCells(sel)" :key="i"><i :class="c.k" x-text="c.c"></i></template></div><div class="npmc" :class="npmCount(sel)===10?'full':'part'" x-text="npmCount(sel)+'/10 digit'+(npmCount(sel)<10?' — periksa preview':'')"></div></dd>
-        <dt>Fakultas (LJK)</dt><dd><span x-text="sel.fakultas_ljk||'-'"></span> <span x-show="!facMatch(sel)" style="color:var(--warn)" x-text="'≠ pilihan pengawas ('+facPick+')'"></span></dd>
+        <dt>NPM</dt><dd><div class="npm lg"><template x-for="(c,i) in npmCells(sel)" :key="i"><i x-text="c"></i></template></div><div class="npmc" :class="npmCount(sel)===10?'full':'part'" x-text="npmCount(sel)+'/10 digit'+(npmCount(sel)<10?' — periksa preview':'')"></div></dd>
+        <dt>Fakultas</dt><dd><span class="fak" :class="{bad: !facMatch(sel)}" x-text="sel.fakultas_ljk && sel.fakultas_ljk!=='-' ? sel.fakultas_ljk : '(kosong)'"></span> <span class="mute" x-show="!facMatch(sel)" x-text="'· pengawas mengisi '+facPick"></span></dd>
         <dt>Kode soal</dt><dd class="mono" x-text="sel.kode_soal"></dd>
         <dt>Jawaban terisi</dt><dd class="mono" x-text="sel.terisi"></dd>
       </dl>
