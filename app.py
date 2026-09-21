@@ -1058,7 +1058,7 @@ def is_valid_phone(value):
     return digits.isdigit() and 9 <= len(digits) <= 15
 
 
-def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None):
+def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None, with_overlay=False):
     """Runs the full OMR pipeline (alignment + decode + grading) on one page/photo
     and returns (student_record, preview). Shared by the batch scan and the
     per-row 'Ganti Foto' replacement flow so both stay perfectly in sync."""
@@ -1145,12 +1145,34 @@ def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_peng
         student_record["Kunci Terpakai"] = "-"
 
     # Tidak menyimpan citra (overlay/warped) — hanya status, supaya RAM per sesi kecil.
+    # Preview dibuat on-demand lewat build_preview_on_demand().
     preview = {
         "name": doc_name,
         "status": status,
         "method": method
     }
+    if with_overlay:
+        # Hanya dibuat saat pengawas meminta preview; tidak pernah disimpan di session.
+        preview["overlay"] = draw_reading_overlay(warped, fields_dict, gray_warped, thresh=0.28, margin=0.08)
     return student_record, preview
+
+
+def build_preview_on_demand(src, doc_name, template, k_cache, fakultas_v, pengawas_v, pengawas_info):
+    """Proses ulang satu halaman dari berkas sumbernya dan kembalikan citra hasil
+    preprocessing (crop/align) + tanda bubble terbaca. Tidak disimpan di session."""
+    upload = src.get("upload")
+    if upload is None:
+        for uf in (st.session_state.get("ljk_uploader") or []):
+            if getattr(uf, "name", None) == src.get("file") and getattr(uf, "size", None) == src.get("size"):
+                upload = uf
+                break
+    if upload is None:
+        return None
+    for n, (_, img_bgr) in enumerate(iter_images_from_file(upload, target_dpi=200, max_side=SCAN_MAX_SIDE)):
+        if n == src.get("page", 0):
+            _, prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache, pengawas_info, with_overlay=True)
+            return prev.get("overlay")
+    return None
 
 
 @st.dialog("🔍 Detail Lembar Jawaban", width="large")
@@ -1184,10 +1206,12 @@ def show_inspect_dialog():
         with nav_prev:
             if st.button("⬅️ Sebelumnya", use_container_width=True, disabled=idx <= 0, key="inspect_nav_prev"):
                 st.session_state["_inspect_idx"] = idx - 1
+                st.session_state.pop("_preview_shown_idx", None)
                 st.rerun()
         with nav_next:
             if st.button("Berikutnya ➡️", use_container_width=True, disabled=idx >= len(results) - 1, key="inspect_nav_next"):
                 st.session_state["_inspect_idx"] = idx + 1
+                st.session_state.pop("_preview_shown_idx", None)
                 st.rerun()
         with nav_val:
             if is_validated:
@@ -1225,6 +1249,7 @@ def show_inspect_dialog():
                     doc_name, img_bgr = first_page
                     new_rec, new_prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache_v, st.session_state.get("_pengawas_info"))
                     st.session_state["dosen_results"][idx] = new_rec
+                    new_prev["src"] = {"upload": new_photo, "page": 0}
                     st.session_state["dosen_previews"][idx] = new_prev
                     st.session_state["dosen_validated"][idx] = False
                     st.toast("✅ Foto berhasil diganti & diproses ulang!", icon="🔁")
@@ -1242,6 +1267,34 @@ def show_inspect_dialog():
     )
     if is_gagal:
         st.warning(f"⚠️ Ujung pojok LJK tidak terdeteksi (**{st_status}**) — ganti dengan foto baru di atas.")
+
+    # Preview on-demand: 1 gambar hasil preprocessing + bubble terbaca (hijau = terisi, merah = ganda).
+    if st.session_state.get("_preview_shown_idx") == idx:
+        if st.button("🙈 Sembunyikan Preview", use_container_width=True, key=f"hide_prev_{idx}"):
+            st.session_state.pop("_preview_shown_idx", None)
+            st.rerun()
+        with st.spinner("Membuat preview..."):
+            try:
+                ov = build_preview_on_demand(
+                    prev.get("src", {}) if isinstance(prev, dict) else {}, rec.get("File", "-"),
+                    load_default_template(), st.session_state.get("kunci_jawaban_cache", {}),
+                    st.session_state.get("_fakultas_pilihan", "-"), st.session_state.get("_nama_pengawas", "-"),
+                    st.session_state.get("_pengawas_info"),
+                )
+            except Exception as e:
+                ov = None
+                st.error(f"Gagal membuat preview: {e}")
+        # st.image perlu dibungkus stColumn agar lebarnya stabil di dalam dialog.
+        img_col = st.columns(1)[0]
+        with img_col:
+            if ov is not None:
+                st.image(cv_to_pil(ov), use_container_width=True, caption="Hijau = jawaban terbaca, merah = terisi ganda")
+            else:
+                st.info("Preview tidak tersedia (berkas sumber sudah tidak ada di memori).")
+    elif not is_gagal:
+        if st.button("🖼️ Tampilkan Preview", use_container_width=True, key=f"show_prev_{idx}"):
+            st.session_state["_preview_shown_idx"] = idx
+            st.rerun()
 
 # ------------------------------------------------------------------------------
 # TOP TELKOM BRAND HEADER
@@ -1562,8 +1615,9 @@ if mode == "Portal Evaluasi LJK":
 
         for f_idx, uf in enumerate(uploaded_files_dosen):
             try:
-                for doc_name, img_bgr in iter_images_from_file(uf, target_dpi=200, max_side=SCAN_MAX_SIDE):
+                for p_idx, (doc_name, img_bgr) in enumerate(iter_images_from_file(uf, target_dpi=200, max_side=SCAN_MAX_SIDE)):
                     student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info)
+                    preview["src"] = {"file": getattr(uf, "name", None), "size": getattr(uf, "size", None), "page": p_idx}
                     del img_bgr
                     dosen_results.append(student_record)
                     dosen_previews.append(preview)
@@ -1713,7 +1767,7 @@ if mode == "Portal Evaluasi LJK":
                     btn_c1, btn_c2, btn_c3 = st.columns(3)
                     with btn_c1:
                         if st.button("🔍", key=f"inspect_btn_{i}",
-                                     use_container_width=True, help="Detail / ganti foto"):
+                                     use_container_width=True, help="Detail, preview, ganti foto"):
                             st.session_state["_inspect_idx"] = i
                             st.rerun()
                     with btn_c2:
@@ -1746,6 +1800,7 @@ if mode == "Portal Evaluasi LJK":
             st.session_state["dosen_results"].pop(_idx_to_delete)
             st.session_state["dosen_previews"].pop(_idx_to_delete)
             st.session_state["dosen_validated"].pop(_idx_to_delete)
+            st.session_state.pop("_preview_shown_idx", None)
             st.toast("🗑️ Lembar dihapus dari daftar.", icon="🗑️")
             st.rerun()
 
@@ -1794,7 +1849,7 @@ if mode == "Portal Evaluasi LJK":
 
             with col_act3:
                 if st.button("🔄 Evaluasi Baru", use_container_width=True, help="Reset untuk berkas baru"):
-                    for k in ("dosen_results", "dosen_previews", "dosen_validated", "_inspect_idx"):
+                    for k in ("dosen_results", "dosen_previews", "dosen_validated", "_inspect_idx", "_preview_shown_idx"):
                         st.session_state.pop(k, None)
                     st.session_state["dosen_submitted"] = False
                     st.rerun()
