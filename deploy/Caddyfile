@@ -1,0 +1,5 @@
+# Ganti dengan domain Anda (HTTPS otomatis). Untuk uji tanpa domain: ":80"
+:80 {
+	request_body { max_size 12MB }
+	reverse_proxy api:8000 { flush_interval -1 }
+}

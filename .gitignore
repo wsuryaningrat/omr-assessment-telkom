@@ -30,3 +30,6 @@ Thumbs.db
 ~$*
 *.tmp
 *.zip
+.venv-server/
+data/
+deploy/.env
