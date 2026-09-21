@@ -1017,7 +1017,45 @@ def render_status_pill(label):
     )
 
 
-def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache):
+# Fakultas -> program studi (sumber: https://telkomuniversity.ac.id/program-sarjana/)
+FAKULTAS_PRODI = {
+    "FTE - Fakultas Teknik Elektro": [
+        "S1 Teknik Fisika", "S1 Teknik Telekomunikasi", "S1 Teknik Biomedis",
+        "S1 Teknik Sistem Energi", "S1 Teknik Elektro", "S1 Teknik Komputer",
+    ],
+    "FRI - Fakultas Rekayasa Industri": [
+        "S1 Sistem Informasi", "S1 Teknik Industri", "S1 Teknik Logistik", "S1 Manajemen Rekayasa",
+    ],
+    "FIF - Fakultas Informatika": [
+        "S1 Teknologi Informasi", "S1 Rekayasa Perangkat Lunak", "S1 Informatika",
+        "S1 PJJ Informatika", "S1 Sains Data",
+    ],
+    "FEB - Fakultas Ekonomi dan Bisnis": [
+        "S1 Manajemen", "S1 Akuntansi", "S1 Manajemen Bisnis Rekreasi",
+        "S1 Administrasi Bisnis", "S1 Bisnis Digital",
+    ],
+    "FKS - Fakultas Komunikasi dan Ilmu Sosial": [
+        "S1 Ilmu Komunikasi", "S1 Hubungan Masyarakat", "S1 Penyiaran Konten Digital", "S1 Psikologi",
+    ],
+    "FIK - Fakultas Industri Kreatif": [
+        "S1 Desain Komunikasi Visual", "S1 Desain Produk", "S1 Desain Interior",
+        "S1 Kriya", "S1 Seni Rupa", "S1 Film",
+    ],
+    "FIT - Fakultas Ilmu Terapan": [
+        "D3 Teknologi Telekomunikasi", "D3 Rekayasa Perangkat Lunak Aplikasi", "D3 Sistem Informasi",
+        "D3 Sistem Informasi Akuntansi", "D3 Teknologi Komputer", "D3 Manajemen Pemasaran",
+        "D3 Perhotelan", "S1 Terapan Teknologi Rekayasa Multimedia",
+        "S1 Terapan Sistem Informasi Kota Cerdas",
+    ],
+}
+
+
+def is_valid_phone(value):
+    digits = re.sub(r"[\s\-()+]", "", value or "")
+    return digits.isdigit() and 9 <= len(digits) <= 15
+
+
+def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None):
     """Runs the full OMR pipeline (alignment + decode + grading) on one page/photo
     and returns (student_record, preview). Shared by the batch scan and the
     per-row 'Ganti Foto' replacement flow so both stay perfectly in sync."""
@@ -1050,10 +1088,13 @@ def process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_peng
     student_record = {
         "Submit Date": current_submit_time,
         "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
+        "No HP Pengawas": (pengawas_info or {}).get("hp", "-") or "-",
+        "Ruangan": (pengawas_info or {}).get("ruangan", "-") or "-",
         "File": doc_name,
         "NPM": decoded_all.get("NPM", "-"),
         "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
         "Fakultas": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
+        "Program Studi": (pengawas_info or {}).get("prodi", "-") or "-",
         "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
         "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),
     }
@@ -1182,7 +1223,7 @@ def show_inspect_dialog():
                 pages = extract_images_from_file(new_photo, target_dpi=200)
                 if pages and template:
                     doc_name, img_bgr = pages[0]
-                    new_rec, new_prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache_v)
+                    new_rec, new_prev = process_single_page(img_bgr, doc_name, template, fakultas_v, pengawas_v, k_cache_v, st.session_state.get("_pengawas_info"))
                     st.session_state["dosen_results"][idx] = new_rec
                     st.session_state["dosen_previews"][idx] = new_prev
                     st.session_state["dosen_validated"][idx] = False
@@ -1339,10 +1380,13 @@ else:
 ORDERED_REKAP_PREFIX = [
     "Submit Date",
     "Nama Pengawas",
+    "No HP Pengawas",
+    "Ruangan",
     "File",
     "NPM",
     "Nama Mahasiswa",
     "Fakultas",
+    "Program Studi",
     "Fakultas (LJK)",
     "Kode Soal",
     "Jawaban Terisi",
@@ -1386,35 +1430,56 @@ if mode == "Portal Evaluasi LJK":
     _current_step = 3 if _is_submitted else (2 if _has_results else 1)
     render_ljk_stepper(_current_step)
 
-    # 1. Pilihan Fakultas Mahasiswa & Nama Pengawas — selalu satu baris
+    # 1. Identitas Pengawas & Fakultas / Program Studi Mahasiswa
     with st.container(key="ljk_form_row_top"):
-        col_fak, col_dos = st.columns([3, 2])
+        col_dos, col_hp, col_room = st.columns([3, 2, 2])
+        with col_dos:
+            nama_pengawas = st.text_input(
+                "Nama Lengkap Pengawas",
+                value="",
+                placeholder="Nama lengkap pengawas...",
+                help="Wajib diisi: Nama lengkap pengawas."
+            )
+        with col_hp:
+            hp_pengawas = st.text_input(
+                "Nomor HP Pengawas",
+                value="",
+                placeholder="08xxxxxxxxxx",
+                help="Wajib diisi: Nomor HP pengawas yang dapat dihubungi."
+            )
+        with col_room:
+            ruangan = st.text_input(
+                "Ruangan",
+                value="",
+                placeholder="Contoh: TULT 0603",
+                help="Wajib diisi: Ruangan pelaksanaan."
+            )
+        col_fak, col_prodi = st.columns([1, 1])
         with col_fak:
             fakultas_pilihan = st.selectbox(
-                "Fakultas",
-                options=[
-                    "FIF - Fakultas Informatika",
-                    "FRI - Fakultas Rekayasa Industri",
-                    "FTE - Fakultas Teknik Elektro",
-                    "FEB - Fakultas Ekonomi dan Bisnis",
-                    "FKB - Fakultas Komunikasi dan Bisnis",
-                    "FIK - Fakultas Industri Kreatif",
-                    "FIT - Fakultas Ilmu Terapan",
-                    "Semua Fakultas / Gabungan"
-                ],
+                "Fakultas Mahasiswa",
+                options=list(FAKULTAS_PRODI.keys()),
                 index=None,
                 placeholder="-- Pilih Fakultas --",
                 help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi."
             )
-        with col_dos:
-            nama_pengawas = st.text_input(
-                "Nama Pengawas",
-                value="",
-                placeholder="Nama Pengawas...",
-                help="Wajib diisi: Nama pengawas."
+        with col_prodi:
+            prodi_pilihan = st.selectbox(
+                "Program Studi Mahasiswa",
+                options=FAKULTAS_PRODI.get(fakultas_pilihan, []),
+                index=None,
+                placeholder="-- Pilih Program Studi --" if fakultas_pilihan else "-- Pilih Fakultas dulu --",
+                disabled=not fakultas_pilihan,
+                help="Wajib dipilih: Program studi mahasiswa (mengikuti fakultas)."
             )
+    pengawas_info = {
+        "hp": hp_pengawas.strip(),
+        "ruangan": ruangan.strip(),
+        "prodi": prodi_pilihan or "-",
+    }
     st.session_state["_fakultas_pilihan"] = fakultas_pilihan
     st.session_state["_nama_pengawas"] = nama_pengawas
+    st.session_state["_pengawas_info"] = pengawas_info
 
     # Status Kunci Jawaban Auto-Nilai (Dikelola oleh Admin di Google Sheet)
     if "kunci_jawaban_cache" not in st.session_state or st.session_state["kunci_jawaban_cache"] is None:
@@ -1457,7 +1522,11 @@ if mode == "Portal Evaluasi LJK":
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
     oversized_files = [uf.name for uf in (uploaded_files_dosen or []) if getattr(uf, "size", 0) > MAX_FILE_SIZE_BYTES]
 
-    is_form_complete = bool(fakultas_pilihan) and bool(nama_pengawas and nama_pengawas.strip())
+    _phone_ok = is_valid_phone(hp_pengawas)
+    is_form_complete = (
+        bool(nama_pengawas.strip()) and _phone_ok and bool(ruangan.strip())
+        and bool(fakultas_pilihan) and bool(prodi_pilihan)
+    )
     has_files = bool(uploaded_files_dosen) and len(oversized_files) == 0
 
     # Pemindaian berjalan otomatis begitu berkas & form lengkap.
@@ -1468,10 +1537,18 @@ if mode == "Portal Evaluasi LJK":
         st.error(f"⚠️ Berkas melebihi batas ukuran 10MB: **{', '.join(oversized_files)}**.")
     elif bool(uploaded_files_dosen) and not is_form_complete:
         missing_fields = []
+        if not nama_pengawas.strip():
+            missing_fields.append("Nama Lengkap Pengawas")
+        if not hp_pengawas.strip():
+            missing_fields.append("Nomor HP Pengawas")
+        elif not _phone_ok:
+            missing_fields.append("Nomor HP Pengawas (format tidak valid)")
+        if not ruangan.strip():
+            missing_fields.append("Ruangan")
         if not fakultas_pilihan:
             missing_fields.append("Fakultas Mahasiswa")
-        if not (nama_pengawas and nama_pengawas.strip()):
-            missing_fields.append("Nama Pengawas")
+        if not prodi_pilihan:
+            missing_fields.append("Program Studi Mahasiswa")
         st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
 
     if uploaded_files_dosen and should_auto_scan and is_form_complete:
@@ -1503,7 +1580,7 @@ if mode == "Portal Evaluasi LJK":
         dosen_previews = []
 
         for idx, (doc_name, img_bgr) in enumerate(all_pages_to_process):
-            student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache)
+            student_record, preview = process_single_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info)
             dosen_results.append(student_record)
             dosen_previews.append(preview)
             prog.progress((idx + 1) / n_pages, text=f"Memindai {idx + 1} / {n_pages} lembar...")
