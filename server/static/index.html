@@ -271,7 +271,7 @@
 <!-- dialog konfirmasi -->
 <template x-if="dlg">
   <div>
-    <div class="veil" style="z-index:70" @click="answer(false)"></div>
+    <div class="veil" style="z-index:70" @click="veil()"></div>
     <div class="dlg" role="alertdialog" aria-modal="true">
       <h3 x-text="dlg.title"></h3>
       <p x-text="dlg.body"></p>
@@ -284,6 +284,6 @@
   </div>
 </template>
 
-<div class="toast" :class="{bad: msg.bad}" x-show="msg.text" x-text="msg.text" x-transition.opacity></div>
+<div class="toast" :class="{bad: msg.bad}" x-show="msg.show" x-text="msg.text" x-transition.opacity role="status" aria-live="polite"></div>
 </body>
 </html>

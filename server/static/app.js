@@ -8,6 +8,7 @@ function clientLog(ev, data) {
 }
 function surfaceError(msg) {
   clientLog("error", { msg: String(msg).slice(0, 300) });
+  if (/ResizeObserver|Script error|Load failed|Failed to fetch|NetworkError|AbortError/i.test(String(msg))) return;   // sepele / jaringan sesaat
   try { const a = Alpine.$data(document.body); a.toast("Terjadi kesalahan: " + String(msg).slice(0, 120), true); } catch {}
 }
 addEventListener("error", e => surfaceError(e.message));
@@ -19,7 +20,7 @@ function ljk() {
   return {
     meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
-    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false },
+    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
 
     async init() {
@@ -105,7 +106,8 @@ function ljk() {
       return c;
     },
     setFilter(f) { this.filter = this.filter === f ? "all" : f; this.page = 0; },
-    ask(o) { return new Promise(res => { this.dlg = { ok: "OK", cancel: "Batal", danger: false, ...o }; this._dlgRes = res; }); },
+    ask(o) { return new Promise(res => { this._dlgAt = Date.now(); this.dlg = { ok: "OK", cancel: "Batal", danger: false, ...o }; this._dlgRes = res; clientLog("dialog_open", { t: o.title }); }); },
+    veil() { if (Date.now() - this._dlgAt > 500) this.answer(false); },
     answer(v) { const r = this._dlgRes; this.dlg = null; this._dlgRes = null; if (r) r(v); },
     async confirmForce(list) {
       const one = list.length === 1;
@@ -165,8 +167,9 @@ function ljk() {
 
     // ---- util
     toast(text, bad = false) {
-      this.msg = { text, bad }; clearTimeout(this._toast);
-      this._toast = setTimeout(() => (this.msg = { text: "", bad: false }), 2600);
+      this.msg = { text, bad, show: true }; clearTimeout(this._toast);
+      if (bad) clientLog("toast_bad", { msg: String(text).slice(0, 200) });
+      this._toast = setTimeout(() => { this.msg.show = false; }, bad ? 3200 : 2200);   // teks dibiarkan agar tidak muncul kotak kosong saat memudar
     },
     async api(path, opt = {}) {
       const r = await fetch(path, opt);
@@ -180,7 +183,7 @@ function ljk() {
     // ---- sesi & polling
     async refresh(initial = false) {
       try { this.session = await this.api(`/api/sessions/${this.sid}`); }
-      catch (e) { if (initial) { this.forget(); } else { this.toast(e.message, true); } return; }
+      catch (e) { if (initial) { this.forget(); } else { clientLog("refresh_fail", { msg: String(e.message).slice(0, 120) }); } return; }
       if (this.session.scanning) this.poll();
     },
     poll() {

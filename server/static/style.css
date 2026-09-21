@@ -146,7 +146,7 @@ input::placeholder{color:var(--ink3)}
 .skel{background:linear-gradient(90deg,var(--soft),#fff,var(--soft));background-size:200% 100%;animation:sk 1.2s infinite;border-radius:10px;height:140px;margin-top:10px}
 @keyframes sk{to{background-position:-200% 0}}
 .sticky-act{position:sticky;bottom:0;display:flex;gap:8px;margin:14px -16px 0;padding:10px 16px calc(12px + var(--safe-b));background:#fff;border-top:1px solid var(--line)}
-.toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:99px;font-size:13.5px;z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:92vw;animation:in .2s}
+.toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:99px;font-size:13.5px;z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:92vw;animation:fade .2s}
 .toast.bad{background:var(--bad)}
 .done{text-align:center;padding:34px 14px}.done .ok-ic{width:60px;height:60px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center;margin:0 auto 12px;font-size:30px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
