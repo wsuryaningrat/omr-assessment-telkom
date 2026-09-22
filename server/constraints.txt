@@ -1,4 +1,6 @@
-# Versi yang SUDAH DIUJI (43+ tes, termasuk regresi pembacaan). Dipakai Dockerfile agar image produksi = yang diuji.
+# Versi yang SUDAH DIUJI (termasuk di VPS x86_64 dengan CPU virtual minim: 'Common KVM processor',
+# tanpa SSSE3/SSE4.1/SSE4.2/POPCNT). numpy>=2.3 dikompilasi dengan baseline x86-64-v2 dan GAGAL
+# start (RuntimeError saat import) di CPU semacam itu -> numpy dikunci ke 2.2.6. (43+ tes, termasuk regresi pembacaan). Dipakai Dockerfile agar image produksi = yang diuji.
 # Perbarui: buat venv bersih, pip install -r server/requirements.txt, jalankan semua tes, lalu: pip freeze > server/constraints.txt
 annotated-doc==0.0.5
 annotated-types==0.8.0
@@ -20,7 +22,7 @@ httpx==0.28.1
 idna==3.20
 itsdangerous==2.2.0
 msal==1.39.0
-numpy==2.4.6
+numpy==2.2.6
 oauthlib==3.3.1
 opencv-python-headless==5.0.0.93
 openpyxl==3.1.5
