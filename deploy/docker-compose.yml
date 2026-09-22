@@ -39,6 +39,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:?isi PUBLIC_URL (https://domain-anda) di deploy/.env}
       SESSION_SECRET: ${SESSION_SECRET:?isi SESSION_SECRET (acak, panjang) di deploy/.env}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      ADMIN_ALLOW_TOKEN: ${ADMIN_ALLOW_TOKEN:-0}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       ADMIN_DOMAINS: ${ADMIN_DOMAINS:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
