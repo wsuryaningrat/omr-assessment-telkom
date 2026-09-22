@@ -16,8 +16,13 @@
 
 <header><div class="in">
   <div class="brand">
-    <img class="full" src="/logo.png" alt="Telkom University">
-    <img class="mark" src="/icon.png" alt="Telkom University">
+    <a href="https://telkomuniversity.ac.id/" target="_blank" rel="noopener" title="Telkom University">
+      <img class="full" src="/logo.png" alt="Telkom University">
+      <img class="mark" src="/icon.png" alt="Telkom University">
+    </a>
+    <a href="https://cswda.id/" target="_blank" rel="noopener" title="CSWDA" class="cswda-link">
+      <img class="cswda" src="/cswda-logo.png" alt="CSWDA">
+    </a>
     <h1>Evaluasi LJK<small>Profiling Literasi Numerik</small></h1>
   </div>
   <button class="btn sm" x-show="sid" @click="resetAll()"><span class="hm">Evaluasi baru</span><span class="ms">Baru</span></button>
@@ -240,6 +245,7 @@
       <button class="btn p" style="margin-top:16px" @click="resetAll()">Evaluasi baru</button>
     </div>
   </section>
+  <footer class="devby">developed by WHS MathCenter CSWDA Telkom University</footer>
 </main>
 
 <div class="bottom" x-show="ready && step===1"><div class="in">
