@@ -36,14 +36,14 @@
   <section x-show="step===1">
     <div class="two split">
       <div class="card">
-        <h2>Data Pengawas & Kelas</h2>
-        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Wajib diisi sebelum mengunggah foto LJK.'"></p>
+        <h2>Data Pengawas</h2>
+        <p class="sub">Identitas pengawas ujian. Hanya nama dan nomor HP.</p>
         <div class="grid">
           <div class="full">
             <label class="f" for="nama">Nama Lengkap Pengawas</label>
             <input id="nama" x-model.trim="form.nama" autocomplete="name" placeholder="Nama lengkap">
           </div>
-          <div>
+          <div class="full">
             <label class="f" for="hp">Nomor HP</label>
             <div class="hpgrp" :class="{bad: form.hp && !phoneOk}">
               <span class="pre">+62</span>
@@ -51,7 +51,14 @@
             </div>
             <div class="err" x-show="form.hp && !phoneOk">Nomor seluler diawali 8 (mis. 812 3456 7890)</div>
           </div>
-          <div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Data Ujian &amp; Peserta</h2>
+        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Ruangan, fakultas, program studi, dan kelas peserta ujian.'"></p>
+        <div class="grid">
+          <div class="full">
             <label class="f" for="rg">Ruangan</label>
             <input id="rg" x-model.trim="form.ruangan" placeholder="Contoh: TULT 0603">
           </div>
@@ -82,14 +89,16 @@
             <input id="kl" x-model.trim="form.kelas" placeholder="Contoh: IF-47-01">
           </div>
         </div>
-        <div class="row-act" x-show="sid">
-          <button class="btn p sm" @click="saveIdentity()" :disabled="!dirty || !formValid || busy">Simpan perubahan</button>
-          <span class="mute" x-show="dirty && !formValid">Lengkapi semua isian dulu</span>
-          <span class="mute" x-show="!dirty">Tersimpan ✓</span>
-        </div>
       </div>
+    </div>
 
-      <div class="card">
+    <div class="row-act" x-show="sid" style="margin-top:12px">
+      <button class="btn p sm" @click="saveIdentity()" :disabled="!dirty || !formValid || busy">Simpan perubahan</button>
+      <span class="mute" x-show="dirty && !formValid">Lengkapi semua isian dulu</span>
+      <span class="mute" x-show="!dirty">Tersimpan ✓</span>
+    </div>
+
+    <div class="card" style="margin-top:16px">
         <h2>Unggah Foto LJK</h2>
         <p class="sub">Sistem otomatis mendeteksi marker, merapikan posisi, dan membaca bulatan.</p>
         <div class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
@@ -113,7 +122,6 @@
           <span class="mute"><b x-text="session?.summary.lembar"></b> lembar sudah terbaca</span>
           <button class="btn p sm" style="margin-left:auto" @click="go(2)">Lanjut ke validasi →</button>
         </div>
-      </div>
     </div>
   </section>
 
