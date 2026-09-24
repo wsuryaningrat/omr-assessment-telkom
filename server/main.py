@@ -115,6 +115,8 @@ async def lifespan(app):
     global _pool
     os.makedirs(config.UPLOAD_DIR, exist_ok=True)
     init_db()
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(var, "1")   # diwarisi proses pemindai: cegah thread numpy/BLAS berebut core
     _pool = ProcessPoolExecutor(max_workers=config.SCAN_WORKERS, initializer=worker.init_worker, initargs=(os.getpid(),))
     list(_pool.map(worker.warmup, range(config.SCAN_WORKERS)))  # muat template sekali per proses
     with SessionLocal() as db:  # pulihkan pekerjaan yang terputus saat restart

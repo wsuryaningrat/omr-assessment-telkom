@@ -66,6 +66,22 @@ def init_worker(parent_pid):
     import threading
     import time
 
+    # Pemindaian menghabiskan CPU. Prioritas lebih rendah (nice) agar proses API (polling status, upload) tetap
+    # responsif saat semua core dipakai memindai. Ubah/matikan lewat SCAN_NICE (0 = normal).
+    try:
+        os.nice(int(os.environ.get("SCAN_NICE", "10")))
+    except (OSError, ValueError, AttributeError):
+        pass
+
+    # PENTING: satu thread OpenCV per worker. Default OpenCV memakai semua core di TIAP proses; dengan process pool
+    # itu membuat thread saling berebut core (oversubscription): diukur di VPS 4 vCPU, 4 worker x 4 thread hanya
+    # 0,43 foto/dtk, sedangkan 4 worker x 1 thread 0,58 foto/dtk (skala hampir linear). Hasil pembacaan identik.
+    try:
+        import cv2
+        cv2.setNumThreads(int(os.environ.get("SCAN_CV_THREADS", "1")))
+    except Exception:  # noqa: BLE001
+        pass
+
     def _watch():
         while True:
             time.sleep(2)

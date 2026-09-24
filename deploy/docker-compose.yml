@@ -54,7 +54,7 @@ services:
     volumes:
       - uploads:/data/uploads
       - ./secrets:/run/secrets:ro        # mis. gsheet.toml -> GSHEET_CREDENTIALS=/run/secrets/gsheet.toml
-    mem_limit: 1300m
+    mem_limit: ${API_MEM_LIMIT:-1300m}
     stop_grace_period: 20s
     logging: *logging
 

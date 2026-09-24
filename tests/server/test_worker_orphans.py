@@ -29,6 +29,39 @@ def alive(pid):
         return False
 
 
+def _nice_of_worker():
+    import os
+    return os.nice(0)
+
+
+def _cv_threads_of_worker():
+    import cv2
+    return cv2.getNumThreads()
+
+
+class TestWorkerPriority(unittest.TestCase):
+    def test_workers_run_with_lower_cpu_priority(self):
+        """Pekerja pemindai harus berprioritas lebih rendah dari proses API (nice >= 10)."""
+        import os
+        from concurrent.futures import ProcessPoolExecutor
+        from server import worker
+        with ProcessPoolExecutor(max_workers=1, initializer=worker.init_worker, initargs=(os.getpid(),)) as pool:
+            self.assertGreaterEqual(pool.submit(_nice_of_worker).result(timeout=60), 10)
+
+
+class TestWorkerThreads(unittest.TestCase):
+    def test_each_worker_uses_single_opencv_thread(self):
+        """Tanpa ini process pool + OpenCV multithread berebut core dan tidak berskala (lihat server/worker.py)."""
+        import os
+        import cv2
+        if "GCD" in cv2.getBuildInformation():
+            self.skipTest("backend paralel GCD (macOS) mengabaikan setNumThreads; diverifikasi di Linux/VPS")
+        from concurrent.futures import ProcessPoolExecutor
+        from server import worker
+        with ProcessPoolExecutor(max_workers=1, initializer=worker.init_worker, initargs=(os.getpid(),)) as pool:
+            self.assertEqual(pool.submit(_cv_threads_of_worker).result(timeout=60), 1)
+
+
 class TestNoOrphans(unittest.TestCase):
     def test_workers_exit_when_parent_is_killed(self):
         p = subprocess.Popen([sys.executable, "-c", PARENT], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
