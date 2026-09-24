@@ -298,3 +298,7 @@ footer.devby{text-align:center;color:var(--ink3);font-size:11.5px;padding:14px 1
 @media(min-width:720px){.partners .full{display:block}.partners .mark{display:none}}
 @media(max-width:719px){.partners .full{display:none}.partners .mark{display:block}}
 @media(max-width:560px){.brand .mc{height:32px}.partners .cswda{height:24px}.partners .mark{height:30px;width:30px}.partners .cswda-link{margin-left:6px;padding-left:6px}.menu{margin-left:8px}}
+
+.partners .cw-mark{display:none;height:30px;width:auto}
+@media(max-width:719px){.partners .cw-full{display:none}.partners .cw-mark{display:block}}
+@media(max-width:560px){.partners .cw-mark{height:26px}}
