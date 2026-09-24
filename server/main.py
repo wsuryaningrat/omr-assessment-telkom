@@ -143,6 +143,16 @@ app = FastAPI(
 app.add_middleware(
     SessionMiddleware, secret_key=config.SESSION_SECRET or secrets.token_urlsafe(32), session_cookie="ljk_admin",
     max_age=config.ADMIN_SESSION_HOURS * 3600, same_site="lax", https_only=config.PUBLIC_URL.startswith("https://"))
+
+
+@app.middleware("http")
+async def _revalidate_static(request, call_next):
+    resp = await call_next(request)
+    if request.method == "GET" and not request.url.path.startswith(("/api/", "/auth/")) and "cache-control" not in resp.headers:
+        resp.headers["Cache-Control"] = "no-cache"   # selalu validasi ETag: perubahan UI langsung terlihat
+    return resp
+
+
 app.include_router(auth.router)
 app.include_router(admin.router)
 
