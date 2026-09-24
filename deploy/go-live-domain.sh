@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Jalankan SETELAH DNS mathcenter.cswda.id -> 103.242.10.121 terkonfirmasi aktif.
-# Mengaktifkan domain+HTTPS dan login Google-only untuk admin. Jalankan dari laptop:
+# Mengaktifkan domain+HTTPS dan login Google (login username/password tetap aktif). Jalankan dari laptop:
 #   bash deploy/go-live-domain.sh
 set -euo pipefail
 VPS=root@103.242.10.121
@@ -40,7 +40,7 @@ sed -E 's/(PASSWORD|SECRET|TOKEN|CLIENT_ID)=(.+)/\1=<terisi>/' deploy/.env
 REMOTE
 
 echo "==> Restart (Caddy akan otomatis minta sertifikat HTTPS)"
-ssh -o BatchMode=yes -i "$KEY" "$VPS" "cd /root/ljk && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d"
+ssh -o BatchMode=yes -i "$KEY" "$VPS" "cd /root/ljk && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build"
 
 echo "==> Menunggu sertifikat HTTPS terbit (maks 90 detik)"
 for i in $(seq 1 18); do
@@ -59,5 +59,5 @@ SELESAI. Langkah manual yang masih perlu Anda cek:
   1) Buka https://$DOMAIN/admin -> klik "Masuk dengan Google" -> pastikan berhasil masuk.
   2) Kalau GAGAL redirect_uri_mismatch: pastikan sudah menambahkan
      https://$DOMAIN/auth/google/callback di Google Cloud Console (Authorized redirect URIs).
-  3) Login token lama (ADMIN_TOKEN) otomatis MATI mulai sekarang -> hanya Google yang bisa masuk admin.
+  3) Login username/password tetap berfungsi; token lama (ADMIN_TOKEN) mati.
 MSG
