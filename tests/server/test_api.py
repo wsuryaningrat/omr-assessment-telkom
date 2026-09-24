@@ -55,7 +55,11 @@ class TestAPI(unittest.TestCase):
     def test_ui_is_served(self):
         r = self.c.get("/")
         self.assertEqual(r.status_code, 200)
+        self.assertIn("Literasi Numerik", r.text)
+        r = self.c.get("/ljk")
+        self.assertEqual(r.status_code, 200)
         self.assertIn("Evaluasi LJK", r.text)
+        self.assertIn("ljk()", r.text)
         self.assertEqual(self.c.get("/app.js").status_code, 200)
         self.assertEqual(self.c.get("/api/health").json()["ok"], True)
 

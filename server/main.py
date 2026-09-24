@@ -473,4 +473,9 @@ def admin_page():
 
 
 # UI statis (tanpa build). Dipasang terakhir agar tidak menimpa rute /api.
+@app.get("/ljk", include_in_schema=False)
+def ljk_page():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "ljk.html"))
+
+
 app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="ui")
