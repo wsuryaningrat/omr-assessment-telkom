@@ -26,7 +26,10 @@
     <a href="/" title="Math Center — halaman pengawas" class="mc-link"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
     <h1>Evaluasi LJK<small>Profiling Literasi Numerik</small></h1>
   </div>
-  <details class="menu"><summary class="btn sm" aria-label="Menu">Menu ▾</summary><div class="pop"><a href="/admin">Administrator</a></div></details>
+  <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
+    <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Menu</span></button>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+  </div>
   <button class="btn sm" x-show="sid" @click="resetAll()"><span class="hm">Evaluasi baru</span><span class="ms">Baru</span></button>
   <span class="pill" :class="{off: !online}" :title="online ? 'Server siap' : 'Server offline'"><span class="hm" x-text="online ? 'Server siap' : 'Server offline'"></span></span>
 </div></header>
