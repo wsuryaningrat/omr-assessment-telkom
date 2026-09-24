@@ -287,3 +287,14 @@ footer.devby{text-align:center;color:var(--ink3);font-size:11.5px;padding:14px 1
 .menu-pop a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:inherit;text-decoration:none;font-size:14px;min-height:40px}
 .menu-pop a:hover,.menu-pop a:focus-visible{background:var(--line);outline:none}
 .menu-pop a svg{width:16px;height:16px;flex:none;opacity:.7}
+
+.partners{display:flex;align-items:center;margin-left:auto}
+.partners .cswda-link{margin-left:10px;padding-left:10px;border-left:1px solid var(--line)}
+.partners .full{height:34px;width:auto}
+.partners .mark{height:34px;width:34px}
+.brand .mc-link{margin-left:0;padding-left:0;border-left:0}
+.brand .mc{height:38px}
+.menu{margin-left:12px}
+@media(min-width:720px){.partners .full{display:block}.partners .mark{display:none}}
+@media(max-width:719px){.partners .full{display:none}.partners .mark{display:block}}
+@media(max-width:560px){.brand .mc{height:32px}.partners .cswda{height:24px}.partners .mark{height:30px;width:30px}.partners .cswda-link{margin-left:6px;padding-left:6px}.menu{margin-left:8px}}
