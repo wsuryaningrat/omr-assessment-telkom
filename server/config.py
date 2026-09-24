@@ -40,3 +40,7 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 EXPOSE_DOCS = os.environ.get("EXPOSE_DOCS", "1") == "1"          # produksi: EXPOSE_DOCS=0 (sembunyikan /docs & /openapi.json)
 MAX_FILES_PER_SESSION = int(os.environ.get("MAX_FILES_PER_SESSION", "300"))   # cegah disk penuh oleh sesi yang menyalahgunakan
 CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # batas laju /api/clientlog per IP
+
+# ---- Login admin username+password (hash PBKDF2, format "iter:salt_hex:hash_hex"; buat dengan `python -m server.auth hash`)
+ADMIN_USER = os.environ.get("ADMIN_USER", "").strip()
+ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()

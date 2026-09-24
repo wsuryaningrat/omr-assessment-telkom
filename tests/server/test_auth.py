@@ -238,3 +238,40 @@ class TestGoogleLogin(unittest.TestCase):
         self.g.raise_ = True
         self.assertEqual(self.finish(self.start()).headers["location"], "/admin?err=gagal")
         self.assertEqual(self.c.get("/auth/google/callback?error=access_denied").headers["location"], "/admin?err=dibatalkan")
+
+
+class TestPasswordLogin(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._ctx = TestClient(app, follow_redirects=False)
+        cls.c = cls._ctx.__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._ctx.__exit__(None, None, None)
+
+    def setUp(self):
+        self.saved = (config.ADMIN_USER, config.ADMIN_PASSWORD_HASH)
+        config.ADMIN_USER, config.ADMIN_PASSWORD_HASH = "adm", auth.hash_password("rahasia123", iters=1000)
+        auth._FAILS.clear()
+        self.c.cookies.clear()
+
+    def tearDown(self):
+        config.ADMIN_USER, config.ADMIN_PASSWORD_HASH = self.saved
+        self.c.cookies.clear()
+
+    def test_success_and_wrong_and_lockout(self):
+        self.assertEqual(self.c.get("/api/admin/summary").status_code, 401)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "adm", "password": "salah"}).status_code, 401)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "x", "password": "rahasia123"}).status_code, 401)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "adm", "password": "rahasia123"}).status_code, 200)
+        self.assertEqual(self.c.get("/api/admin/summary").status_code, 200)
+        auth._FAILS.clear()
+        self.c.cookies.clear()
+        for _ in range(5):
+            self.c.post("/auth/password", json={"username": "adm", "password": "salah"})
+        self.assertEqual(self.c.post("/auth/password", json={"username": "adm", "password": "rahasia123"}).status_code, 429)
+
+    def test_disabled_when_unset(self):
+        config.ADMIN_PASSWORD_HASH = ""
+        self.assertEqual(self.c.post("/auth/password", json={"username": "adm", "password": "x"}).status_code, 404)

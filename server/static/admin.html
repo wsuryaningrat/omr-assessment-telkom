@@ -18,8 +18,10 @@
   <div class="brand">
     <a href="https://telkomuniversity.ac.id/" target="_blank" rel="noopener" title="Telkom University"><img class="full" src="/logo.png" alt="Telkom University"><img class="mark" src="/icon.png" alt="Telkom University"></a>
     <a href="https://cswda.id/" target="_blank" rel="noopener" title="CSWDA" class="cswda-link"><img class="cswda" src="/cswda-logo.png" alt="CSWDA"></a>
+    <a href="/" title="Math Center — halaman pengawas" class="mc-link"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
     <h1>Admin LJK<small>Rekap, kunci jawaban, sinkron</small></h1>
   </div>
+  <details class="menu"><summary class="btn sm" aria-label="Menu">Menu ▾</summary><div class="pop"><a href="/admin">Administrator</a></div></details>
   <span class="mute" x-show="authed && me.email && me.email!=='token'" x-text="me.name || me.email" style="font-size:13px"></span>
   <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
 </div></header>
@@ -45,7 +47,17 @@
       </div>
     </div>
 
-    <div x-show="me.token_allowed" :style="(me.microsoft || me.google) ? 'margin-top:18px;padding-top:14px;border-top:1px solid var(--line)' : ''">
+    <div x-show="me.password">
+      <p class="sub">Masuk dengan username dan password admin.</p>
+      <label class="f" for="usr">Username</label>
+      <input id="usr" x-model="usr" autocomplete="username" autocapitalize="off" spellcheck="false">
+      <label class="f" for="pwd" style="margin-top:8px">Password</label>
+      <input id="pwd" type="password" x-model="pwd" @keydown.enter="pwLogin()" autocomplete="current-password">
+      <div class="err" x-show="pwErr" x-text="pwErr"></div>
+      <button class="btn p" style="margin-top:12px;width:100%" @click="pwLogin()" :disabled="!usr||!pwd||pwBusy">Masuk</button>
+    </div>
+
+    <div x-show="me.token_allowed" :style="(me.microsoft || me.google || me.password) ? 'margin-top:18px;padding-top:14px;border-top:1px solid var(--line)' : ''">
       <p class="sub" x-text="(me.microsoft || me.google) ? 'Cadangan: token admin (dinonaktifkan secara default).' : 'Masukkan token admin server (ADMIN_TOKEN).'"></p>
       <label class="f" for="tok">Token</label>
       <input id="tok" type="password" x-model="token" @keydown.enter="login()" autocomplete="current-password" placeholder="Token admin">

@@ -23,8 +23,10 @@
     <a href="https://cswda.id/" target="_blank" rel="noopener" title="CSWDA" class="cswda-link">
       <img class="cswda" src="/cswda-logo.png" alt="CSWDA">
     </a>
+    <a href="/" title="Math Center — halaman pengawas" class="mc-link"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
     <h1>Evaluasi LJK<small>Profiling Literasi Numerik</small></h1>
   </div>
+  <details class="menu"><summary class="btn sm" aria-label="Menu">Menu ▾</summary><div class="pop"><a href="/admin">Administrator</a></div></details>
   <button class="btn sm" x-show="sid" @click="resetAll()"><span class="hm">Evaluasi baru</span><span class="ms">Baru</span></button>
   <span class="pill" :class="{off: !online}" :title="online ? 'Server siap' : 'Server offline'"><span class="hm" x-text="online ? 'Server siap' : 'Server offline'"></span></span>
 </div></header>

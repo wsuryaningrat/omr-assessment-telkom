@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", authed: false, loginErr: "", ready: false, errMsg: "", me: { microsoft: false, google: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
     tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
@@ -28,6 +28,15 @@ function admin() {
       return r.status === 204 ? null : r;
     },
     async json(path, opt) { const r = await this.api(path, opt); return r ? r.json() : null; },
+    async pwLogin() {
+      this.pwErr = ""; this.pwBusy = true;
+      try {
+        const r = await fetch("/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: this.usr, password: this.pwd }) });
+        if (!r.ok) { this.pwErr = (await r.json().catch(() => ({}))).detail || "Gagal masuk."; }
+        else { this.pwd = ""; this.me = await (await fetch("/auth/me")).json(); await this.login(true); }
+      } catch { this.pwErr = "Server tidak terjangkau."; }
+      this.pwBusy = false;
+    },
     async login(silent = false) {
       this.loginErr = "";
       try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); }

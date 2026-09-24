@@ -1,4 +1,5 @@
 """Login admin dengan akun Microsoft (OIDC authorization code + PKCE lewat MSAL). Sesi = cookie bertanda tangan."""
+import hashlib
 import hmac
 import logging
 import os
@@ -31,6 +32,28 @@ def google_enabled() -> bool:
 def sso_enabled() -> bool:
     """Ada penyedia login (Microsoft/Google) aktif -> ADMIN_TOKEN dinonaktifkan kecuali ADMIN_ALLOW_TOKEN=1."""
     return enabled() or google_enabled()
+
+
+def password_enabled() -> bool:
+    return bool(config.ADMIN_USER and config.ADMIN_PASSWORD_HASH)
+
+
+def hash_password(pw: str, iters: int = 240000) -> str:
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, iters)
+    return f"{iters}:{salt.hex()}:{dk.hex()}"
+
+
+def _check_password(pw: str, stored: str) -> bool:
+    try:
+        iters, salt, dk = stored.split(":")
+        got = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(iters))
+        return hmac.compare_digest(got, bytes.fromhex(dk))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+_FAILS = {}            # ip -> [waktu gagal]
 
 
 def set_app(a):
@@ -113,6 +136,7 @@ def me(request: Request):
     s = current_admin(request)
     return {"microsoft": enabled(), "google": google_enabled(), "authed": bool(s),
             "email": (s or {}).get("email"), "name": (s or {}).get("name"), "via": (s or {}).get("via"),
+            "password": password_enabled(),
             "token_allowed": (not sso_enabled()) or config.ADMIN_ALLOW_TOKEN}
 
 
@@ -160,6 +184,36 @@ def callback(request: Request):
         return _back("ditolak")
     request.session["admin"] = {"email": email, "name": claims.get("name", ""), "iat": int(time.time()), "via": "microsoft"}
     return RedirectResponse("/admin", status_code=302)
+
+
+@router.post("/auth/password")
+async def password_login(request: Request):
+    if not password_enabled():
+        raise HTTPException(404, "Login password belum dikonfigurasi")
+    if not _same_origin(request):
+        raise HTTPException(403, "Permintaan lintas-situs ditolak")
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    with _LOCK:
+        fails = [t for t in _FAILS.get(ip, []) if now - t < 900]
+        _FAILS[ip] = fails
+        if len(fails) >= 5:
+            raise HTTPException(429, "Terlalu banyak percobaan. Coba lagi 15 menit lagi.")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    user, pw = str(body.get("username", "")), str(body.get("password", ""))
+    ok_user = hmac.compare_digest(user.encode(), config.ADMIN_USER.encode())
+    ok_pw = _check_password(pw, config.ADMIN_PASSWORD_HASH)
+    if not (ok_user and ok_pw):
+        with _LOCK:
+            _FAILS.setdefault(ip, []).append(now)
+        raise HTTPException(401, "Username atau password salah")
+    with _LOCK:
+        _FAILS.pop(ip, None)
+    request.session["admin"] = {"email": config.ADMIN_USER, "name": config.ADMIN_USER, "iat": int(now), "via": "password"}
+    return {"ok": True}
 
 
 @router.post("/auth/logout")
@@ -254,3 +308,10 @@ def google_callback(request: Request):
     request.session["admin"] = {"email": claims["email"].strip().lower(), "name": claims.get("name", ""),
                                 "iat": int(time.time()), "via": "google"}
     return RedirectResponse("/admin", status_code=302)
+
+
+if __name__ == "__main__":
+    import getpass
+    import sys
+    if sys.argv[1:] == ["hash"]:
+        print(hash_password(getpass.getpass("Password: ")))
