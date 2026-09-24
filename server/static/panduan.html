@@ -40,10 +40,14 @@ section.s h3{font-size:clamp(21px,3.5vw,28px);margin:6px 0 14px}
 .bad img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
 .bad figcaption{padding:10px 12px;font-size:13.5px;color:#7c1d22;background:var(--bad-bg);font-weight:600}
 .bad figcaption::before{content:"\2715  ";font-weight:800}
-.steps{counter-reset:st;list-style:none;margin:0;padding:0;display:grid;gap:10px}
-.steps li{counter-increment:st;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 56px;font-size:15px;color:var(--ink2)}
-.steps li::before{content:counter(st);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:50%;background:var(--plum);color:#fff;font-weight:700;display:grid;place-items:center;font-size:14px}
-.steps b{color:var(--ink)}
+.stp{counter-reset:st;list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.stp li{counter-increment:st;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 56px;font-size:15px;color:var(--ink2)}
+.stp li::before{content:counter(st);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:50%;background:var(--plum);color:#fff;font-weight:700;display:grid;place-items:center;font-size:14px}
+.stp b{color:var(--ink)}
+.shot{margin:12px 0 4px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.shot a{display:block}.shot img{display:block;width:100%;height:auto}
+.shot figcaption{padding:10px 14px;font-size:13.5px;color:var(--ink2);border-top:1px solid var(--line);background:var(--soft)}
+.shot figcaption b{color:#c21414}
 .stt{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));margin-top:14px}
 .stt div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--ink2)}
 .stt b{display:block;color:var(--ink);margin-bottom:2px}
@@ -83,7 +87,7 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
   <h2 class="t serif">Dari Persiapan sampai LJK Terkirim</h2>
   <p class="lead">Baca sampai selesai sebelum hari H, lalu coba aplikasinya sekali agar tidak kaget saat ujian.</p>
   <nav class="toc" aria-label="Isi panduan">
-    <a href="#alur">Alur 3 fase</a><a href="#foto">Cara memotret</a><a href="#upload">Cara mengunggah</a><a href="#ulang">Foto bermasalah</a><a href="#submit">Submit</a><a href="#sukses">Tanda sukses</a><a href="#faq">FAQ</a>
+    <a href="#alur">Alur 3 fase</a><a href="#foto">Cara memotret</a><a href="#upload">Cara mengunggah</a><a href="#ulang">Foto bermasalah</a><a href="#submit">Submit</a><a href="#faq">FAQ</a>
   </nav>
 
   <section class="s" id="alur">
@@ -126,12 +130,18 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
   </section>
 
   <section class="s" id="upload">
-    <div class="kick">Langkah 1–2</div><h3 class="serif">Cara mengunggah</h3>
-    <ol class="steps">
-      <li><b>Buka</b> <a href="/ljk">mathcenter.cswda.id/ljk</a>, lalu isi <b>Data Pengawas</b> (pilih nama Anda dari daftar; kalau tidak ada, pilih &ldquo;Lainnya — isi sendiri&rdquo;) dan <b>Data Ujian &amp; Peserta</b> (pilih program studi dan kelas; kalau tidak ada atau kelasnya gabungan, pilih &ldquo;Lainnya — isi sendiri&rdquo;).</li>
-      <li>Tekan <b>Ambil foto atau pilih berkas LJK</b>. Boleh memilih banyak foto sekaligus.</li>
-      <li>Tunggu <b>Memindai LJK</b> sampai selesai, lalu tekan <b>Lanjut ke validasi</b>.</li>
-      <li>Periksa tiap lembar (NPM dan jawaban sesuai LJK), lalu tekan <b>Validasi lembar ini</b>.</li>
+    <div class="kick">Langkah 1–3</div><h3 class="serif">Cara mengunggah</h3>
+    <ol class="stp">
+      <li><b>Isi identitas dan data ujian.</b> Buka <a href="/ljk">mathcenter.cswda.id/ljk</a>, lalu isi tiga pilihan di bawah. Semua mulai kosong, jadi pilih sendiri.
+        <figure class="shot"><a href="/panduan/langkah-isi-data.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/langkah-isi-data.jpg" alt="Formulir Data Pengawas dan Data Ujian dengan tiga isian dilingkari merah" loading="lazy" width="1400" height="896"></a>
+          <figcaption><b>1</b> Nama pengawas: pilih nama Anda dari daftar (nomor HP sudah terdaftar). Kalau tidak ada, pilih &ldquo;Lainnya — isi sendiri&rdquo;. &nbsp;<b>2</b> Program studi. &nbsp;<b>3</b> Kelas. Memilih program studi menyaring daftar kelas. Kalau kelas Anda gabungan atau tidak ada di daftar, pilih &ldquo;Lainnya — isi sendiri&rdquo; pada program studi dan/atau kelas.</figcaption></figure></li>
+      <li><b>Unggah foto.</b> Tekan <b>Ambil foto atau pilih berkas LJK</b>. Boleh memilih banyak foto sekaligus. Tunggu <b>Memindai LJK</b> sampai selesai, lalu tekan <b>Lanjut ke validasi</b>.</li>
+      <li><b>Periksa dan validasi.</b> Cek tiap lembar (nama, NPM, dan jawaban sesuai LJK). Kalau sudah benar, tekan <b>Validasi di halaman ini</b> untuk semuanya sekaligus, atau tombol centang di setiap baris.
+        <figure class="shot"><a href="/panduan/langkah-validasi.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/langkah-validasi.jpg" alt="Tabel hasil pindai berstatus Checking dengan tombol validasi dilingkari merah" loading="lazy" width="1400" height="836"></a>
+          <figcaption><b>1</b> Validasi semua lembar di halaman ini sekaligus. &nbsp;<b>2</b> Atau validasi per baris. Status <i>Checking</i> berarti menunggu validasi Anda.</figcaption></figure></li>
+      <li><b>Pastikan semua Validated, lalu Submit.</b> Setelah divalidasi, status berubah hijau <i>Validated</i> dan bagian bawah menampilkan &ldquo;3 dari 3 lembar tervalidasi&rdquo;. Tombol <b>Submit hasil LJK</b> (dilingkari) aktif setelah semua lembar tervalidasi.
+        <figure class="shot"><a href="/panduan/langkah-submit.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/langkah-submit.jpg" alt="Semua lembar berstatus Validated dan tombol Submit hasil LJK dilingkari merah" loading="lazy" width="1400" height="840"></a>
+          <figcaption><b>!</b> Tekan <b>Submit hasil LJK</b> hanya kalau semua lembar sudah benar.</figcaption></figure></li>
     </ol>
     <div class="stt">
       <div><b>Checking</b>Menunggu validasi Anda.</div>
@@ -143,7 +153,7 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
 
   <section class="s" id="ulang">
     <div class="kick">Jika ada masalah</div><h3 class="serif">Cara mengunggah ulang foto bermasalah</h3>
-    <ol class="steps">
+    <ol class="stp">
       <li>Buka lembar berstatus <b>Gagal</b> atau <b>Warning</b>.</li>
       <li>Tekan <b>Ganti foto</b>, lalu foto ulang sesuai ketentuan di atas.</li>
       <li>Tunggu dipindai, periksa lagi, lalu <b>Validasi lembar ini</b>.</li>
@@ -153,20 +163,19 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
 
   <section class="s" id="submit">
     <div class="kick">Langkah 3</div><h3 class="serif">Submit</h3>
-    <ol class="steps">
+    <ol class="stp">
       <li>Pastikan <b>semua lembar Validated</b> dan jumlahnya sama dengan jumlah mahasiswa yang hadir.</li>
-      <li>Tekan <b>Submit hasil LJK</b>.</li>
+      <li>Tekan <b>Submit hasil LJK</b> (lihat gambar pada langkah 4 di atas).</li>
+      <li>Kalau muncul halaman &ldquo;Terima kasih&rdquo;, pengiriman berhasil. Contohnya ada di FAQ di bawah.</li>
     </ol>
     <div class="note warn"><b>Periksa dulu:</b> program studi dan kelas sudah benar sebelum menekan Submit.</div>
   </section>
 
-  <section class="s" id="sukses">
-    <div class="kick">Hasil akhir</div><h3 class="serif">Seperti apa yang sukses</h3>
-    <div class="note tip" style="margin-top:0">Anda melihat halaman <b>&ldquo;Terima kasih, [nama Anda]!&rdquo;</b> dengan keterangan bahwa seluruh lembar jawaban sudah tersimpan ke rekap. Setelah itu tidak ada yang perlu diunggah lagi.</div>
-  </section>
 
   <section class="s" id="faq">
     <div class="kick">FAQ</div><h3 class="serif">Pertanyaan yang sering muncul</h3>
+    <details class="q" open><summary>Seperti apa tampilan kalau berhasil terkirim?</summary><p>Anda melihat halaman <b>&ldquo;Terima kasih, [nama Anda]!&rdquo;</b> dengan ringkasan jumlah lembar, jumlah yang tervalidasi, dan waktu submit, seperti gambar di bawah. Artinya seluruh lembar sudah tersimpan ke rekap dan tidak ada yang perlu diunggah lagi.</p>
+      <figure class="shot" style="margin:0 16px 16px"><a href="/panduan/sukses.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/sukses.jpg" alt="Halaman Terima kasih setelah submit berhasil" loading="lazy" width="1400" height="899"></a></figure></details>
     <details class="q"><summary>Foto saya terus gagal dipindai, kenapa?</summary><p>Penyebab paling umum: blur, pojok LJK terpotong, bayangan, atau ada kertas lain di bawahnya. Foto ulang sesuai ketentuan lalu tekan Ganti foto.</p></details>
     <details class="q"><summary>Internet putus saat mengunggah, apakah data hilang?</summary><p>Ulangi pengunggahan saat koneksi kembali. Lembar yang sudah terbaca tetap tersimpan di sesi Anda. Cek daftar lembar sebelum Submit.</p></details>
     <details class="q"><summary>Salah memilih program studi atau kelas?</summary><p>Data ujian bisa diubah kapan saja sebelum Submit, dan semua lembar ikut diperbarui. Setelah Submit, hubungi panitia.</p></details>
