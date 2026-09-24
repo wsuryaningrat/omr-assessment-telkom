@@ -32,6 +32,7 @@ def summary(db=Depends(get_db)):
         "sync_failed": q(ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None), ScanSession.sync_attempts >= config.SYNC_MAX_ATTEMPTS),
         "kunci": db.scalar(select(func.count()).select_from(Kunci)) or 0,
         "gsheet_configured": sheets.get_client() is not None,
+        "gsheet_url": (getattr(sheets.get_client(), "url", None) or config.GSHEET_URL or ""),
         "state": services.STATE,
     }
 

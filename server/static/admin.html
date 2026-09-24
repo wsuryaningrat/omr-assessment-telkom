@@ -23,7 +23,7 @@
   </div>
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Menu</span></button>
-    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a x-show="authed && sum && sum.gsheet_url" :href="sum && sum.gsheet_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>Buka Google Sheet</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
   </div>
   <span class="mute" x-show="authed && me.email && me.email!=='token'" x-text="me.name || me.email" style="font-size:13px"></span>
   <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
@@ -88,6 +88,7 @@
         </dl>
         <div class="row-act">
           <button class="btn p sm" @click="act('/api/admin/sync/run','Sinkron dijalankan')" :disabled="!sum.gsheet_configured || busy">Sinkron sekarang</button>
+          <a class="btn sm" x-show="sum.gsheet_url" :href="sum.gsheet_url" target="_blank" rel="noopener" style="text-decoration:none">Buka Google Sheet ↗</a>
           <button class="btn sm" @click="act('/api/admin/kunci/sync','Kunci ditarik dari Sheet')" :disabled="!sum.gsheet_configured || busy">Tarik kunci dari Sheet</button>
           <button class="btn sm" @click="act('/api/admin/cleanup','Pembersihan dijalankan')" :disabled="busy">Bersihkan berkas lama</button>
           <span class="mute" x-show="sum.sync_failed" x-text="sum.sync_failed + ' sesi gagal sinkron berulang — tekan “Sinkron sekarang” untuk mencoba lagi'"></span>
