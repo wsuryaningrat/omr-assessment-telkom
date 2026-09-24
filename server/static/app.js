@@ -20,7 +20,7 @@ const hpLocal = raw => { let d = String(raw || "").replace(/\D/g, ""); if (d.sta
 
 function ljk() {
   return {
-    meta: {}, form: { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }, view: null, baseline: "", page: 0, pageSize: 10,
+    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
@@ -33,15 +33,30 @@ function ljk() {
     },
 
     // ---- turunan
-    get prodiOptions() { return (this.meta.fakultas_prodi || {})[this.form.fakultas] || []; },
+    get pengawasList() { return this.meta.pengawas || []; },
+    get pengawasMhs() { return this.pengawasList.filter(p => !p.dosen); },
+    get pengawasDosen() { return this.pengawasList.filter(p => p.dosen); },
+    get picked() { return this.pengawasList.find(p => p.id === this.form.ref) || null; },
+    get manual() { return this.form.ref === "manual"; },
+    get showHp() { return this.manual || !!this.picked?.needs_hp; },
+    get namaOk() { return this.manual ? !!this.form.nama : !!this.picked; },
+    get prodiOptions() { return this.meta.prodi || []; },
+    get prodiKnown() { return !!this.form.prodi && this.form.prodi !== "manual"; },
+    get prodiFinal() { return this.form.prodi === "manual" ? this.form.prodiManual.trim() : this.form.prodi; },
+    get kelasFinal() { return this.form.kelas === "manual" ? this.form.kelasManual.trim() : this.form.kelas; },
+    get kelasOptions() { const k = this.meta.kelas || []; return this.prodiKnown ? k.filter(x => x.prodi === this.form.prodi) : k; },
+    onProdi() { const k = (this.meta.kelas || []).find(x => x.kelas === this.form.kelas); if (k && this.prodiKnown && k.prodi !== this.form.prodi) this.form.kelas = ""; },
+    onKelas() { const k = (this.meta.kelas || []).find(x => x.kelas === this.form.kelas); if (k && (!this.form.prodi || this.prodiKnown)) this.form.prodi = k.prodi; },
+    onPengawas() { if (!this.showHp) this.form.hp = ""; if (!this.manual) this.form.nama = ""; },
     get phoneOk() { return PHONE(this.form.hp); },
     cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
-    get formValid() { const f = this.form; return !!(f.nama && this.phoneOk && f.ruangan && f.kelas && f.fakultas && f.prodi); },
+    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal }); },
+    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && this.prodiFinal && this.kelasFinal); },
     get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
-      if (!f.nama) return "Isi nama lengkap pengawas"; if (!this.phoneOk) return "Isi nomor HP yang valid";
-      if (!f.ruangan) return "Isi ruangan"; if (!f.fakultas) return "Pilih fakultas"; if (!f.prodi) return "Pilih program studi"; if (!f.kelas) return "Isi nama kelas";
+      if (!f.ref) return "Pilih nama pengawas"; if (this.manual && !f.nama) return "Isi nama lengkap pengawas"; if (this.showHp && !this.phoneOk) return "Isi nomor HP yang valid";
+      if (!this.prodiFinal) return f.prodi === "manual" ? "Isi program studi" : "Pilih program studi"; if (!this.kelasFinal) return f.kelas === "manual" ? "Isi nama kelas" : "Pilih kelas";
       return "Siap — pilih berkas LJK di atas";
     },
     get step() { if (this.session?.submitted) return 3; if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
@@ -53,7 +68,10 @@ function ljk() {
     },
     loadForm() {
       const p = this.session?.pengawas; if (!p) return;
-      this.form = { nama: p.nama, hp: hpLocal(p.hp), ruangan: p.ruangan, kelas: p.kelas || "", fakultas: p.fakultas, prodi: p.prodi };
+      const ref = this.pengawasList.find(x => x.nama === p.nama);
+      const kn = (this.meta.kelas || []).some(x => x.kelas === p.kelas), pn = (this.meta.prodi || []).includes(p.prodi);
+      this.form = { ref: ref ? ref.id : "manual", nama: ref ? "" : p.nama, hp: !ref || ref.needs_hp ? hpLocal(p.hp) : "",
+        kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: pn ? p.prodi : (p.prodi ? "manual" : ""), prodiManual: pn ? "" : (p.prodi || "") };
       this.baseline = JSON.stringify(this.form);
     },
     async saveIdentity() {
@@ -61,15 +79,9 @@ function ljk() {
       const f = this.form;
       try {
         await this.api(`/api/sessions/${this.sid}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nama_pengawas: f.nama, hp: "+62" + f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
-        const facChanged = this.baseline && JSON.parse(this.baseline).fakultas !== f.fakultas;
+          body: this.identityBody() });
         this.baseline = JSON.stringify(this.form); await this.refresh();
-        // status dihitung ulang dari data terbaru; lembar yang sudah divalidasi tapi kini tidak sesuai fakultas dikembalikan ke Warning
-        const stale = facChanged ? (this.session?.sheets || []).filter(s => s.validated && this.fakBad(s)) : [];
-        if (stale.length) {
-          try { await this.api("/api/sheets/validate-batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: stale.map(s => s.id), value: false }) }); await this.refresh(); } catch {}
-          this.toast(`Data disimpan — ${stale.length} lembar perlu dicek ulang karena fakultas berbeda`, true);
-        } else this.toast("Data pengawas disimpan");
+        this.toast("Data pengawas disimpan");
         return true;
       } catch (e) { this.toast(e.message, true); return false; }
     },
@@ -79,7 +91,6 @@ function ljk() {
     npmText(s) { return this.npmCount(s) || (s.npm && s.npm !== "-") ? this.npmDigits(s).map(c => /^[\d?]$/.test(c) ? c : "·").join("") : "-"; },
     npmBad(s) { return this.npmCount(s) !== 10; },
     kodeBad(s) { return !/^\d{3}$/.test(String(s.kode_soal || "").trim()); },
-    fakBad(s) { return !this.facMatch(s); },
     fakText(s) { const v = this.abbr(s.fakultas_ljk); return v && v !== "-" ? v : "(kosong)"; },
     fillBad(s) { return this.fillPct(s) < 25; },
     terisiText(s) { return (s.terisi || "-").toString().replace(/\s+/g, ""); },
@@ -88,7 +99,6 @@ function ljk() {
       const r = [];
       if (this.npmBad(s)) r.push(`NPM terbaca ${this.npmCount(s)} dari 10 digit`);
       if (this.kodeBad(s)) r.push(`Kode soal "${s.kode_soal || "-"}" bukan 3 digit`);
-      if (this.fakBad(s)) r.push(this.fakText(s) === "(kosong)" ? "Fakultas tidak terisi" : `Fakultas ${this.fakText(s)} berbeda dari isian pengawas (${this.facPick})`);
       if (this.fillBad(s)) r.push(`Jawaban terisi rendah (${this.terisiText(s)}, di bawah 25%)`);
       return r;
     },
@@ -97,7 +107,6 @@ function ljk() {
       const r = [];
       if (this.npmBad(s)) r.push(`NPM ${this.npmCount(s)}/10`);
       if (this.kodeBad(s)) r.push("Kode ≠ 3 digit");
-      if (this.fakBad(s)) r.push(this.fakText(s) === "(kosong)" ? "Fak. kosong" : `Fak. ≠ ${this.facPick}`);
       if (this.fillBad(s)) r.push("Terisi rendah");
       return r.join(" · ");
     },
@@ -125,9 +134,7 @@ function ljk() {
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
     get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
     get canSubmit() { return this.allValid && !this.session.scanning; },
-    get facPick() { return (this.session?.pengawas?.fakultas || "").split(" - ")[0]; },
     abbr(v) { const t = String(v || "").trim(); const m = /\(([A-Za-z]{2,5})\)/.exec(t); return (m ? m[1] : t.split(" - ")[0]).toUpperCase(); },
-    facMatch(s) { const v = this.abbr(s.fakultas_ljk); return !!this.facPick && !!v && v !== "-" && v === this.facPick.toUpperCase(); },
     fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
     nameOf(s) { return s.nama && s.nama !== "-" ? s.nama : "(nama tidak terbaca)"; },
     get filtered() {
@@ -198,7 +205,7 @@ function ljk() {
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
-      this.form = { nama: "", hp: "", ruangan: "", kelas: "", fakultas: "", prodi: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
+      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
     },
 
     // ---- unggah
@@ -207,7 +214,7 @@ function ljk() {
       if (this.formValid) { this.upErr = ""; return; }
       ev.preventDefault(); this.upErr = "Lengkapi data pengawas & kelas dulu: " + this.formHint.toLowerCase() + ".";
       clientLog("guard", { hint: this.formHint });
-      document.getElementById(!this.form.nama ? "nama" : !this.phoneOk ? "hp" : !this.form.ruangan ? "rg" : !this.form.fakultas ? "fk" : !this.form.prodi ? "pr" : "kl")?.focus();
+      document.getElementById(!this.form.ref ? "pw" : (this.manual && !this.form.nama) ? "nama" : (this.showHp && !this.phoneOk) ? "hp" : !this.prodiFinal ? (this.form.prodi === "manual" ? "prm" : "pr") : (this.form.kelas === "manual" ? "klm" : "kl"))?.focus();
     },
     onFiles(ev) {
       const input = ev.target, files = Array.from(input.files || []);
@@ -226,7 +233,7 @@ function ljk() {
         try {
           const f = this.form;
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ nama_pengawas: f.nama, hp: "+62" + f.hp, ruangan: f.ruangan, kelas: f.kelas, fakultas: f.fakultas, prodi: f.prodi }) });
+            body: this.identityBody() });
           this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
         } catch (e) { this.toast(e.message, true); return; }

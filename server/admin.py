@@ -48,14 +48,14 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
         cond += [ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None)]
     if q.strip():
         like = f"%{q.strip()}%"
-        cond.append(ScanSession.nama_pengawas.ilike(like) | ScanSession.kelas.ilike(like) | ScanSession.ruangan.ilike(like))
+        cond.append(ScanSession.nama_pengawas.ilike(like) | ScanSession.kelas.ilike(like) | ScanSession.prodi.ilike(like))
     total = db.scalar(select(func.count()).select_from(ScanSession).where(*cond)) or 0
     rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()).offset((page - 1) * size).limit(size))
     items = []
     for s in rows:
         items.append({
-            "id": s.id, "nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
-            "fakultas": s.fakultas.split(" - ")[0], "prodi": s.prodi, "lembar": len(s.sheets),
+            "id": s.id, "nama": s.nama_pengawas, "hp": s.hp, "kelas": s.kelas,
+            "prodi": s.prodi, "lembar": len(s.sheets),
             "validated": sum(1 for x in s.sheets if x.validated), "submitted": s.submitted,
             "created_at": s.created_at.isoformat() if s.created_at else None,
             "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,

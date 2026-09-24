@@ -142,7 +142,7 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
         "File": doc_name,
         "NPM": decoded_all.get("NPM", "-"),
         "Nama Mahasiswa": decoded_all.get("NAMA", "-"),
-        "Fakultas": fakultas_pilihan.split(" - ")[0] if fakultas_pilihan else "-",
+        "Fakultas": decoded_all.get("FAKULTAS", "-"),
         "Program Studi": (pengawas_info or {}).get("prodi", "-") or "-",
         "Fakultas (LJK)": decoded_all.get("FAKULTAS", "-"),
         "Kode Soal": decoded_all.get("KODE SOAL", decoded_all.get("Kode Soal", "-")),

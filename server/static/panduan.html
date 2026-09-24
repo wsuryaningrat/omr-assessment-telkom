@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Panduan Pengawas — Math Center</title>
+<meta name="description" content="Panduan pengawas ujian literasi numerik: persiapan, hari H, cara memotret dan mengunggah LJK.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/style.css">
+<style>
+:root{--plum:#6B2D45;--plum-d:#1E1420;--sage:#C9D6CF}
+.serif{font-family:Georgia,"Source Serif Pro","Times New Roman",serif}
+.pg{max-width:880px;margin:0 auto;padding:24px 16px 40px}
+.pg h2.t{font-size:clamp(26px,5vw,38px);margin:0 0 6px;letter-spacing:-.01em}
+.pg .lead{color:var(--ink2);margin:0 0 20px;font-size:16px}
+.toc{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.toc a{font-size:13px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:inherit;text-decoration:none}
+.toc a:hover{border-color:var(--plum);color:var(--plum)}
+section.s{padding-top:36px;scroll-margin-top:72px}
+.kick{font-size:12px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--plum)}
+section.s h3{font-size:clamp(21px,3.5vw,28px);margin:6px 0 14px}
+.phases{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))}
+.ph{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+.ph .tag{display:inline-block;font-size:12px;font-weight:700;color:#fff;background:var(--plum);border-radius:999px;padding:3px 10px;margin-bottom:10px}
+.ph h4{margin:0 0 10px;font-size:17px}
+.ph ol{margin:0;padding-left:20px;color:var(--ink2);font-size:14.5px;line-height:1.6}
+.ph li{margin-bottom:6px}
+.ph a{color:var(--plum);font-weight:600}
+.note{border-radius:12px;padding:12px 14px;font-size:14px;margin:14px 0 0;border:1px solid}
+.note.tip{background:#E8F8F0;border-color:#BFEBD6;color:#0b5a3b}
+.note.warn{background:#FFF6E5;border-color:#F6DDA6;color:#7a3b06}
+.ok{display:grid;gap:18px;grid-template-columns:minmax(220px,400px) 1fr;align-items:center;background:#E8F8F0;border:2px solid #7CCFA6;border-radius:18px;padding:18px}
+.ok img{width:100%;height:auto;border-radius:10px;border:1px solid #BFEBD6;background:#fff;display:block}
+.ok h4{margin:0 0 8px;font-size:19px;color:#0b5a3b}
+.ok ul{margin:0;padding-left:18px;color:#1d4d39;line-height:1.7;font-size:15px}
+@media(max-width:560px){.ok{grid-template-columns:1fr}.ok img{max-width:100%}}
+.bad{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));margin-top:16px}
+.bad figure{margin:0;background:var(--card);border:1px solid #F6C4C6;border-radius:14px;overflow:hidden}
+.bad img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
+.bad figcaption{padding:10px 12px;font-size:13.5px;color:#7c1d22;background:var(--bad-bg);font-weight:600}
+.bad figcaption::before{content:"\2715  ";font-weight:800}
+.steps{counter-reset:st;list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.steps li{counter-increment:st;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 56px;font-size:15px;color:var(--ink2)}
+.steps li::before{content:counter(st);position:absolute;left:14px;top:12px;width:30px;height:30px;border-radius:50%;background:var(--plum);color:#fff;font-weight:700;display:grid;place-items:center;font-size:14px}
+.steps b{color:var(--ink)}
+.stt{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));margin-top:14px}
+.stt div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--ink2)}
+.stt b{display:block;color:var(--ink);margin-bottom:2px}
+details.q{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+details.q summary{cursor:pointer;padding:14px 16px;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
+details.q summary::-webkit-details-marker{display:none}
+details.q summary::after{content:"+";font-size:20px;line-height:1;color:var(--plum)}
+details.q[open] summary::after{content:"\2212"}
+details.q p{margin:0;padding:0 16px 14px;color:var(--ink2);font-size:14.5px}
+.cta{margin-top:28px;text-align:center}.cta a{text-decoration:none}
+footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
+</style>
+</head>
+<body>
+<header><div class="in">
+  <div class="brand">
+    <a href="/" title="Math Center"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
+  </div>
+  <div class="partners">
+    <a href="https://telkomuniversity.ac.id/" target="_blank" rel="noopener" title="Telkom University">
+      <img class="full" src="/logo.png" alt="Telkom University"><img class="mark" src="/icon.png" alt="Telkom University">
+    </a>
+    <a href="https://cswda.id/" target="_blank" rel="noopener" title="CSWDA" class="cswda-link"><img class="cswda cw-full" src="/cswda-logo.png" alt="CSWDA"><img class="cswda cw-mark" src="/cswda-icon.png" alt="CSWDA"></a>
+  </div>
+  <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
+    <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu">
+      <a href="/" role="menuitem">Beranda</a>
+      <a href="/ljk" role="menuitem">Evaluasi LJK</a>
+      <a href="/admin" role="menuitem">Administrator</a>
+    </div>
+  </div>
+</div></header>
+
+<main class="pg">
+  <div class="kick">Panduan pengawas</div>
+  <h2 class="t serif">Dari Persiapan sampai LJK Terkirim</h2>
+  <p class="lead">Baca sampai selesai sebelum hari H, lalu coba aplikasinya sekali agar tidak kaget saat ujian.</p>
+  <nav class="toc" aria-label="Isi panduan">
+    <a href="#alur">Alur 3 fase</a><a href="#foto">Cara memotret</a><a href="#upload">Cara mengunggah</a><a href="#ulang">Foto bermasalah</a><a href="#submit">Submit</a><a href="#sukses">Tanda sukses</a><a href="#faq">FAQ</a>
+  </nav>
+
+  <section class="s" id="alur">
+    <div class="kick">Ringkasan</div><h3 class="serif">Alur singkat</h3>
+    <div class="phases">
+      <div class="ph"><span class="tag">Sebelum hari H</span><h4>Persiapan</h4><ol>
+        <li>Isi <b>plot pengawas</b> di <a href="https://docs.google.com/spreadsheets/d/1epKgq4OBn2jagm7ioMMkvBBXNVDCR6hY/edit?gid=47080945#gid=47080945" target="_blank" rel="noopener">spreadsheet plotting</a>.</li>
+        <li>Siapkan <b>laptop + charger</b>, dan <b>konektor HDMI</b> bila diperlukan.</li>
+        <li>Siapkan <b>HP</b> untuk kamera (baterai dan penyimpanan cukup).</li>
+        <li>Baca seluruh panduan ini.</li>
+        <li>Coba aplikasi upload LJK di <a href="/ljk">mathcenter.cswda.id/ljk</a>.</li></ol></div>
+      <div class="ph"><span class="tag">Hari H · saat ujian</span><h4>Mengawasi</h4><ol>
+        <li>Datang <b>30 menit sebelum ujian</b>.</li>
+        <li>Unduh <b>file PPT</b> dari panitia.</li>
+        <li>Pastikan <b>mahasiswa hadir sesuai jadwal dan ruangan</b>.</li>
+        <li>Bagikan LJK kepada mahasiswa.</li>
+        <li>Tampilkan PPT dan mulai <b>slideshow</b>; slide sudah diatur berjalan otomatis.</li></ol></div>
+      <div class="ph"><span class="tag">Hari H · setelah ujian</span><h4>Mengunggah</h4><ol>
+        <li><b>Foto setiap LJK</b> sesuai ketentuan di bawah.</li>
+        <li>Unggah, periksa hasil pindai, lalu <b>Submit</b>.</li>
+        <li>Pastikan muncul halaman ucapan terima kasih.</li></ol></div>
+    </div>
+  </section>
+
+  <section class="s" id="foto">
+    <div class="kick">Ketentuan foto</div><h3 class="serif">Cara memotret LJK yang benar</h3>
+    <div class="ok">
+      <a href="/panduan/benar-hd.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/benar-hd.jpg" alt="Contoh foto LJK yang benar: jelas, lengkap, latar putih bersih" width="1045" height="1388"></a>
+      <div><h4>&#10003; Foto yang benar</h4>
+        <ul><li>Jelas dan tidak blur.</li><li>Seluruh bagian LJK masuk frame, termasuk keempat pojok.</li><li>Latar putih bersih, hanya satu LJK.</li><li>Cahaya merata, tanpa bayangan.</li></ul></div>
+    </div>
+    <div class="note tip"><b>Tips:</b> letakkan LJK di meja polos, foto dari atas dengan HP sejajar kertas, lalu cek hasilnya sebelum lanjut.</div>
+    <h4 style="margin:22px 0 0;font-size:16px">Hindari yang seperti ini</h4>
+    <div class="bad">
+      <figure><img src="/panduan/salah-blur.jpg" alt="Foto blur"><figcaption>Blur / terlalu jauh</figcaption></figure>
+      <figure><img src="/panduan/salah-terpotong.jpg" alt="Foto tidak lengkap"><figcaption>Tidak lengkap seluruh bagian</figcaption></figure>
+      <figure><img src="/panduan/salah-bayangan.jpg" alt="Foto berbayangan"><figcaption>Berbayangan / cahaya tidak merata</figcaption></figure>
+      <figure><img src="/panduan/salah-background.jpg" alt="Foto di atas LJK lain"><figcaption>Di atas LJK lain / latar tidak bersih</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="s" id="upload">
+    <div class="kick">Langkah 1–2</div><h3 class="serif">Cara mengunggah</h3>
+    <ol class="steps">
+      <li><b>Buka</b> <a href="/ljk">mathcenter.cswda.id/ljk</a>, lalu isi <b>Data Pengawas</b> (pilih nama Anda dari daftar; kalau tidak ada, pilih &ldquo;Lainnya — isi sendiri&rdquo;) dan <b>Data Ujian &amp; Peserta</b> (pilih program studi dan kelas; kalau tidak ada atau kelasnya gabungan, pilih &ldquo;Lainnya — isi sendiri&rdquo;).</li>
+      <li>Tekan <b>Ambil foto atau pilih berkas LJK</b>. Boleh memilih banyak foto sekaligus.</li>
+      <li>Tunggu <b>Memindai LJK</b> sampai selesai, lalu tekan <b>Lanjut ke validasi</b>.</li>
+      <li>Periksa tiap lembar (NPM dan jawaban sesuai LJK), lalu tekan <b>Validasi lembar ini</b>.</li>
+    </ol>
+    <div class="stt">
+      <div><b>Checking</b>Menunggu validasi Anda.</div>
+      <div><b>Warning</b>Ada yang perlu diperiksa, cek dan perbaiki dulu.</div>
+      <div><b>Validated</b>Sudah Anda setujui.</div>
+      <div><b>Gagal</b>Pojok LJK tidak terbaca, ganti dengan foto baru.</div>
+    </div>
+  </section>
+
+  <section class="s" id="ulang">
+    <div class="kick">Jika ada masalah</div><h3 class="serif">Cara mengunggah ulang foto bermasalah</h3>
+    <ol class="steps">
+      <li>Buka lembar berstatus <b>Gagal</b> atau <b>Warning</b>.</li>
+      <li>Tekan <b>Ganti foto</b>, lalu foto ulang sesuai ketentuan di atas.</li>
+      <li>Tunggu dipindai, periksa lagi, lalu <b>Validasi lembar ini</b>.</li>
+    </ol>
+    <div class="note warn">Gagal berkali-kali? Cek penyebabnya: blur, pojok terpotong, atau bayangan. Bila tetap gagal, hubungi panitia.</div>
+  </section>
+
+  <section class="s" id="submit">
+    <div class="kick">Langkah 3</div><h3 class="serif">Submit</h3>
+    <ol class="steps">
+      <li>Pastikan <b>semua lembar Validated</b> dan jumlahnya sama dengan jumlah mahasiswa yang hadir.</li>
+      <li>Tekan <b>Submit hasil LJK</b>.</li>
+    </ol>
+    <div class="note warn"><b>Periksa dulu:</b> program studi dan kelas sudah benar sebelum menekan Submit.</div>
+  </section>
+
+  <section class="s" id="sukses">
+    <div class="kick">Hasil akhir</div><h3 class="serif">Seperti apa yang sukses</h3>
+    <div class="note tip" style="margin-top:0">Anda melihat halaman <b>&ldquo;Terima kasih, [nama Anda]!&rdquo;</b> dengan keterangan bahwa seluruh lembar jawaban sudah tersimpan ke rekap. Setelah itu tidak ada yang perlu diunggah lagi.</div>
+  </section>
+
+  <section class="s" id="faq">
+    <div class="kick">FAQ</div><h3 class="serif">Pertanyaan yang sering muncul</h3>
+    <details class="q"><summary>Foto saya terus gagal dipindai, kenapa?</summary><p>Penyebab paling umum: blur, pojok LJK terpotong, bayangan, atau ada kertas lain di bawahnya. Foto ulang sesuai ketentuan lalu tekan Ganti foto.</p></details>
+    <details class="q"><summary>Internet putus saat mengunggah, apakah data hilang?</summary><p>Ulangi pengunggahan saat koneksi kembali. Lembar yang sudah terbaca tetap tersimpan di sesi Anda. Cek daftar lembar sebelum Submit.</p></details>
+    <details class="q"><summary>Salah memilih program studi atau kelas?</summary><p>Data ujian bisa diubah kapan saja sebelum Submit, dan semua lembar ikut diperbarui. Setelah Submit, hubungi panitia.</p></details>
+    <details class="q"><summary>Mahasiswa tidak sesuai jadwal atau ruangan?</summary><p>Pastikan mahasiswa hadir sesuai jadwal dan ruangan pada plot. Bila ada yang berbeda, catat dan laporkan ke panitia.</p></details>
+    <details class="q"><summary>Apakah boleh menutup halaman saat memindai?</summary><p>Sebaiknya tunggu sampai proses memindai selesai supaya semua lembar terbaca.</p></details>
+    <details class="q"><summary>Siapa yang dihubungi bila ada kendala?</summary><p>Hubungi panitia Math Center CSWDA.</p></details>
+    <div class="cta"><a class="btn p" href="/ljk">Buka aplikasi upload LJK →</a></div>
+  </section>
+</main>
+<footer class="f">developed by WHS MathCenter CSWDA Telkom University</footer>
+<script defer src="/vendor/alpine.min.js"></script>
+</body>
+</html>

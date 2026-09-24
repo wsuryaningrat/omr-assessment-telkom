@@ -30,7 +30,7 @@
   </div>
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/" role="menuitem">Beranda</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/" role="menuitem">Beranda</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
   </div>
   <button class="btn sm" x-show="sid" @click="resetAll()"><span class="hm">Evaluasi baru</span><span class="ms">Baru</span></button>
 </div></header>
@@ -48,13 +48,25 @@
     <div class="two split">
       <div class="card">
         <h2>Data Pengawas</h2>
-        <p class="sub">Identitas pengawas ujian. Hanya nama dan nomor HP.</p>
+        <p class="sub">Pilih nama Anda dari daftar. Nomor HP sudah terdaftar.</p>
         <div class="grid">
           <div class="full">
+            <label class="f" for="pw">Nama Pengawas</label>
+            <div class="selbox">
+              <span class="face" :class="{ph: !form.ref}" x-text="manual ? 'Lainnya — isi sendiri' : (picked ? picked.nama : 'Pilih nama Anda')"></span>
+              <select autocomplete="off" id="pw" x-model="form.ref" @change="onPengawas()" aria-label="Nama pengawas">
+                <option value="">Pilih nama Anda</option>
+                <optgroup label="Mahasiswa"><template x-for="p in pengawasMhs" :key="p.id"><option :value="p.id" x-text="p.nama"></option></template></optgroup>
+                <optgroup label="Dosen"><template x-for="p in pengawasDosen" :key="p.id"><option :value="p.id" x-text="p.nama"></option></template></optgroup>
+                <option value="manual">Lainnya — isi sendiri</option>
+              </select>
+            </div>
+          </div>
+          <div class="full" x-show="manual">
             <label class="f" for="nama">Nama Lengkap Pengawas</label>
             <input id="nama" x-model.trim="form.nama" autocomplete="name" placeholder="Nama lengkap">
           </div>
-          <div class="full">
+          <div class="full" x-show="showHp">
             <label class="f" for="hp">Nomor HP</label>
             <div class="hpgrp" :class="{bad: form.hp && !phoneOk}">
               <span class="pre">+62</span>
@@ -67,37 +79,31 @@
 
       <div class="card">
         <h2>Data Ujian &amp; Peserta</h2>
-        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Ruangan, fakultas, program studi, dan kelas peserta ujian.'"></p>
+        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Program studi dan kelas peserta ujian.'"></p>
         <div class="grid">
           <div class="full">
-            <label class="f" for="rg">Ruangan</label>
-            <input id="rg" x-model.trim="form.ruangan" placeholder="Contoh: TULT 0603">
-          </div>
-          <div class="full row2">
-            <div>
-              <label class="f" for="fk">Fakultas</label>
-              <div class="selbox">
-                <span class="face" :class="{ph: !form.fakultas}" x-text="form.fakultas ? form.fakultas.split(' - ')[0] : 'Pilih'"></span>
-                <select id="fk" x-model="form.fakultas" @change="form.prodi=''" aria-label="Fakultas mahasiswa">
-                  <option value="">Pilih fakultas</option>
-                  <template x-for="f in Object.keys(meta.fakultas_prodi||{})" :key="f"><option :value="f" x-text="f"></option></template>
-                </select>
-              </div>
+            <label class="f" for="pr">Program Studi</label>
+            <div class="selbox">
+              <span class="face" :class="{ph: !form.prodi}" x-text="form.prodi === 'manual' ? 'Lainnya — isi sendiri' : (form.prodi || 'Pilih program studi')"></span>
+              <select autocomplete="off" id="pr" x-model="form.prodi" @change="onProdi()" aria-label="Program studi mahasiswa">
+                <option value="">Pilih program studi</option>
+                <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
+                <option value="manual">Lainnya — isi sendiri</option>
+              </select>
             </div>
-            <div>
-              <label class="f" for="pr">Program Studi</label>
-              <div class="selbox" :class="{dis: !form.fakultas}">
-                <span class="face" :class="{ph: !form.prodi}" x-text="form.prodi || (form.fakultas ? 'Pilih program studi' : 'Pilih fakultas dulu')"></span>
-                <select id="pr" x-model="form.prodi" :disabled="!form.fakultas" aria-label="Program studi mahasiswa">
-                  <option value="" x-text="form.fakultas?'Pilih program studi':'Pilih fakultas dulu'"></option>
-                  <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
-                </select>
-              </div>
-            </div>
+            <input autocomplete="off" id="prm" style="margin-top:8px" x-show="form.prodi === 'manual'" x-model.trim="form.prodiManual" maxlength="150" placeholder="Tulis program studi (bila gabungan, pisahkan dengan koma)" aria-label="Program studi (isi sendiri)">
           </div>
           <div class="full">
-            <label class="f" for="kl">Nama Kelas</label>
-            <input id="kl" x-model.trim="form.kelas" placeholder="Contoh: IF-47-01">
+            <label class="f" for="kl">Kelas <span class="mute" x-show="prodiKnown" x-text="'(' + kelasOptions.length + ' kelas)'"></span></label>
+            <div class="selbox">
+              <span class="face" :class="{ph: !form.kelas}" x-text="form.kelas === 'manual' ? 'Lainnya — isi sendiri' : (form.kelas || 'Pilih kelas')"></span>
+              <select autocomplete="off" id="kl" x-model="form.kelas" @change="onKelas()" aria-label="Kelas mahasiswa">
+                <option value="">Pilih kelas</option>
+                <template x-for="k in kelasOptions" :key="k.kelas"><option :value="k.kelas" x-text="prodiKnown ? k.kelas : k.kelas + ' — ' + k.prodi"></option></template>
+                <option value="manual">Lainnya — isi sendiri</option>
+              </select>
+            </div>
+            <input autocomplete="off" id="klm" style="margin-top:8px" x-show="form.kelas === 'manual'" x-model.trim="form.kelasManual" maxlength="100" placeholder="Tulis nama kelas (bila gabungan, pisahkan dengan koma)" aria-label="Kelas (isi sendiri)">
           </div>
         </div>
       </div>
@@ -140,8 +146,7 @@
   <section x-show="step===2">
     <div class="backrow">
       <button class="btn sm" @click="go(1)">← Ubah data / tambah foto</button>
-      <span class="mute" x-text="[session?.pengawas?.nama, session?.pengawas?.ruangan, session?.pengawas?.kelas].filter(Boolean).join(' · ')"></span>
-      <span class="fakinfo" :title="session?.pengawas?.fakultas+' — '+session?.pengawas?.prodi"><small>Fakultas mahasiswa</small><b x-text="facPick"></b><span class="mute" x-text="session?.pengawas?.prodi"></span></span>
+      <span class="mute" x-text="[session?.pengawas?.nama, session?.pengawas?.kelas].filter(Boolean).join(' · ')"></span>
     </div>
     <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:10px">
       <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+(session?.files.total||0)"></span></div>
@@ -184,7 +189,7 @@
               <td><span class="chip" :class="status(s)" :title="reasons(s).join('\n')" x-text="statusText(s)"></span></td>
               <td><div class="nm" x-text="nameOf(s)"></div><div class="fl" x-text="s.file"></div></td>
               <td class="mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></td>
-              <td :class="{bad: fakBad(s)}" class="fak" x-text="fakText(s)"></td>
+              <td class="fak" x-text="fakText(s)"></td>
               <td class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></td>
               <td class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></td>
               <td @click.stop><div class="acts">
@@ -204,7 +209,7 @@
             <span class="num" x-text="numOf(s)"></span>
             <div class="main" @click="open(s)">
               <div class="l1"><span class="nm" x-text="nameOf(s)"></span><span class="chip xs" :class="status(s)" x-text="statusText(s)"></span></div>
-              <div class="l2"><span class="mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></span><span>·</span><span class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></span><span>·</span><span class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></span><span>·</span><span class="fak" :class="{bad: fakBad(s)}" x-text="fakText(s)"></span></div>
+              <div class="l2"><span class="mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></span><span>·</span><span class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></span><span>·</span><span class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></span><span>·</span><span class="fak" x-text="fakText(s)"></span></div>
             </div>
             <div class="side">
               <button class="ib" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" aria-label="Validasi"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
@@ -243,9 +248,7 @@
       <dl class="who sumwho">
         <dt>Nama pengawas</dt><dd x-text="session?.pengawas?.nama"></dd>
         <dt>Nomor HP</dt><dd x-text="session?.pengawas?.hp"></dd>
-        <dt>Ruangan</dt><dd x-text="session?.pengawas?.ruangan"></dd>
         <dt>Nama kelas</dt><dd x-text="session?.pengawas?.kelas || '-'"></dd>
-        <dt>Fakultas</dt><dd x-text="session?.pengawas?.fakultas"></dd>
         <dt>Program studi</dt><dd x-text="session?.pengawas?.prodi"></dd>
       </dl>
       <button class="btn p" style="margin-top:16px" @click="resetAll()">Evaluasi baru</button>
@@ -279,7 +282,7 @@
       </div>
       <dl class="kv">
         <dt>NPM</dt><dd class="mono" :class="{bad: npmBad(sel)}" x-text="npmText(sel)"></dd>
-        <dt>Fakultas</dt><dd class="fak" :class="{bad: fakBad(sel)}" x-text="fakText(sel)+(fakBad(sel)&&facPick?'  (pengawas mengisi '+facPick+')':'')"></dd>
+        <dt>Fakultas (LJK)</dt><dd class="fak" x-text="fakText(sel)"></dd>
         <dt>Kode soal</dt><dd class="mono" :class="{bad: kodeBad(sel)}" x-text="sel.kode_soal||'-'"></dd>
         <dt>Jawaban terisi</dt><dd class="mono" :class="{bad: fillBad(sel)}" x-text="terisiText(sel)"></dd>
       </dl>

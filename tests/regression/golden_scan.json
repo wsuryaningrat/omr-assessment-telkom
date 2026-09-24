@@ -2,7 +2,7 @@
  "blank_pdf": {
   "method": "inner_corner",
   "record": {
-   "Fakultas": "FIF",
+   "Fakultas": "MULTIPLE",
    "Fakultas (LJK)": "MULTIPLE",
    "File": "blank_pdf",
    "Jawaban Terisi": "28 / 75",
@@ -115,7 +115,7 @@
  "filled_pdf": {
   "method": "inner_corner",
   "record": {
-   "Fakultas": "FIF",
+   "Fakultas": "MULTIPLE",
    "Fakultas (LJK)": "MULTIPLE",
    "File": "filled_pdf",
    "Jawaban Terisi": "31 / 75",
@@ -228,7 +228,7 @@
  "filled_phone": {
   "method": "inner_corner",
   "record": {
-   "Fakultas": "FIF",
+   "Fakultas": "MULTIPLE",
    "Fakultas (LJK)": "MULTIPLE",
    "File": "filled_phone",
    "Jawaban Terisi": "33 / 75",
@@ -341,7 +341,7 @@
  "filled_phone_jpeg_pipeline": {
   "method": "inner_corner",
   "record": {
-   "Fakultas": "FIF",
+   "Fakultas": "MULTIPLE",
    "Fakultas (LJK)": "MULTIPLE",
    "File": "filled_phone_jpeg_pipeline",
    "Jawaban Terisi": "34 / 75",

@@ -25,7 +25,7 @@
   </div>
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a x-show="authed && sum && sum.gsheet_url" :href="sum && sum.gsheet_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>Buka Google Sheet</a><a href="/ljk" role="menuitem">Evaluasi LJK</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a x-show="authed && sum && sum.gsheet_url" :href="sum && sum.gsheet_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>Buka Google Sheet</a><a href="/ljk" role="menuitem">Evaluasi LJK</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
   </div>
   <span class="mute" x-show="authed && me.email && me.email!=='token'" x-text="me.name || me.email" style="font-size:13px"></span>
   <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
@@ -104,19 +104,19 @@
         <div class="tools">
           <div class="tt"><h2>Sesi pengawas</h2></div>
           <div class="f">
-            <input type="search" placeholder="Cari pengawas / kelas / ruangan…" x-model.trim="ses.q" @input.debounce.300ms="ses.page=1; loadSessions()">
+            <input type="search" placeholder="Cari pengawas / kelas / prodi…" x-model.trim="ses.q" @input.debounce.300ms="ses.page=1; loadSessions()">
             <select x-model="ses.status" @change="ses.page=1; loadSessions()">
               <option value="all">Semua</option><option value="submitted">Sudah submit</option><option value="open">Belum submit</option><option value="unsynced">Belum tersinkron</option>
             </select>
           </div>
         </div>
         <div class="tbl"><table>
-          <thead><tr><th>Pengawas</th><th>Ruangan</th><th>Kelas</th><th>Fak.</th><th class="c" style="width:auto">Lembar</th><th>Status</th><th>Sheet</th><th></th></tr></thead>
+          <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th class="c" style="width:auto">Lembar</th><th>Status</th><th>Sheet</th><th></th></tr></thead>
           <tbody>
             <template x-for="i in ses.items" :key="i.id">
               <tr>
                 <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
-                <td x-text="i.ruangan"></td><td x-text="i.kelas||'-'"></td><td class="mono" x-text="i.fakultas"></td>
+                <td x-text="i.kelas||'-'"></td><td x-text="i.prodi"></td>
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
                 <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
                 <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>

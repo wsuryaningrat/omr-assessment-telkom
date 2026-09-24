@@ -17,8 +17,8 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
-from scanner.service import FAKULTAS_PRODI, classify_scan_status
-from server import admin, auth, config, services, worker
+from scanner.service import classify_scan_status
+from server import refdata, admin, auth, config, services, worker
 from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -45,13 +45,12 @@ def _norm_hp(raw: str):
 
 def _pengawas(s: ScanSession):
     return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
-            "fakultas": s.fakultas, "prodi": s.prodi}
+            "fakultas": "", "prodi": s.prodi}
 
 
 def _apply_identity(record: dict, s: ScanSession) -> dict:
     """Samakan kolom identitas pada hasil pindai dengan data sesi terkini (mis. setelah pengawas mengedit)."""
-    updates = {"Nama Pengawas": s.nama_pengawas, "No HP Pengawas": s.hp, "Ruangan": s.ruangan,
-               "Fakultas": s.fakultas.split(" - ")[0], "Program Studi": s.prodi}
+    updates = {"Nama Pengawas": s.nama_pengawas, "No HP Pengawas": s.hp, "Ruangan": s.ruangan or "-", "Program Studi": s.prodi}
     out = {}
     for k, v in record.items():
         if k == "Kelas":
@@ -165,42 +164,51 @@ def get_db():
 # --------------------------------------------------------------------------- meta & sesi
 @app.get("/api/meta")
 def meta():
-    return {"fakultas_prodi": FAKULTAS_PRODI, "max_upload_mb": config.MAX_UPLOAD_MB,
-            "extensions": sorted(config.ALLOWED_EXT)}
+    return {"pengawas": [{"id": p["id"], "nama": p["nama"], "dosen": p["dosen"], "needs_hp": not p["hp"]} for p in refdata.pengawas()],
+            "kelas": refdata.kelas(), "prodi": refdata.prodi_list(),
+            "max_upload_mb": config.MAX_UPLOAD_MB, "extensions": sorted(config.ALLOWED_EXT)}
 
 
 class SessionIn(BaseModel):
-    nama_pengawas: str
-    hp: str
-    ruangan: str
+    pengawas_ref: str = ""      # id dari /api/meta; kosong = isi sendiri (nama_pengawas + hp wajib)
+    nama_pengawas: str = ""
+    hp: str = ""
     kelas: str
-    fakultas: str
     prodi: str
 
 
-def _validate_identity(body: SessionIn):
+def _resolve_identity(body: SessionIn):
+    """Validasi isian dan kembalikan (nama, hp) pengawas: dari daftar terdaftar bila dipilih, atau isian sendiri."""
     errors = []
-    if not body.kelas.strip():
-        errors.append("Nama kelas wajib diisi")
-    if not body.nama_pengawas.strip():
-        errors.append("Nama lengkap pengawas wajib diisi")
-    if not _norm_hp(body.hp):
+    nama, hp = body.nama_pengawas.strip(), _norm_hp(body.hp)
+    if body.pengawas_ref:
+        p = refdata.pengawas_by_id(body.pengawas_ref)
+        if p is None:
+            errors.append("Pengawas tidak dikenal")
+        else:
+            nama = p["nama"]
+            hp = p["hp"] or hp
+    if not nama:
+        errors.append("Nama pengawas wajib diisi")
+    if not hp:
         errors.append("Nomor HP tidak valid (contoh: +62 812 3456 7890)")
-    if not body.ruangan.strip():
-        errors.append("Ruangan wajib diisi")
-    if body.fakultas not in FAKULTAS_PRODI:
-        errors.append("Fakultas tidak valid")
-    elif body.prodi not in FAKULTAS_PRODI[body.fakultas]:
-        errors.append("Program studi tidak sesuai fakultas")
+    if not body.prodi.strip():
+        errors.append("Program studi wajib diisi")
+    elif len(body.prodi.strip()) > 150:
+        errors.append("Program studi terlalu panjang")
+    if not body.kelas.strip():
+        errors.append("Kelas wajib diisi")
+    elif len(body.kelas.strip()) > 100:
+        errors.append("Kelas terlalu panjang")
     if errors:
         raise HTTPException(422, errors)
+    return nama, hp
 
 
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
-    _validate_identity(body)
-    s = ScanSession(nama_pengawas=body.nama_pengawas.strip(), hp=_norm_hp(body.hp), ruangan=body.ruangan.strip(),
-                    kelas=body.kelas.strip(), fakultas=body.fakultas, prodi=body.prodi)
+    nama, hp = _resolve_identity(body)
+    s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas="", prodi=body.prodi.strip())
     db.add(s)
     db.commit()
     return {"id": s.id}
@@ -212,9 +220,9 @@ def update_session(sid: str, body: SessionIn, db=Depends(get_db)):
     s = _session_or_404(db, sid)
     if s.submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
-    _validate_identity(body)
-    s.nama_pengawas, s.hp, s.ruangan = body.nama_pengawas.strip(), _norm_hp(body.hp), body.ruangan.strip()
-    s.kelas, s.fakultas, s.prodi = body.kelas.strip(), body.fakultas, body.prodi
+    nama, hp = _resolve_identity(body)
+    s.nama_pengawas, s.hp = nama, hp
+    s.kelas, s.prodi = body.kelas.strip(), body.prodi.strip()
     for sh in s.sheets:
         sh.record = _apply_identity(sh.record, s)
     db.commit()
@@ -476,6 +484,11 @@ def admin_page():
 @app.get("/ljk", include_in_schema=False)
 def ljk_page():
     return FileResponse(os.path.join(os.path.dirname(__file__), "static", "ljk.html"))
+
+
+@app.get("/panduan", include_in_schema=False)
+def panduan_page():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "panduan.html"))
 
 
 app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="ui")

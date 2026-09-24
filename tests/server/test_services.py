@@ -19,8 +19,8 @@ from tests.regression.fixtures import KUNCI
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ADM = {"X-Admin-Token": "rahasia"}
-VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "IF-47-01",
-         "fakultas": "FIF - Fakultas Informatika", "prodi": "S1 Informatika"}
+VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
+         "prodi": "S1 Sistem Informasi"}
 PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
 
 
@@ -42,11 +42,15 @@ class FakeSheets:
 class TestServices(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from server import refdata
+        cls._orig_kp, refdata.kelas_prodi = refdata.kelas_prodi, lambda k: VALID["prodi"]   # tes memakai nama kelas bebas
         cls._ctx = TestClient(app)
         cls.c = cls._ctx.__enter__()
 
     @classmethod
     def tearDownClass(cls):
+        from server import refdata
+        refdata.kelas_prodi = cls._orig_kp
         sheets.set_client(None)
         cls._ctx.__exit__(None, None, None)
 
