@@ -39,3 +39,5 @@ footer.devby{text-align:center;color:var(--ink3);font-size:11.5px;padding:14px 1
 .partners .cw-mark{display:none;height:30px;width:auto}
 @media(max-width:719px){.partners .cw-full{display:none}.partners .cw-mark{display:block}}
 @media(max-width:560px){.partners .cw-mark{height:26px}}
+
+@media(min-width:720px){.partners .cw-full{height:22px}}
