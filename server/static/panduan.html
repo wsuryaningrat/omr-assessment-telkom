@@ -51,6 +51,9 @@ section.s h3{font-size:clamp(21px,3.5vw,28px);margin:6px 0 14px}
 .stt{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));margin-top:14px}
 .stt div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--ink2)}
 .stt b{display:block;color:var(--ink);margin-bottom:2px}
+.stt .st-c{background:#FFF8DB;border-color:#F3E3A0}.stt .st-c b{color:#8A6500}
+.stt .st-w{background:var(--bad-bg);border-color:var(--bad-line)}.stt .st-w b{color:var(--bad)}
+.stt .st-v{background:var(--ok-bg);border-color:var(--ok-line)}.stt .st-v b{color:var(--ok)}
 details.q{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
 details.q summary{cursor:pointer;padding:14px 16px;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:12px}
 details.q summary::-webkit-details-marker{display:none}
@@ -144,21 +147,23 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
           <figcaption><b>!</b> Tekan <b>Submit hasil LJK</b> hanya kalau semua lembar sudah benar.</figcaption></figure></li>
     </ol>
     <div class="stt">
-      <div><b>Checking</b>Menunggu validasi Anda.</div>
-      <div><b>Warning</b>Ada yang perlu diperiksa, cek dan perbaiki dulu.</div>
-      <div><b>Validated</b>Sudah Anda setujui.</div>
-      <div><b>Gagal</b>Pojok LJK tidak terbaca, ganti dengan foto baru.</div>
+      <div class="st-c"><b>&#9203; Checking</b>Menunggu validasi Anda.</div>
+      <div class="st-w"><b>&#9888;&#65039; Warning</b>Ada data janggal (mis. NPM kurang digit atau jawaban terisi rendah). Cek ulang, atau ganti foto.</div>
+      <div class="st-v"><b>&#9989; Validated</b>Sudah Anda validasi dan siap dikirim.</div>
     </div>
   </section>
 
   <section class="s" id="ulang">
     <div class="kick">Jika ada masalah</div><h3 class="serif">Cara mengunggah ulang foto bermasalah</h3>
+    <p class="lead" style="font-size:15px">Lembar berstatus <b>&#9888;&#65039; Warning</b> (mis. NPM terbaca kurang dari 10 digit atau kode soal tidak valid) biasanya karena fotonya kurang baik. Ganti dengan foto baru tanpa mengulang dari awal.</p>
     <ol class="stp">
-      <li>Buka lembar berstatus <b>Gagal</b> atau <b>Warning</b>.</li>
-      <li>Tekan <b>Ganti foto</b>, lalu foto ulang sesuai ketentuan di atas.</li>
-      <li>Tunggu dipindai, periksa lagi, lalu <b>Validasi lembar ini</b>.</li>
+      <li><b>Buka lembar yang Warning:</b> tekan ikon mata pada barisnya untuk melihat rinciannya dan pratinjau hasil pindai.
+        <figure class="shot"><a href="/panduan/langkah-ganti-foto.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/langkah-ganti-foto.jpg" alt="Rincian lembar Warning dengan tombol Ganti foto dilingkari merah" loading="lazy" width="1400" height="920"></a>
+          <figcaption><b>!</b> Tekan <b>Ganti foto</b>, lalu pilih atau ambil foto baru untuk lembar ini.</figcaption></figure></li>
+      <li>Foto ulang sesuai ketentuan di atas (jelas, lengkap, latar putih bersih, tanpa bayangan).</li>
+      <li>Tunggu dipindai, periksa lagi, lalu tekan <b>Validasi lembar ini</b>.</li>
     </ol>
-    <div class="note warn">Gagal berkali-kali? Cek penyebabnya: blur, pojok terpotong, atau bayangan. Bila tetap gagal, hubungi panitia.</div>
+    <div class="note warn">Warning terus muncul setelah beberapa kali ganti foto? Periksa penyebabnya (blur, pojok terpotong, bayangan). Bila masih bermasalah, tanyakan di WAG relawan Math Center.</div>
   </section>
 
   <section class="s" id="submit">
@@ -178,10 +183,10 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:32px 16px}
       <figure class="shot" style="margin:0 16px 16px"><a href="/panduan/sukses.jpg" target="_blank" rel="noopener" title="Klik untuk memperbesar"><img src="/panduan/sukses.jpg" alt="Halaman Terima kasih setelah submit berhasil" loading="lazy" width="1400" height="899"></a></figure></details>
     <details class="q"><summary>Foto saya terus gagal dipindai, kenapa?</summary><p>Penyebab paling umum: blur, pojok LJK terpotong, bayangan, atau ada kertas lain di bawahnya. Foto ulang sesuai ketentuan lalu tekan Ganti foto.</p></details>
     <details class="q"><summary>Internet putus saat mengunggah, apakah data hilang?</summary><p>Ulangi pengunggahan saat koneksi kembali. Lembar yang sudah terbaca tetap tersimpan di sesi Anda. Cek daftar lembar sebelum Submit.</p></details>
-    <details class="q"><summary>Salah memilih program studi atau kelas?</summary><p>Data ujian bisa diubah kapan saja sebelum Submit, dan semua lembar ikut diperbarui. Setelah Submit, hubungi panitia.</p></details>
-    <details class="q"><summary>Mahasiswa tidak sesuai jadwal atau ruangan?</summary><p>Pastikan mahasiswa hadir sesuai jadwal dan ruangan pada plot. Bila ada yang berbeda, catat dan laporkan ke panitia.</p></details>
+    <details class="q"><summary>Salah memilih program studi atau kelas?</summary><p>Data ujian bisa diubah kapan saja sebelum Submit, dan semua lembar ikut diperbarui. Setelah Submit, tanyakan di WAG relawan Math Center.</p></details>
+    <details class="q"><summary>Mahasiswa tidak sesuai jadwal atau ruangan?</summary><p>Pastikan mahasiswa hadir sesuai jadwal dan ruangan pada plot. Bila ada yang berbeda, catat dan laporkan di WAG relawan Math Center.</p></details>
     <details class="q"><summary>Apakah boleh menutup halaman saat memindai?</summary><p>Sebaiknya tunggu sampai proses memindai selesai supaya semua lembar terbaca.</p></details>
-    <details class="q"><summary>Siapa yang dihubungi bila ada kendala?</summary><p>Hubungi panitia Math Center CSWDA.</p></details>
+    <details class="q"><summary>Pertanyaan lebih lanjut atau kendala lainnya?</summary><p>Silakan koordinasi di <b>WAG relawan Math Center</b>.</p></details>
     <div class="cta"><a class="btn p" href="/ljk">Buka aplikasi upload LJK →</a></div>
   </section>
 </main>
