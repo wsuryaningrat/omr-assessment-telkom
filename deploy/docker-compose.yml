@@ -52,7 +52,7 @@ services:
       GSHEET_URL: ${GSHEET_URL:-}
       GSHEET_CREDENTIALS: ${GSHEET_CREDENTIALS:-}
       SYNC_SINCE: ${SYNC_SINCE:-}
-      UPLOAD_RETENTION_HOURS: ${UPLOAD_RETENTION_HOURS:-24}
+      UPLOAD_RETENTION_HOURS: ${UPLOAD_RETENTION_HOURS:-1}
     volumes:
       - uploads:/data/uploads
       - ./secrets:/run/secrets:ro        # mis. gsheet.toml -> GSHEET_CREDENTIALS=/run/secrets/gsheet.toml

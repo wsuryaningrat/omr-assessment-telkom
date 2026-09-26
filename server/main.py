@@ -1,5 +1,6 @@
 """API pemindaian LJK (FastAPI). Pemindaian berjalan di process pool, bukan di event loop."""
 import asyncio
+import multiprocessing
 import logging
 import os
 import re
@@ -22,6 +23,24 @@ from server import refdata, admin, auth, config, services, worker
 from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
+_pending = multiprocessing.Value("i", 0)   # pekerjaan pindai berjalan + mengantre; dibaca worker untuk menentukan jumlah thread
+
+
+def _submit_scan(*args):
+    with _pending.get_lock():
+        _pending.value += 1
+    try:
+        fut = _pool.submit(worker.scan_file, *args)
+    except Exception:
+        _scan_finished(None)
+        raise
+    fut.add_done_callback(_scan_finished)
+    return fut
+
+
+def _scan_finished(_fut):
+    with _pending.get_lock():
+        _pending.value = max(0, _pending.value - 1)
 
 
 def _safe_name(name):
@@ -71,7 +90,7 @@ def _enqueue(file_id):
         f.state = "processing"
         args = (f.path, f.name, _pengawas(s), _kunci(db))
         db.commit()
-    fut = _pool.submit(worker.scan_file, *args)
+    fut = _submit_scan(*args)
     fut.add_done_callback(lambda fu, fid=file_id: _on_done(fid, fu))
 
 
@@ -116,7 +135,7 @@ async def lifespan(app):
     init_db()
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(var, "1")   # diwarisi proses pemindai: cegah thread numpy/BLAS berebut core
-    _pool = ProcessPoolExecutor(max_workers=config.SCAN_WORKERS, initializer=worker.init_worker, initargs=(os.getpid(),))
+    _pool = ProcessPoolExecutor(max_workers=config.SCAN_WORKERS, initializer=worker.init_worker, initargs=(os.getpid(), _pending))
     list(_pool.map(worker.warmup, range(config.SCAN_WORKERS)))  # muat template sekali per proses
     with SessionLocal() as db:  # pulihkan pekerjaan yang terputus saat restart
         pending = [f.id for f in db.scalars(select(UploadFile).where(UploadFile.state.in_(("queued", "processing"))))]
@@ -401,7 +420,7 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     dest = os.path.join(config.UPLOAD_DIR, s.id, f"{uuid.uuid4().hex[:8]}_{_safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _save_stream(file, dest)
-    fut = _pool.submit(worker.scan_file, dest, file.filename, _pengawas(s), _kunci(db), 0)
+    fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0)
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -423,7 +442,7 @@ def preview(shid: str, db=Depends(get_db)):
     up = db.get(UploadFile, sh.file_id)
     if not os.path.exists(up.path):
         raise HTTPException(410, "Berkas sumber sudah dihapus")
-    fut = _pool.submit(worker.scan_file, up.path, up.name, _pengawas(s), _kunci(db), sh.page, True)
+    fut = _submit_scan(up.path, up.name, _pengawas(s), _kunci(db), sh.page, True)
     res = fut.result(timeout=120)
     if not res or "overlay_jpeg" not in res[0]:
         raise HTTPException(404, "Preview tidak tersedia")

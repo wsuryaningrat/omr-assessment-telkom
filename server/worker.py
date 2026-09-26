@@ -6,6 +6,15 @@ Penulisan ke database dilakukan oleh proses utama.
 import os
 
 _TEMPLATE = None
+_PENDING = None    # multiprocessing.Value: jumlah pekerjaan pindai yang sedang berjalan + mengantre (dari proses utama)
+
+
+def threads_for(pending, workers, adaptive=True, floor=1):
+    """Jumlah thread OpenCV untuk satu foto. Antrean penuh -> 1 thread (tiap core sudah dipakai satu worker);
+    antrean sepi -> core yang menganggur dipakai thread agar satu foto lebih cepat. Hasil bacaan tidak berubah."""
+    if not adaptive:
+        return max(1, floor)
+    return max(1, floor, workers // max(1, pending))
 
 
 class PathUpload:
@@ -44,6 +53,7 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
     tpl = _template()
     if not tpl:
         raise RuntimeError("Template pemindai tidak ditemukan")
+    _set_threads()
     k_cache = _int_keys(kunci)
     info = {"hp": pengawas["hp"], "ruangan": pengawas["ruangan"], "prodi": pengawas["prodi"], "kelas": pengawas.get("kelas", "")}
     out = []
@@ -60,11 +70,22 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
     return out
 
 
-def init_worker(parent_pid):
+def _set_threads():
+    import cv2
+    from server import config
+    n = threads_for(_PENDING.value if _PENDING is not None else config.SCAN_WORKERS, config.SCAN_WORKERS,
+                    os.environ.get("SCAN_ADAPTIVE_THREADS", "1") == "1", int(os.environ.get("SCAN_CV_THREADS", "1")))
+    cv2.setNumThreads(n)
+
+
+def init_worker(parent_pid, pending=None):
     """Pekerja ikut berhenti bila proses server (induk) mati — tanpa ini pekerja menjadi yatim dan menghabiskan RAM
     setiap kali server di-restart/--reload atau dimatikan paksa."""
     import threading
     import time
+
+    global _PENDING
+    _PENDING = pending
 
     # Pemindaian menghabiskan CPU. Prioritas lebih rendah (nice) agar proses API (polling status, upload) tetap
     # responsif saat semua core dipakai memindai. Ubah/matikan lewat SCAN_NICE (0 = normal).

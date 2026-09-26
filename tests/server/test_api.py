@@ -60,6 +60,18 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(m["prodi"], sorted(set(k["prodi"] for k in m["kelas"]), key=str.lower))
         self.assertNotIn("fakultas_prodi", m)
 
+    def test_pending_counter_returns_to_zero(self):
+        from server import main as srv
+        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
+        self.wait(sid)
+        for _ in range(50):
+            if srv._pending.value == 0:
+                break
+            time.sleep(0.1)
+        self.assertEqual(srv._pending.value, 0)
+
     def test_pengawas_dropdown_and_registered_phone(self):
         import tempfile
         from server import refdata
