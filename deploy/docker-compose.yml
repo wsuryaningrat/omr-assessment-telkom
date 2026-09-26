@@ -52,6 +52,7 @@ services:
       GSHEET_URL: ${GSHEET_URL:-}
       GSHEET_CREDENTIALS: ${GSHEET_CREDENTIALS:-}
       SYNC_SINCE: ${SYNC_SINCE:-}
+      MONITOR_SINCE: ${MONITOR_SINCE:-}
       UPLOAD_RETENTION_HOURS: ${UPLOAD_RETENTION_HOURS:-1}
     volumes:
       - uploads:/data/uploads

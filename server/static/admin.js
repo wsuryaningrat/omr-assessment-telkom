@@ -1,7 +1,7 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "ringkasan", busy: false, kelas: "",
-    tabs: [{ id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
+    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -39,15 +39,36 @@ function admin() {
     },
     async login(silent = false) {
       this.loginErr = "";
-      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); }
+      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await this.loadMonitor(); }
       catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
     },
     async logout() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (this.authed && this.tab === "ringkasan") this.loadSummary(); }, 5000); },
-    async go(t) { this.tab = t; if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
+    async loadMonitor(refresh = false) {
+      this.monBusy = true;
+      try {
+        const d = await this.json("/api/admin/monitor?mode=onsite" + (refresh ? "&refresh=true" : ""));
+        this.mon = d;
+        if (!this.monDay || !d.days.some(x => x.hari === this.monDay)) {
+          const today = d.days.find(x => x.hari === d.hari_ini), open = d.days.find(x => x.selesai < x.total);
+          this.monDay = (today || open || d.days[0] || {}).hari || "";
+        }
+      } catch (e) { this.toast(e.message, true); }
+      this.monBusy = false;
+    },
+    get monDayData() { return (this.mon?.days || []).find(x => x.hari === this.monDay) || null; },
+    get monSlots() {
+      const d = this.monDayData; if (!d) return [];
+      const q = this.monQ.trim().toLowerCase();
+      return d.slots.filter(x => (this.monFilter === "all" || x.status === this.monFilter) && (!q || (x.kelas + " " + x.pengawas + " " + x.prodi + " " + x.ruangan + " " + x.gedung).toLowerCase().includes(q)));
+    },
+    pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
+    monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
+    monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
+    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });

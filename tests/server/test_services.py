@@ -82,6 +82,39 @@ class TestServices(unittest.TestCase):
         r = self.c.post(f"/api/sessions/{sid}/submit")
         self.assertEqual(r.status_code, 200, r.text)
 
+    def test_monitor_progres_per_hari(self):
+        from server import plotting
+        csv_text = ("No,Hari,Jam Mulai,Jam Selesai,Gedung,Ruangan,Kelas,Prodi,Jml Mahasiswa,Nama Pengawas,Cek Bentrok,Mode,\n"
+                    "1,SENIN,08:30,09:30,KU1,R1,MON-A,S1 X,3,Budi Santoso,OK,Onsite,\n"
+                    "2,SENIN,09:30,10:30,KU1,R2,MON-B,S1 X,2,Ani,OK,Onsite,\n"
+                    "3,SELASA,08:30,09:30,KU1,R3,MON-C,S1 X,4,Cici,OK,Onsite,\n"
+                    "4,SENIN,08:30,09:30,Online,-,MON-D,S1 X,9,Dedi,OK,Online,\n")
+        old = (plotting._download, config.MONITOR_SINCE, config.UPLOAD_DIR)
+        plotting._download = lambda: csv_text
+        config.MONITOR_SINCE = ""
+        plotting._cache.update(rows=None, at=0.0, error=None)
+        try:
+            sid = self.submitted_session("MON-A", n=2)
+            self.submit(sid)
+            self.c.post("/api/sessions", json={**VALID, "kelas": "MON-B"})
+            extra = self.submitted_session("LUAR-JADWAL", n=1)
+            self.submit(extra)
+            d = self.c.get("/api/admin/monitor?refresh=true", headers=ADM).json()
+            self.assertEqual(d["overall"]["total"], 3)                      # baris Online tidak dihitung
+            self.assertEqual(d["overall"]["selesai"], 1)
+            self.assertEqual(d["overall"]["berjalan"], 1)                   # MON-B: sesi dibuat tapi belum submit
+            senin = next(x for x in d["days"] if x["hari"] == "SENIN")
+            a = next(x for x in senin["slots"] if x["kelas"] == "MON-A")
+            self.assertEqual((a["status"], a["lembar"], a["jml_mhs"]), ("selesai", 2, 3))
+            self.assertEqual(senin["mhs_upload"], 2)
+            self.assertEqual(senin["pct_mhs"], round(2 / 5 * 100, 1))
+            self.assertTrue(any(e["kelas"] == "LUAR-JADWAL" for e in d["di_luar_jadwal"]))
+            self.assertEqual(self.c.get("/api/admin/monitor?mode=online&refresh=true", headers=ADM).json()["overall"]["total"], 1)
+            self.assertEqual(self.c.get("/api/admin/monitor").status_code, 401)
+        finally:
+            plotting._download, config.MONITOR_SINCE, config.UPLOAD_DIR = old
+            plotting._cache.update(rows=None, at=0.0, error=None)
+
     def test_admin_requires_token(self):
         for path in ("/api/admin/summary", "/api/admin/sessions", "/api/admin/kunci", "/api/admin/export.xlsx"):
             self.assertEqual(self.c.get(path).status_code, 401, path)

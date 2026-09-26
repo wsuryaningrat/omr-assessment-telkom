@@ -1,14 +1,15 @@
 """Endpoint admin (header X-Admin-Token): ringkasan, sesi, kunci jawaban, sinkron Google Sheet, ekspor."""
 import csv
+import datetime as dt
 import io
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile as FUploadFile
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import Integer, func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
-from server import auth, config, services, sheets
+from server import auth, config, plotting, services, sheets
 from server.db import Kunci, ScanSession, Sheet, SessionLocal
 
 
@@ -31,10 +32,73 @@ def summary(db=Depends(get_db)):
         "unsynced": q(ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None)),
         "sync_failed": q(ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None), ScanSession.sync_attempts >= config.SYNC_MAX_ATTEMPTS),
         "kunci": db.scalar(select(func.count()).select_from(Kunci)) or 0,
+        "plot_url": config.PLOTTING_SHEET_URL,
         "gsheet_configured": sheets.get_client() is not None,
         "gsheet_url": (getattr(sheets.get_client(), "url", None) or config.GSHEET_URL or ""),
         "state": services.STATE,
     }
+
+
+@router.get("/monitor")
+def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
+    """Progres unggah per hari terhadap jadwal plotting (default: hanya tes onsite)."""
+    rows, fetched, perr = plotting.schedule(force=refresh)
+    want = mode.strip().lower()
+    slots_src = [r for r in rows if not want or want == "semua" or r["mode"].lower() == want]
+
+    cond = []
+    if config.MONITOR_SINCE:
+        cond.append(ScanSession.created_at >= dt.datetime.fromisoformat(config.MONITOR_SINCE.replace("Z", "+00:00")))
+    q = (select(ScanSession.id, ScanSession.kelas, ScanSession.submitted, ScanSession.submitted_at, ScanSession.created_at,
+                ScanSession.nama_pengawas, func.count(Sheet.id), func.coalesce(func.sum(func.cast(Sheet.validated, Integer)), 0))
+         .outerjoin(Sheet, Sheet.session_id == ScanSession.id).where(*cond).group_by(ScanSession.id))
+    by_kelas = {}
+    for sid, kelas, sub, sub_at, cr_at, nama, n_sheet, n_val in db.execute(q):
+        by_kelas.setdefault((kelas or "").strip().lower(), []).append(
+            {"id": sid, "kelas": kelas, "submitted": bool(sub), "submitted_at": sub_at, "created_at": cr_at,
+             "pengawas": nama, "lembar": int(n_sheet or 0), "validated": int(n_val or 0)})
+
+    days, seen = {}, set()
+    for r in slots_src:
+        key = r["kelas"].strip().lower(); seen.add(key)
+        ss = by_kelas.get(key, [])
+        done = [x for x in ss if x["submitted"]]
+        openx = [x for x in ss if not x["submitted"]]
+        if done:
+            status, lembar = "selesai", sum(x["lembar"] for x in done)
+            at = max((x["submitted_at"] for x in done if x["submitted_at"]), default=None)
+            oleh = done[-1]["pengawas"]
+        elif openx:
+            status, lembar, at, oleh = "berjalan", sum(x["lembar"] for x in openx), None, openx[-1]["pengawas"]
+        else:
+            status, lembar, at, oleh = "belum", 0, None, ""
+        d = days.setdefault(r["hari"], {"hari": r["hari"], "slots": []})
+        d["slots"].append({**r, "status": status, "lembar": lembar, "submitted_at": at.isoformat() if at else None,
+                           "oleh": oleh, "beda_pengawas": bool(oleh) and oleh.strip().lower() != r["pengawas"].strip().lower()})
+
+    out_days = []
+    for name in sorted(days, key=lambda h: plotting.HARI.index(h) if h in plotting.HARI else 99):
+        d = days[name]; sl = sorted(d["slots"], key=lambda x: (x["jam_mulai"], x["gedung"], x["kelas"]))
+        tot = len(sl); selesai = sum(x["status"] == "selesai" for x in sl); jalan = sum(x["status"] == "berjalan" for x in sl)
+        mhs = sum(x["jml_mhs"] for x in sl)
+        up = sum(min(x["lembar"], x["jml_mhs"]) for x in sl if x["status"] == "selesai")
+        prog = sum(min(x["lembar"], x["jml_mhs"]) for x in sl if x["status"] == "berjalan")
+        out_days.append({"hari": name, "total": tot, "selesai": selesai, "berjalan": jalan, "belum": tot - selesai - jalan,
+                         "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs, "mhs_upload": up, "mhs_proses": prog,
+                         "pct_mhs": round(up / mhs * 100, 1) if mhs else 0, "slots": sl})
+    tot = sum(d["total"] for d in out_days); selesai = sum(d["selesai"] for d in out_days)
+    mhs = sum(d["mhs_total"] for d in out_days); up = sum(d["mhs_upload"] for d in out_days)
+    extra = [{"kelas": x["kelas"], "pengawas": x["pengawas"], "lembar": x["lembar"], "submitted": x["submitted"],
+              "submitted_at": x["submitted_at"].isoformat() if x["submitted_at"] else None}
+             for k, xs in by_kelas.items() if k not in seen for x in xs][:60]
+    wib = dt.datetime.now(dt.timezone(dt.timedelta(hours=7)))
+    return {"mode": want or "semua", "hari_ini": plotting.HARI[wib.weekday()], "since": config.MONITOR_SINCE or None,
+            "plotting_at": dt.datetime.fromtimestamp(fetched, dt.timezone.utc).isoformat() if fetched else None, "plotting_error": perr,
+            "plot_url": config.PLOTTING_SHEET_URL,
+            "overall": {"total": tot, "selesai": selesai, "berjalan": sum(d["berjalan"] for d in out_days),
+                        "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs, "mhs_upload": up,
+                        "pct_mhs": round(up / mhs * 100, 1) if mhs else 0},
+            "days": out_days, "di_luar_jadwal": extra}
 
 
 @router.get("/sessions")

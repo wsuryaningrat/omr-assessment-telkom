@@ -44,3 +44,11 @@ CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # 
 # ---- Login admin username+password (hash PBKDF2, format "iter:salt_hex:hash_hex"; buat dengan `python -m server.auth hash`)
 ADMIN_USER = os.environ.get("ADMIN_USER", "").strip()
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+
+# ---- Monitoring: jadwal plotting pengawas (Google Sheet publik, diekspor sebagai CSV) & tautan tombol admin
+_PLOT_ID = "1epKgq4OBn2jagm7ioMMkvBBXNVDCR6hY"
+PLOTTING_CSV_URL = os.environ.get("PLOTTING_CSV_URL", f"https://docs.google.com/spreadsheets/d/{_PLOT_ID}/export?format=csv&gid=47080945")
+PLOTTING_SHEET_URL = os.environ.get("PLOTTING_SHEET_URL", f"https://docs.google.com/spreadsheets/d/{_PLOT_ID}/edit?gid=529144570#gid=529144570")
+PLOTTING_TTL_S = int(os.environ.get("PLOTTING_TTL_S", "300"))
+# Hanya sesi yang dibuat pada/setelah waktu ini dihitung di dashboard (mencegah data uji ikut). Default = SYNC_SINCE.
+MONITOR_SINCE = os.environ.get("MONITOR_SINCE", "") or SYNC_SINCE

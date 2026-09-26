@@ -25,7 +25,7 @@
   </div>
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a x-show="authed && sum && sum.gsheet_url" :href="sum && sum.gsheet_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>Buka Google Sheet</a><a href="/ljk" role="menuitem">Evaluasi LJK</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a x-show="authed && sum && sum.gsheet_url" :href="sum && sum.gsheet_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/></svg>Buka Google Sheet</a><a href="/ljk" role="menuitem">Evaluasi LJK</a><a x-show="authed && sum && sum.plot_url" :href="sum && sum.plot_url" target="_blank" rel="noopener" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>Excel plotting pengawas</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
   </div>
   <span class="mute" x-show="authed && me.email && me.email!=='token'" x-text="me.name || me.email" style="font-size:13px"></span>
   <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
@@ -69,6 +69,94 @@
     <nav class="tabs2">
       <template x-for="t in tabs" :key="t.id"><button :class="{on: tab===t.id}" @click="go(t.id)" x-text="t.label"></button></template>
     </nav>
+
+    <!-- monitoring -->
+    <section x-show="tab==='monitoring'">
+      <template x-if="mon">
+      <div>
+        <div class="mon-head">
+          <div>
+            <h2 style="margin:0">Progres unggah — tes onsite</h2>
+            <p class="sub" style="margin:2px 0 0">Kelas dianggap <b>selesai</b> bila pengawas sudah menekan Submit. Diperbarui otomatis tiap 30 detik.</p>
+          </div>
+          <div class="row-act" style="margin:0">
+            <a class="btn sm" :href="mon.plot_url" target="_blank" rel="noopener" style="text-decoration:none">Excel plotting pengawas ↗</a>
+            <button class="btn sm" @click="loadMonitor(true)" :disabled="monBusy" x-text="monBusy ? 'Memuat…' : 'Muat ulang'"></button>
+          </div>
+        </div>
+        <div class="fail" x-show="mon.plotting_error" style="margin-bottom:10px">Jadwal plotting memakai data tersimpan karena gagal mengambil yang terbaru (<span x-text="mon.plotting_error"></span>). Pastikan spreadsheet masih dibagikan &ldquo;siapa saja dengan tautan&rdquo;.</div>
+
+        <div class="mon-overall">
+          <div class="mon-card">
+            <small>Kelas selesai</small>
+            <div class="mon-big"><b x-text="pct(mon.overall.selesai, mon.overall.total) + '%'"></b><span x-text="mon.overall.selesai + ' dari ' + mon.overall.total + ' kelas'"></span></div>
+            <div class="mon-bar"><i class="ok" :style="'width:' + pct(mon.overall.selesai, mon.overall.total) + '%'"></i><i class="run" :style="'width:' + pct(mon.overall.berjalan, mon.overall.total) + '%'"></i></div>
+            <div class="mon-leg"><span><i class="d ok"></i>Selesai</span><span><i class="d run"></i>Berjalan <b x-text="mon.overall.berjalan"></b></span></div>
+          </div>
+          <div class="mon-card">
+            <small>Mahasiswa terunggah</small>
+            <div class="mon-big"><b x-text="pct(mon.overall.mhs_upload, mon.overall.mhs_total) + '%'"></b><span x-text="mon.overall.mhs_upload.toLocaleString('id-ID') + ' dari ' + mon.overall.mhs_total.toLocaleString('id-ID') + ' lembar'"></span></div>
+            <div class="mon-bar"><i class="ok" :style="'width:' + pct(mon.overall.mhs_upload, mon.overall.mhs_total) + '%'"></i></div>
+            <div class="mon-leg"><span>Hanya kelas yang sudah di-Submit</span></div>
+          </div>
+        </div>
+
+        <div class="mon-days" role="tablist" aria-label="Pilih hari">
+          <template x-for="d in mon.days" :key="d.hari">
+            <button class="mon-day" :class="{on: monDay === d.hari, done: d.selesai === d.total && d.total > 0}" @click="monDay = d.hari; monFilter = 'all'" role="tab" :aria-selected="monDay === d.hari">
+              <span class="hn"><span x-text="d.hari"></span><em x-show="d.hari === mon.hari_ini">Hari ini</em></span>
+              <b x-text="pct(d.selesai, d.total) + '%'"></b>
+              <span class="mon-bar sm"><i class="ok" :style="'width:' + pct(d.selesai, d.total) + '%'"></i><i class="run" :style="'width:' + pct(d.berjalan, d.total) + '%'"></i></span>
+              <small x-text="d.selesai + '/' + d.total + ' kelas'"></small>
+            </button>
+          </template>
+        </div>
+
+        <template x-if="monDayData">
+        <div class="card flush">
+          <div class="tools">
+            <div class="tt"><h2 x-text="monDayData.hari"></h2><span class="mute" x-text="monDayData.selesai + ' dari ' + monDayData.total + ' kelas selesai · ' + monDayData.mhs_upload.toLocaleString('id-ID') + ' / ' + monDayData.mhs_total.toLocaleString('id-ID') + ' lembar (' + monDayData.pct_mhs + '%)'"></span></div>
+            <div class="f"><input type="search" placeholder="Cari kelas / pengawas / ruangan…" x-model.trim="monQ"></div>
+          </div>
+          <div class="mon-filter">
+            <button :class="{on: monFilter==='all'}" @click="monFilter='all'">Semua <b x-text="monDayData.total"></b></button>
+            <button class="bl" :class="{on: monFilter==='belum'}" @click="monFilter='belum'">Belum <b x-text="monDayData.belum"></b></button>
+            <button class="ru" :class="{on: monFilter==='berjalan'}" @click="monFilter='berjalan'">Berjalan <b x-text="monDayData.berjalan"></b></button>
+            <button class="ok" :class="{on: monFilter==='selesai'}" @click="monFilter='selesai'">Selesai <b x-text="monDayData.selesai"></b></button>
+          </div>
+          <div class="tbl"><table>
+            <thead><tr><th>Jam</th><th>Ruangan</th><th>Kelas</th><th>Pengawas</th><th style="min-width:130px">Lembar</th><th>Status</th></tr></thead>
+            <tbody>
+              <template x-for="x in monSlots" :key="x.no + x.kelas">
+                <tr>
+                  <td class="mono" x-text="x.jam"></td>
+                  <td><div x-text="x.gedung"></div><div class="fl" x-text="x.ruangan"></div></td>
+                  <td><div class="nm mono" x-text="x.kelas"></div><div class="fl" x-text="x.prodi"></div></td>
+                  <td><div x-text="x.pengawas"></div><div class="fl" x-show="x.beda_pengawas" x-text="'diunggah: ' + x.oleh"></div></td>
+                  <td><div class="mon-bar sm"><i :class="x.status==='selesai' ? 'ok' : 'run'" :style="'width:' + pct(x.lembar, x.jml_mhs) + '%'"></i></div><div class="fl mono" x-text="x.lembar + ' / ' + x.jml_mhs"></div></td>
+                  <td><span class="chip" :class="{validated: x.status==='selesai', pending: x.status==='berjalan'}" x-text="(x.status==='selesai' ? '✅ ' : x.status==='berjalan' ? '⏳ ' : '⚪ ') + monLabel(x.status)"></span><div class="fl" x-show="x.submitted_at" x-text="monWhen(x.submitted_at)"></div></td>
+                </tr>
+              </template>
+              <tr x-show="!monSlots.length"><td colspan="6" class="mute" style="text-align:center;padding:24px">Tidak ada kelas yang cocok.</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+        </template>
+
+        <div class="card" x-show="mon.di_luar_jadwal.length" style="margin-top:14px">
+          <button class="btn sm" @click="monLuar = !monLuar" x-text="(monLuar ? 'Sembunyikan' : 'Lihat') + ' ' + mon.di_luar_jadwal.length + ' sesi di luar jadwal onsite'"></button>
+          <div class="tbl" x-show="monLuar" style="margin-top:10px"><table>
+            <thead><tr><th>Kelas</th><th>Pengawas</th><th>Lembar</th><th>Status</th></tr></thead>
+            <tbody><template x-for="e in mon.di_luar_jadwal" :key="e.kelas + e.pengawas + e.submitted_at"><tr>
+              <td class="mono" x-text="e.kelas"></td><td x-text="e.pengawas"></td><td class="mono" x-text="e.lembar"></td>
+              <td><span class="chip" :class="e.submitted ? 'validated' : 'pending'" x-text="e.submitted ? 'Submit' : 'Berjalan'"></span></td></tr></template></tbody>
+          </table></div>
+        </div>
+        <p class="mute" style="font-size:12px;margin-top:10px" x-show="mon.since" x-text="'Hanya sesi yang dibuat sejak ' + monWhen(mon.since) + ' yang dihitung (data uji sebelumnya diabaikan).'"></p>
+      </div>
+      </template>
+      <p class="mute" x-show="!mon">Memuat…</p>
+    </section>
 
     <!-- ringkasan -->
     <section x-show="tab==='ringkasan'">

@@ -41,3 +41,29 @@ footer.devby{text-align:center;color:var(--ink3);font-size:11.5px;padding:14px 1
 @media(max-width:560px){.partners .cw-mark{height:26px}}
 
 @media(min-width:720px){.partners .cw-full{height:22px}}
+
+.mon-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.mon-overall{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));margin-bottom:14px}
+.mon-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.mon-card small{color:var(--ink2);font-weight:600}
+.mon-big{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:4px 0 10px}
+.mon-big b{font-size:34px;line-height:1;letter-spacing:-.02em}.mon-big span{color:var(--ink2);font-size:13.5px}
+.mon-bar{display:flex;height:12px;border-radius:99px;background:var(--soft);overflow:hidden;border:1px solid var(--line)}
+.mon-bar.sm{height:8px}
+.mon-bar i{display:block;height:100%;transition:width .5s}
+.mon-bar i.ok{background:#16a36a}.mon-bar i.run{background:#f2b705}
+.mon-leg{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:12.5px;color:var(--ink2)}
+.mon-leg .d{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.mon-leg .d.ok{background:#16a36a}.mon-leg .d.run{background:#f2b705}
+.mon-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.mon-day{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;font:inherit;color:inherit}
+.mon-day:hover{border-color:var(--ink3)}
+.mon-day.on{border-color:var(--ink);box-shadow:0 0 0 2px rgba(11,15,25,.12)}
+.mon-day.done{background:#E8F8F0;border-color:#BFEBD6}
+.mon-day .hn{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;letter-spacing:.06em}
+.mon-day .hn em{font-style:normal;font-size:10.5px;background:var(--ink);color:#fff;border-radius:99px;padding:1px 7px}
+.mon-day b{font-size:22px;line-height:1}.mon-day small{color:var(--ink2)}
+.mon-filter{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px}
+.mon-filter button{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}
+.mon-filter button b{margin-left:4px}
+.mon-filter button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.mon-filter .ok:not(.on){color:#0F8F5F}.mon-filter .ru:not(.on){color:#8A6500}
