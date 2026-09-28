@@ -267,6 +267,46 @@ def _local_marker_search(gray, detector, marker_id, center, radius):
     return best
 
 
+def _template_marker_search(gray, dict_val, marker_id, center, radius, ref_side):
+    """Cadangan tanpa-decode: cari marker yang HILANG dengan mencocokkan gambar marker yang diharapkan (dibuat
+    langsung dari kamus ArUco) di sekitar posisi perkiraan, pada beberapa skala. Marker buram/terkompres sering
+    gagal di-decode padahal bentuk & polanya masih ada; menebak posisi (ekstrapolasi) bisa meleset >100 px.
+    Kembalikan 4 sudut (TL,TR,BR,BL) dalam koordinat gambar penuh, atau None bila korelasi lemah."""
+    dictionary = cv2.aruco.getPredefinedDictionary(dict_val)
+    h, w = gray.shape[:2]
+    cx, cy = map(int, np.round(center))
+    r = int(max(60, radius))
+    x1, x2 = max(0, cx - r), min(w, cx + r)
+    y1, y2 = max(0, cy - r), min(h, cy + r)
+    roi = gray[y1:y2, x1:x2]
+    if roi.shape[0] < 30 or roi.shape[1] < 30:
+        return None
+    roi = cv2.GaussianBlur(roi, (0, 0), 1.0).astype(np.float32)
+    best = (-1.0, None, None)          # (skor, (x,y) kiri-atas, sisi)
+    for f in (0.75, 0.85, 1.0, 1.15, 1.3, 1.5):
+        side = int(round(ref_side * f))
+        if side < 16 or side >= min(roi.shape[:2]):
+            continue
+        cells = 6
+        px = max(1, side // cells)
+        marker = cv2.aruco.generateImageMarker(dictionary, int(marker_id), cells * px)
+        tmpl = cv2.copyMakeBorder(marker, px, px, px, px, cv2.BORDER_CONSTANT, value=255)   # zona putih di sekelilingnya
+        tmpl = cv2.GaussianBlur(tmpl, (0, 0), 1.0).astype(np.float32)
+        if tmpl.shape[0] >= roi.shape[0] or tmpl.shape[1] >= roi.shape[1]:
+            continue
+        res = cv2.matchTemplate(roi, tmpl, cv2.TM_CCOEFF_NORMED)
+        _, mx, _, loc = cv2.minMaxLoc(res)
+        if mx > best[0]:
+            best = (float(mx), loc, tmpl.shape[0], px)
+    if best[1] is None or best[0] < 0.45:
+        return None
+    score, loc, full, px = best
+    x0 = x1 + loc[0] + px
+    y0 = y1 + loc[1] + px
+    side = full - 2 * px
+    return np.array([[x0, y0], [x0 + side, y0], [x0 + side, y0 + side], [x0, y0 + side]], np.float32)
+
+
 def recover_missing_corner(marker_map, exp_c_ids, full_gray,
                            dict_val=cv2.aruco.DICT_4X4_50):
     """Recover a missing fourth marker by affine prediction + local detection.
@@ -301,6 +341,13 @@ def recover_missing_corner(marker_map, exp_c_ids, full_gray,
         marker_map[missing_id] = found
         return marker_map, False
 
+    # Decode gagal (buram/terkompres): cocokkan gambar marker yang diharapkan sebelum menyerah pada tebakan.
+    found = _template_marker_search(full_gray, dict_val, missing_id, predicted, max(radius, 160),
+                                    float(np.median(marker_sizes)))
+    if found is not None:
+        marker_map[missing_id] = found
+        return marker_map, False
+
     # Last-resort synthetic corners. This is deliberately conservative.
     ref = next(iter(marker_map.values()))
     ref_center = ref.mean(axis=0)
@@ -309,8 +356,8 @@ def recover_missing_corner(marker_map, exp_c_ids, full_gray,
     return marker_map, True  # flagged as synthesized
 
 
-def _make_roi_variants(roi, skip_upscale=False):
-    """Return detection-candidate images for a single ROI in order of cost.
+def _iter_roi_variants(roi, skip_upscale=False):
+    """Yield detection-candidate images for a single ROI in order of cost (lazily: later variants cost more).
 
     Variant order (cheapest → most expensive):
       0 raw         — fastest; works for high-contrast, well-lit markers.
@@ -323,24 +370,27 @@ def _make_roi_variants(roi, skip_upscale=False):
     preprocessing step (~250 ms on a 400×550 ROI).  For the vast majority of
     images the marker is found in variants 0-3; CLAHE then adds no cost.
     """
-    variants = [roi]
+    yield roi
     # Otsu: strong binarization for clean scans.
     _, otsu = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    variants.append(otsu)
+    yield otsu
     # Adaptive threshold: handles harsh local shadows.
     adapt = cv2.adaptiveThreshold(
         roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 5
     )
-    variants.append(adapt)
+    yield adapt
     # 2× upscale: recovers very small markers.
     if not skip_upscale:
         h, w = roi.shape[:2]
         up = cv2.resize(roi, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
-        variants.append(up)
+        yield up
     # CLAHE: last resort for low-contrast / uneven illumination.
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
-    variants.append(clahe.apply(roi))
-    return variants
+    yield clahe.apply(roi)
+
+
+def _make_roi_variants(roi, skip_upscale=False):
+    return list(_iter_roi_variants(roi, skip_upscale))
 
 
 def _detect_in_roi(detector, roi, offset_xy, allowed, scale=1.0):
@@ -432,6 +482,14 @@ def _aruco_decode_patch(detector, patch, patch_offset, allowed_ids, scale=1.0):
     return found
 
 
+# Percepatan pencarian marker sudut. Jalur lama mencoba kandidat blok gelap satu per satu; tiap kandidat yang BUKAN marker
+# menghabiskan 10 kali decode (5 varian citra x 2 detektor) sebelum lanjut, sehingga satu sudut bisa ~100 panggilan --
+# padahal pada foto fotokopi/ponsel marker biasanya baru ketemu di tahap cadangan: decode citra mentah seluruh ROI sudut.
+# Panggilan itu (detektor & citra yang SAMA) kini dicoba dulu, di ROI 25 % lalu 38 %; kalau tak ketemu, jalur lama yang lengkap
+# berjalan seperti semula. SCAN_FAST_MARKER=0 mematikannya.
+FAST_MARKER = os.environ.get("SCAN_FAST_MARKER", "1") == "1"
+
+
 class CornerIdMap(dict):
     """Dictionary mapping corner labels -> ArUco IDs, with optional boxes and registration attributes."""
     def __init__(self, *args, **kwargs):
@@ -519,6 +577,24 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
 
         fx, fy = _flip_axes[label]
 
+        if FAST_MARKER:
+            for frac in (0.25, 0.38):
+                x1, y1, x2, y2 = _roi_bbox(label, frac)
+                roi_raw = gray[y1:y2, x1:x2]
+                if roi_raw.size == 0:
+                    continue
+                for variant in ([roi_raw] if frac < 0.35 else _iter_roi_variants(roi_raw)):
+                    sc = variant.shape[1] / float(roi_raw.shape[1])
+                    for mid, pts in _aruco_decode_patch(det_normal, variant, (x1, y1), allowed, scale=sc).items():
+                        if mid not in marker_map:
+                            marker_map[mid] = pts
+                    if target_id in marker_map:
+                        break
+                if target_id in marker_map:
+                    break
+            if target_id in marker_map:
+                continue
+
         for frac in (0.25, 0.38):
             if target_id in marker_map:
                 break
@@ -539,7 +615,6 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
                 flipped = cv2.flip(flipped, 0)
 
             blob_boxes = _find_dark_square_candidates(flipped)
-
             for bx_f, by_f, bw_b, bh_b in blob_boxes:
                 # Un-flip bounding box back to original ROI coordinates.
                 bx = (rw_roi - bx_f - bw_b) if fx else bx_f
@@ -1089,6 +1164,11 @@ def _odd_int(value, minimum=3):
 # sedikit piksel, ~14x lebih cepat). Terbukti tidak mengubah hasil bacaan pada foto uji dan kasus regresi. Tahap
 # pembacaan bulatan (kanvas terpotong) TETAP memakai blur penuh. Set SCAN_DETECT_BG_DOWNSCALE=1 untuk mematikan.
 DETECT_BG_DOWNSCALE = max(1, int(os.environ.get("SCAN_DETECT_BG_DOWNSCALE", "2")))
+# Kanvas akhir (1700x2400) juga memakai blur latar; sigma-nya ~60 px sehingga sangat halus: dihitung pada 1/N resolusi
+# (3-4 = ~10x lebih cepat, 1,7 dtk -> ~0,15 dtk per lembar). Bawaan 1 = blur penuh (hasil persis seperti semula):
+# citra berbeda ~0,5/255 rata-rata dan pembaca berbasis rasio-gelap yang sensitif di dekat ambang bisa membalik 0-1 baris
+# borderline per lembar (7 foto uji: 438/439 -> 437-438/439), jadi diaktifkan hanya dengan sengaja: SCAN_CANVAS_BG_DOWNSCALE=3.
+CANVAS_BG_DOWNSCALE = max(1, int(os.environ.get("SCAN_CANVAS_BG_DOWNSCALE", "1")))
 
 
 def enhance_scan_gray(gray, strength=1.0, bg_downscale=1):
@@ -1168,7 +1248,7 @@ def standardize_document_image(image_bgr, target_bg=245):
     # OMR reads luminance. Work mainly in grayscale, then return a 3-channel
     # image for compatibility with the existing detector pipeline.
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY) if image_bgr.ndim == 3 else image_bgr.copy()
-    clean = enhance_scan_gray(gray, strength=1.0)
+    clean = enhance_scan_gray(gray, strength=1.0, bg_downscale=CANVAS_BG_DOWNSCALE)
 
     # Keep the requested background target as a gentle white-point adjustment,
     # not a hard threshold. This preserves pencil/pen strokes and fine borders.
