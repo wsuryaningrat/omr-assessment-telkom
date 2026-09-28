@@ -14,7 +14,7 @@ import cv2
 
 from core.alignment import detect_corners_and_crop
 from core.decoder import decode_field
-from core.evaluator import find_matching_kunci_sheet, grade_student_record
+from core.evaluator import MAX_SOAL, find_matching_kunci_sheet, grade_student_record
 from core.field_registration import register_fields
 from core.second_opinion import refine_identity
 from core.utils import draw_reading_overlay
@@ -109,6 +109,26 @@ def is_valid_phone(value):
 _log = logging.getLogger("scanner.service")
 
 
+def _limit_soal(fields):
+    """Buang butir soal bernomor > MAX_SOAL dari blok jawaban (Soal-*); blok yang habis ikut dibuang.
+    Efeknya: tidak dibaca, tidak digambar di preview, tidak masuk rekap/"Jawaban Terisi"."""
+    out = {}
+    for name, fdef in fields.items():
+        low = name.lower()
+        if "soal" in low and "kode" not in low:
+            items = []
+            for it in fdef.get("items", []):
+                m = re.search(r"(\d+)$", str(it.get("name", "")))
+                if m is None or int(m.group(1)) <= MAX_SOAL:
+                    items.append(it)
+            if not items:
+                continue
+            if len(items) != len(fdef["items"]):
+                fdef = dict(fdef, items=items)
+        out[name] = fdef
+    return out
+
+
 def _decode_fields(gray, fields_dict):
     """Baca semua blok. Kembalikan (decoded_all, soal_dict)."""
     decoded_all, soal_dict = {}, {}
@@ -151,7 +171,8 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
     per-row 'Ganti Foto' replacement flow so both stay perfectly in sync."""
     canvas_w = template.get("canvas", {}).get("width", 1700)
     canvas_h = template.get("canvas", {}).get("height", 2400)
-    fields_dict = template.get("fields", {})
+    fields_dict = _limit_soal(template.get("fields", {}))
+    k_cache = {n: {q: a for q, a in d.items() if q <= MAX_SOAL} for n, d in (k_cache or {}).items()}
     aruco_dict = template.get("aruco_dict", "DICT_4X4_50")
     expected_ids = template.get("aruco_corner_ids")
     crop_m = "inner"
@@ -214,7 +235,7 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
             if student_record.get(f"soal_{q:02d}", student_record.get(f"soal_{q}", "BLANK")) not in ["BLANK", "?", None, "", "NONE"]
         )
     else:
-        dyn_total_soal = len(soal_keys) if len(soal_keys) > 0 else 75
+        dyn_total_soal = len(soal_keys) if len(soal_keys) > 0 else MAX_SOAL
         soal_terisi = sum(1 for k in soal_keys if student_record.get(k, "BLANK") not in ["BLANK", "?", None, "", "NONE"])
 
     student_record["Jawaban Terisi"] = f"{soal_terisi} / {dyn_total_soal}"

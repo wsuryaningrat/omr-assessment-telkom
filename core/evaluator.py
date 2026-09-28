@@ -1,6 +1,13 @@
-import pandas as pd
-import re
 import io
+import os
+import re
+
+import pandas as pd
+
+# Hanya soal 1..MAX_SOAL yang dibaca & dinilai. LJK punya kotak sampai 75, tapi tes ini 50 soal;
+# kotak 51-75 diabaikan (pada fotokopi bercak toner di area itu terbaca 'terisi'). Naikkan lewat env bila perlu.
+MAX_SOAL = int(os.environ.get("MAX_SOAL", "50"))
+
 
 def parse_kunci_jawaban_raw_rows(values):
     """
@@ -259,7 +266,7 @@ def grade_student_record(student_record, all_kunci_sheets):
         student_record["Kunci Terpakai"] = "Tidak Ditemukan"
         return student_record
         
-    kunci_dict = all_kunci_sheets[matched_sheet]
+    kunci_dict = {q: a for q, a in all_kunci_sheets[matched_sheet].items() if q <= MAX_SOAL}
     total_soal = len(kunci_dict)
     if total_soal == 0:
         student_record["Nilai"] = "-"
