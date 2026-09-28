@@ -48,7 +48,7 @@
     <div class="two split">
       <div class="card">
         <h2>Data Pengawas</h2>
-        <p class="sub">Pilih nama Anda dari daftar. Nomor HP sudah terdaftar.</p>
+        <p class="sub" x-text="picked?.dosen ? 'Pilih nama Anda dari daftar.' : (showHp ? 'Pilih nama Anda dari daftar, lalu isi nomor HP.' : 'Pilih nama Anda dari daftar. Nomor HP sudah terdaftar.')">Pilih nama Anda dari daftar. Nomor HP sudah terdaftar.</p>
         <div class="grid">
           <div class="full">
             <label class="f" for="pw">Nama Pengawas</label>
@@ -271,9 +271,10 @@
 <template x-if="sel">
   <div>
     <div class="veil" @click="close()"></div>
-    <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheet" role="dialog" aria-modal="true" @keydown.window.arrow-right="!dlg && move(1)" @keydown.window.arrow-left="!dlg && move(-1)">
       <div class="grab"></div>
-      <h3><span class="mono mute" x-text="'#'+numOf(sel)"></span> <span x-text="nameOf(sel)"></span></h3>
+      <h3><span class="mono mute" x-text="'#'+numOf(sel)"></span> <span x-text="nameOf(sel)"></span>
+        <span class="mute mono" style="font-size:12px;font-weight:400;float:right" x-show="selIndex>=0" x-text="(selIndex+1)+' / '+filtered.length" aria-label="Posisi lembar pada daftar"></span></h3>
       <span class="chip" :class="status(sel)" x-text="statusText(sel)"></span> <span class="mono" style="font-size:12px;color:var(--ink2)" x-text="sel.file"></span>
       <div class="warnbox" x-show="status(sel)==='warning'">
         <b>Perlu dicek ulang</b>
@@ -295,8 +296,10 @@
       <template x-if="pv.url"><img class="pv" x-show="!pv.loading" :src="pv.url" @load="pv.loading=false" @error="pvError()" alt="Preview hasil scan"></template>
       <p x-show="pv.url && !pv.loading && !pv.err" style="font-size:12px;color:var(--ink2);margin:6px 0 0">Hijau = jawaban terbaca · merah = terisi ganda</p>
       <div class="sticky-act">
+        <button class="btn" @click="move(-1)" :disabled="!hasPrev" aria-label="Lembar sebelumnya" title="Sebelumnya (←)">‹</button>
         <button class="btn" style="flex:1" @click="close()">Tutup</button>
-        <button class="btn p" style="flex:1.4" :disabled="sel.label==='Gagal'" @click="toggle(sel).then(()=>close())" x-text="sel.validated?'Batalkan validasi':'Validasi lembar ini'"></button>
+        <button class="btn" @click="move(1)" :disabled="!hasNext" aria-label="Lembar berikutnya" title="Berikutnya (→)">›</button>
+        <button class="btn p" style="flex:1.6" :disabled="sel.label==='Gagal'" @click="validateAndNext()" x-text="sel.validated ? 'Batalkan validasi' : (hasNext ? 'Validasi & berikutnya' : 'Validasi lembar ini')"></button>
       </div>
     </div>
   </div>

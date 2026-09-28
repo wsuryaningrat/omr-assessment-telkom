@@ -84,15 +84,25 @@ class TestAPI(unittest.TestCase):
         try:
             p = self.c.get("/api/meta").json()["pengawas"]
             self.assertEqual([x["nama"] for x in p], ["Ani A", "Budi Z", "Cici Tanpa HP", "Dra. Dosen"])
-            self.assertTrue(p[3]["dosen"] and p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
+            # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar tetap wajib mengisi sendiri
+            self.assertTrue(p[3]["dosen"] and not p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
             self.assertNotIn("hp", p[0])
             base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"]}
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[1]["id"]})
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
             self.assertEqual((d["nama"], d["hp"]), ("Budi Z", "+6281111111111"))
-            self.assertEqual(self.c.post("/api/sessions", json={**base, "pengawas_ref": p[3]["id"]}).status_code, 422)
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[3]["id"]})           # dosen tanpa HP: sah
+            self.assertEqual(r.status_code, 201)
+            d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
+            self.assertEqual((d["nama"], d["hp"]), ("Dra. Dosen", ""))
+            # HP kiriman klien diabaikan untuk dosen (UI memang tak menampilkannya)
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[3]["id"], "hp": "0812345678901"})
+            self.assertEqual(r.status_code, 201)
+            self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hp"], "")
+            # mahasiswa yang HP-nya tak terdaftar TETAP wajib mengisi
+            self.assertEqual(self.c.post("/api/sessions", json={**base, "pengawas_ref": p[2]["id"]}).status_code, 422)
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[2]["id"], "hp": "0812345678901"})
             self.assertEqual(r.status_code, 201)
             self.assertEqual(self.c.post("/api/sessions", json={**base, "pengawas_ref": "zzz"}).status_code, 422)
         finally:

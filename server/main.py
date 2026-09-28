@@ -183,7 +183,7 @@ def get_db():
 # --------------------------------------------------------------------------- meta & sesi
 @app.get("/api/meta")
 def meta():
-    return {"pengawas": [{"id": p["id"], "nama": p["nama"], "dosen": p["dosen"], "needs_hp": not p["hp"]} for p in refdata.pengawas()],
+    return {"pengawas": [{"id": p["id"], "nama": p["nama"], "dosen": p["dosen"], "needs_hp": not p["hp"] and not p["dosen"]} for p in refdata.pengawas()],
             "kelas": refdata.kelas(), "prodi": refdata.prodi_list(),
             "max_upload_mb": config.MAX_UPLOAD_MB, "extensions": sorted(config.ALLOWED_EXT)}
 
@@ -200,16 +200,18 @@ def _resolve_identity(body: SessionIn):
     """Validasi isian dan kembalikan (nama, hp) pengawas: dari daftar terdaftar bila dipilih, atau isian sendiri."""
     errors = []
     nama, hp = body.nama_pengawas.strip(), _norm_hp(body.hp)
+    dosen = False
     if body.pengawas_ref:
         p = refdata.pengawas_by_id(body.pengawas_ref)
         if p is None:
             errors.append("Pengawas tidak dikenal")
         else:
             nama = p["nama"]
-            hp = p["hp"] or hp
+            dosen = p["dosen"]
+            hp = p["hp"] if dosen else (p["hp"] or hp)   # dosen: nomor HP tidak diminta (boleh kosong)
     if not nama:
         errors.append("Nama pengawas wajib diisi")
-    if not hp:
+    if not hp and not dosen:
         errors.append("Nomor HP tidak valid (contoh: +62 812 3456 7890)")
     if not body.prodi.strip():
         errors.append("Program studi wajib diisi")

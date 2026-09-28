@@ -288,6 +288,26 @@ function ljk() {
     },
     open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; document.body.style.overflow = "hidden"; },
     close() { this.sel = null; document.body.style.overflow = ""; },
+    // ---- navigasi antar lembar di panel detail (mengikuti urutan & filter daftar yang sedang tampil)
+    get selIndex() { return this.sel ? this.filtered.findIndex(x => x.id === this.sel.id) : -1; },
+    get hasPrev() { return this.selIndex > 0; },
+    get hasNext() { const i = this.selIndex; return i >= 0 && i < this.filtered.length - 1; },
+    goSheet(target) {
+      if (!target) return;
+      const keepPreview = !!this.pv.url && target.label !== "Gagal";   // sedang cek satu-satu: pratinjau ikut terbuka
+      this.open(target);
+      if (keepPreview) this.showPreview();
+      this.$nextTick(() => document.querySelector(".sheet")?.scrollTo({ top: 0 }));
+    },
+    move(d) { this.goSheet(this.filtered[this.selIndex + d]); },
+    async validateAndNext() {
+      const cur = this.sel; if (!cur) return;
+      if (cur.validated) { await this.toggle(cur); this.close(); return; }          // "Batalkan validasi": perilaku lama
+      const next = this.filtered[this.selIndex + 1];   // ambil SEBELUM validasi: daftar bisa menyusut bila filter = belum divalidasi
+      await this.toggle(cur);
+      if (!cur.validated) return;                       // dibatalkan (konfirmasi peringatan) / gagal: tetap di lembar ini
+      next ? this.goSheet(next) : this.close();
+    },
     showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true, err: "" }; },
     pvError() {
       if (!this.pv.url) return;                       // abaikan error dari <img> tanpa sumber
