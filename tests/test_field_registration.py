@@ -115,3 +115,60 @@ class TestFieldRegistration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRescueAnswers(unittest.TestCase):
+    """Baris jawaban terbaca kosong/ganda dicoba lagi dgn posisi diselaraskan per baris; baris yakin tak disentuh."""
+
+    @classmethod
+    def setUpClass(cls):
+        from scanner.service import _decode_fields, _limit_soal
+        cls.fields = _limit_soal(TPL["fields"])
+        cls._decode_fields = staticmethod(_decode_fields)
+        h, w = TPL["canvas"]["height"], TPL["canvas"]["width"]
+        img = np.full((h, w), 255, np.uint8)
+        cls.truth = {}
+        for name, f in cls.fields.items():
+            if not name.startswith("Soal"):
+                continue
+            for n, it in enumerate(f["items"]):
+                ans = n % 4
+                cls.truth[it["name"]] = "ABCD"[ans]
+                for j, b in enumerate(it["bubbles"]):
+                    x, y, bw, bh = int(b["x"]), int(b["y"]), int(b["w"]), int(b["h"])
+                    cv2.rectangle(img, (x, y), (x + bw, y + bh), 0, 2)
+                    cv2.putText(img, "ABCD"[j], (x + bw // 4, y + bh - bh // 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 60, 2)
+                    if j == ans:
+                        cv2.line(img, (x + 4, y + 4), (x + bw - 4, y + bh - 4), 60, 2)
+                        cv2.line(img, (x + bw - 4, y + 4), (x + 4, y + bh - 4), 60, 2)
+        cls.clean = img
+        M = np.float32([[1, 0, 2], [0, 1, 18]])      # isi bergeser ~18 px: pembaca biasa kehilangan beberapa baris: jendela ukur menangkap garis pinggir
+        cls.shifted = cv2.GaussianBlur(cv2.warpAffine(img, M, (w, h), borderValue=255), (0, 0), 0.8)
+
+    def test_rescue_recovers_rows_the_plain_reader_misses(self):
+        from scanner.service import _rescue_answers
+        decoded, soal = self._decode_fields(self.shifted, self.fields, only=("soal",))
+        bad_before = sum(1 for k in self.truth if decoded.get(k) != self.truth[k])
+        self.assertGreater(bad_before, 5)                       # tanpa koreksi banyak yang salah/kosong
+        n = _rescue_answers(self.shifted, self.fields, decoded, soal)
+        bad_after = sum(1 for k in self.truth if decoded.get(k) != self.truth[k])
+        self.assertGreater(n, 0)
+        self.assertLess(bad_after, bad_before)
+        # tidak pernah menghasilkan jawaban SALAH dari baris yang dirampungkan
+        wrong = [k for k in self.truth if decoded[k] not in ("BLANK", "MULTIPLE", self.truth[k]) and self.truth[k] != decoded[k]]
+        self.assertLessEqual(len(wrong), sum(1 for k in self.truth if decoded.get(k) not in ("BLANK", "MULTIPLE")))
+
+    def test_confident_rows_are_never_changed(self):
+        from scanner.service import _rescue_answers
+        decoded, soal = self._decode_fields(self.clean, self.fields, only=("soal",))
+        before = dict(decoded)
+        _rescue_answers(self.clean, self.fields, decoded, soal)
+        self.assertEqual({k: v for k, v in decoded.items() if before[k] not in ("BLANK", "MULTIPLE")},
+                         {k: v for k, v in before.items() if before[k] not in ("BLANK", "MULTIPLE")})
+
+    def test_empty_sheet_gets_no_invented_answers(self):
+        from scanner.service import _rescue_answers
+        blank = np.full_like(self.clean, 255)
+        decoded, soal = self._decode_fields(blank, self.fields, only=("soal",))
+        _rescue_answers(blank, self.fields, decoded, soal)
+        self.assertTrue(all(v == "BLANK" for v in decoded.values()))

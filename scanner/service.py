@@ -11,11 +11,13 @@ import re
 from datetime import datetime, timezone, timedelta
 
 import cv2
+import numpy as np
 
 from core.alignment import detect_corners_and_crop
 from core.decoder import decode_field
+from core.detector import calculate_fill_ratio
 from core.evaluator import MAX_SOAL, find_matching_kunci_sheet, grade_student_record
-from core.field_registration import register_fields
+from core.field_registration import register_fields, snap_rows
 from core.second_opinion import refine_identity
 from core.utils import draw_reading_overlay
 
@@ -129,10 +131,12 @@ def _limit_soal(fields):
     return out
 
 
-def _decode_fields(gray, fields_dict):
-    """Baca semua blok. Kembalikan (decoded_all, soal_dict)."""
+def _decode_fields(gray, fields_dict, only=None):
+    """Baca semua blok (atau hanya yang namanya diawali salah satu `only`). Kembalikan (decoded_all, soal_dict)."""
     decoded_all, soal_dict = {}, {}
     for fname, fdef in fields_dict.items():
+        if only and not fname.lower().startswith(only):
+            continue
         fdef_copy = dict(fdef)
         if "field_name" not in fdef_copy:
             fdef_copy["field_name"] = fname
@@ -155,13 +159,42 @@ def _identity_complete(decoded_all, fields_dict):
     return True
 
 
+_RESCUE_MIN_TOP, _RESCUE_MIN_GAP = 0.50, 0.12   # keyakinan minimum penyelamatan (silang asli: 0.54-0.76; noise: <= 0.38)
+
+
+def _rescue_answers(gray, fields, decoded, soal_dict):
+    """Baris jawaban yang terbaca KOSONG/GANDA dicoba sekali lagi dengan posisi kotak diselaraskan per baris
+    (kertas fotokopi tidak rata: geser tiap baris berbeda). Hasil baru hanya dipakai bila silangnya jelas
+    (skor tertinggi >= 0.50 dan unggul >= 0.12 dari kandidat kedua); baris yang sudah terbaca yakin TIDAK PERNAH
+    diubah. Memodifikasi decoded & soal_dict di tempat; kembalikan jumlah baris yang terselamatkan."""
+    snapped, _ = snap_rows(gray, fields, only=("soal",))
+    again, _ = _decode_fields(gray, snapped, only=("soal",))
+    paper_bg = float(np.percentile(gray, 92))
+    if paper_bg < 150:
+        paper_bg = 240.0
+    items = {it["name"]: it for f in snapped.values() for it in f["items"]}
+    n = 0
+    for k, v in again.items():
+        if decoded.get(k) not in ("BLANK", "MULTIPLE") or v in ("BLANK", "MULTIPLE", "?", None, ""):
+            continue
+        ratios = sorted((calculate_fill_ratio(gray, b["cx"], b["cy"], b.get("radius", 12), shape=b.get("shape", "square"),
+                                              w=b.get("w"), h=b.get("h"), paper_bg=paper_bg, option_glyph=b.get("option"))
+                         for b in items[k]["bubbles"]), reverse=True)
+        if ratios[0] >= _RESCUE_MIN_TOP and ratios[0] - ratios[1] >= _RESCUE_MIN_GAP:
+            decoded[k] = v
+            soal_dict[k] = v
+            n += 1
+    return n
+
+
 def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name):
     fields2, info = register_fields(gray, fields_dict)
     decoded2, soal2 = _decode_fields(gray, fields2)
     decoded2 = refine_identity(gray, fields2, decoded2, info)
+    rescued = _rescue_answers(gray, fields2, decoded2, soal2)
     moved = {k: (v["dx"], v["dy"]) for k, v in info.items() if v.get("applied")}
-    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r | KODE %r -> %r", doc_name, moved,
-              decoded_all.get("NPM"), decoded2.get("NPM"), decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"))
+    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r | KODE %r -> %r | jawaban terselamatkan: %d", doc_name, moved,
+              decoded_all.get("NPM"), decoded2.get("NPM"), decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"), rescued)
     return fields2, decoded2, soal2
 
 

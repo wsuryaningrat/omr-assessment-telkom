@@ -16,16 +16,19 @@ import copy
 import cv2
 import numpy as np
 
-_MARGIN = 28        # jangkauan pencarian geser (px kanvas)
+_MARGIN = 32        # jangkauan pencarian geser (px kanvas)
 _SCALE = 0.5        # kerja di setengah resolusi supaya murah (presisi tetap sub-piksel di kanvas)
 _MIN_PEAK = 0.20    # korelasi minimum agar kisi dianggap ditemukan
 _MIN_GAIN = 0.02    # korelasi harus naik segini dibanding posisi semula, kalau tidak: biarkan
 _MAX_SCALE_DEV = 0.06
 _MAX_SHEAR = 0.05
-_MAX_SHIFT_FRAC = 0.47   # geser maksimum sebagai pecahan jarak antar-kotak (kisi periodik: lebih jauh = ambigu)
+_MAX_SHIFT_FRAC = 0.68   # geser maksimum sebagai pecahan jarak antar-kotak (kisi periodik: lebih jauh = ambigu)
 _MIN_LINE_CONTRAST = 12.0   # kontras garis-vs-isi minimum untuk tiap kolom dan tiap baris kisi
 _ALIGNED_MEAN = 30.0        # kontras rata-rata di posisi template yang menandakan blok sudah pas
+_MIN_FINAL_ANSWER = 30.0     # blok jawaban (4 kolom x 15 baris, garis kisi lebih jarang): ambang lebih rendah, syarat per-baris/kolom tetap
 _MIN_FINAL_CONTRAST = 52.0  # kontras rata-rata di posisi baru: fotokopi asli 54-80; "pendaratan" satu periode meleset <= ~50
+_WEAK_FINAL_CONTRAST = 32.0  # kandidat 'lemah' (foto beresolusi rendah): diterima HANYA bila didukung >= 2 blok lain yang bergeser searah
+_CONSENSUS_DX, _CONSENSUS_DY, _CONSENSUS_MIN = 14.0, 10.0, 2
 _MIN_CONTRAST_GAIN = 15.0  # garis kotak harus lebih gelap dari isi kotak sebesar ini (skala 0-255) dibanding posisi semula
 
 
@@ -92,7 +95,7 @@ def _grid_ok(contrasts):
             min(float(np.mean(v)) for v in by_row.values()))
 
 
-def estimate_field_warp(gray, field, margin=_MARGIN, scale=_SCALE):
+def estimate_field_warp(gray, field, margin=_MARGIN, scale=_SCALE, min_final=_MIN_FINAL_CONTRAST):
     """Kembalikan (W 2x3 di koordinat kanvas *lokal crop*, origin (x0,y0), info) atau (None, origin, info)
     bila blok sebaiknya dibiarkan. W memetakan koordinat template -> koordinat citra."""
     cells = _cells(field)
@@ -151,12 +154,21 @@ def estimate_field_warp(gray, field, margin=_MARGIN, scale=_SCALE):
             and abs(A[0, 1]) <= _MAX_SHEAR and abs(A[1, 0]) <= _MAX_SHEAR
             and abs(t[0]) <= lim_x and abs(t[1]) <= lim_y):
         info["rejected"] = "parameter"
+        info["kandidat"] = dict(sx=round(float(A[0, 0]), 3), sy=round(float(A[1, 1]), 3), shx=round(float(A[0, 1]), 3),
+                                shy=round(float(A[1, 0]), 3), dx=round(float(t[0]), 1), dy=round(float(t[1]), 1),
+                                lim=(round(lim_x, 1), round(lim_y, 1)))
         return None, (x0, y0), info
     Wfull = np.hstack([A, t[:, None]]).astype(np.float32)
     m1, min_col, min_row = _grid_ok(_cell_contrasts(full_img, cells, x0, y0, Wfull))
     info.update(contrast1=round(m1, 1), min_col=round(min_col, 1), min_row=round(min_row, 1))
     # kisi berulang bisa "mendarat" satu periode meleset; tolak kecuali SETIAP kolom & baris jatuh di garis tercetak
-    if m1 < _MIN_FINAL_CONTRAST or m1 - m0 < _MIN_CONTRAST_GAIN or min_col < _MIN_LINE_CONTRAST or min_row < _MIN_LINE_CONTRAST:
+    line_ok = min_col >= _MIN_LINE_CONTRAST and min_row >= _MIN_LINE_CONTRAST and m1 - m0 >= _MIN_CONTRAST_GAIN
+    if line_ok and m1 < min_final and m1 >= _WEAK_FINAL_CONTRAST:
+        # kandidat lemah: baris/kolom semua jatuh di garis tetapi kontras rata-rata sedang -> serahkan ke konsensus antar-blok
+        info.update(weak=True, dx=round(float(t[0]), 1), dy=round(float(t[1]), 1),
+                    sx=round(float(A[0, 0]), 3), sy=round(float(A[1, 1]), 3))
+        return Wfull, (x0, y0), info
+    if m1 < min_final or not line_ok:
         info["rejected"] = "kontras"
         return None, (x0, y0), info
     info.update(applied=True, aligned=True, dx=round(float(t[0]), 1), dy=round(float(t[1]), 1),
@@ -177,14 +189,79 @@ def apply_warp(field, W, origin):
     return out
 
 
+_SNAP_RX, _SNAP_RY, _SNAP_MIN_CORR, _SNAP_MAX_SPREAD = 14, 18, 0.30, 6.0
+
+
+def _outline(w, h, pad):
+    t = np.full((h + 2 * pad, w + 2 * pad), 255, np.uint8)
+    cv2.rectangle(t, (pad, pad), (pad + w, pad + h), 0, 2)
+    return _highpass(t)
+
+
+def snap_rows(gray, fields, only=("soal", "kuisioner")):
+    """Penyelarasan per baris untuk blok jawaban/kuisioner (kertas fotokopi tidak rata: geser tiap baris berbeda,
+    sisa 10-15 px meski blok sudah dikoreksi). Tiap kotak dicocokkan ke garis kotaknya sendiri dalam jendela kecil;
+    hasil satu baris = median keempat kotak (kotak bersilang tidak mengacaukan). Baris yang tak konsisten dibiarkan."""
+    H, W = gray.shape
+    hp = _highpass(gray, 1.0, 8.0)
+    out, n_snapped = {}, 0
+    for name, fdef in fields.items():
+        if not name.lower().startswith(only):
+            out[name] = fdef
+            continue
+        f2 = copy.deepcopy(fdef)
+        for it in f2["items"]:
+            found = []
+            for b in it["bubbles"]:
+                bw, bh = int(round(b["w"])), int(round(b["h"]))
+                x0, y0 = int(round(b["x"])) - _SNAP_RX - 2, int(round(b["y"])) - _SNAP_RY - 2
+                x1, y1 = x0 + bw + 2 * (_SNAP_RX + 2), y0 + bh + 2 * (_SNAP_RY + 2)
+                if x0 < 0 or y0 < 0 or x1 > W or y1 > H:
+                    continue
+                tmpl = _outline(bw, bh, 2)
+                res = cv2.matchTemplate(hp[y0:y1, x0:x1], tmpl, cv2.TM_CCOEFF_NORMED)
+                _, pk, _, loc = cv2.minMaxLoc(res)
+                if pk >= _SNAP_MIN_CORR:
+                    found.append((loc[0] - _SNAP_RX, loc[1] - _SNAP_RY))   # (dx, dy) relatif posisi kini
+            if len(found) < 2:
+                continue
+            dxs, dys = [f[0] for f in found], [f[1] for f in found]
+            if max(dys) - min(dys) > _SNAP_MAX_SPREAD or max(dxs) - min(dxs) > 2 * _SNAP_MAX_SPREAD:
+                continue        # empat kotak tak sepakat -> jangan menebak
+            dx, dy = float(np.median(dxs)), float(np.median(dys))
+            for b in it["bubbles"]:
+                b["cx"] += dx; b["x"] += dx; b["cy"] += dy; b["y"] += dy
+            n_snapped += 1
+        out[name] = f2
+    return out, n_snapped
+
+
 def register_fields(gray, fields):
     """Koreksi tiap blok. Kembalikan (fields_baru, info_per_blok). fields asli tidak diubah."""
-    out, infos = {}, {}
+    cand = {}
+    infos = {}
     for name, fdef in fields.items():
         try:
-            W, origin, info = estimate_field_warp(gray, fdef)
+            W, origin, info = estimate_field_warp(gray, fdef, min_final=_MIN_FINAL_ANSWER if name.lower().startswith("soal") else _MIN_FINAL_CONTRAST)
         except Exception:  # noqa: BLE001 — koreksi hanyalah bantuan; jangan pernah menjatuhkan pemindaian
-            W, origin, info = None, (0, 0), {"applied": False, "error": True}
-        out[name] = apply_warp(fdef, W, origin) if W is not None else fdef
+            W, origin, info = None, (0, 0), {"applied": False, "aligned": False, "error": True}
         infos[name] = info
+        cand[name] = (W, origin)
+    # konsensus: kandidat lemah diterima bila >= 2 blok lain (kuat/lemah) bergeser searah (distorsi kertas itu halus)
+    for name, info in infos.items():
+        if not info.get("weak"):
+            continue
+        sup = sum(1 for o, oi in infos.items()
+                  if o != name and (oi.get("applied") or oi.get("weak")) and "dx" in oi
+                  and abs(oi["dx"] - info["dx"]) <= _CONSENSUS_DX and abs(oi["dy"] - info["dy"]) <= _CONSENSUS_DY)
+        info["dukungan"] = sup
+        if sup >= _CONSENSUS_MIN:
+            info.update(applied=True, aligned=True)
+        else:
+            info["rejected"] = "tanpa-konsensus"
+            cand[name] = (None, cand[name][1])
+    out = {}
+    for name, fdef in fields.items():
+        W, origin = cand[name]
+        out[name] = apply_warp(fdef, W, origin) if (W is not None and infos[name].get("applied")) else fdef
     return out, infos
