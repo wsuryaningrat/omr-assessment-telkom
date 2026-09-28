@@ -5,6 +5,7 @@ oleh API/worker (FastAPI) setelah migrasi. Logika pemindaian identik dengan
 versi sebelumnya (dijaga oleh tests/regression).
 """
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone, timedelta
@@ -14,6 +15,8 @@ import cv2
 from core.alignment import detect_corners_and_crop
 from core.decoder import decode_field
 from core.evaluator import find_matching_kunci_sheet, grade_student_record
+from core.field_registration import register_fields
+from core.second_opinion import refine_identity
 from core.utils import draw_reading_overlay
 
 # Direktori root proyek (tempat templates/ berada).
@@ -103,6 +106,45 @@ def is_valid_phone(value):
     return digits.isdigit() and 9 <= len(digits) <= 15
 
 
+_log = logging.getLogger("scanner.service")
+
+
+def _decode_fields(gray, fields_dict):
+    """Baca semua blok. Kembalikan (decoded_all, soal_dict)."""
+    decoded_all, soal_dict = {}, {}
+    for fname, fdef in fields_dict.items():
+        fdef_copy = dict(fdef)
+        if "field_name" not in fdef_copy:
+            fdef_copy["field_name"] = fname
+        field_data = decode_field(gray, fdef_copy, thresh=0.28, margin=0.06)
+        decoded_all.update(field_data)
+        if "soal" in fname.lower() and "kode" not in fname.lower():
+            soal_dict.update(field_data)
+    return decoded_all, soal_dict
+
+
+def _identity_complete(decoded_all, fields_dict):
+    """True bila NIM dan kode soal terbaca utuh (tiap kolom satu digit, tanpa kosong/'?')."""
+    for name in ("NPM", "KODE SOAL"):
+        field = fields_dict.get(name)
+        if not field:
+            continue
+        val = decoded_all.get(name, "")
+        if len(val) != len(field["items"]) or not val.isdigit():
+            return False
+    return True
+
+
+def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name):
+    fields2, info = register_fields(gray, fields_dict)
+    decoded2, soal2 = _decode_fields(gray, fields2)
+    decoded2 = refine_identity(gray, fields2, decoded2, info)
+    moved = {k: (v["dx"], v["dy"]) for k, v in info.items() if v.get("applied")}
+    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r | KODE %r -> %r", doc_name, moved,
+              decoded_all.get("NPM"), decoded2.get("NPM"), decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"))
+    return fields2, decoded2, soal2
+
+
 def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None, with_overlay=False):
     """Runs the full OMR pipeline (alignment + decode + grading) on one page/photo
     and returns (student_record, preview). Shared by the batch scan and the
@@ -122,16 +164,12 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
     wib_tz = timezone(timedelta(hours=7))
     current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M")
 
-    decoded_all = {}
-    soal_dict = {}
-    for fname, fdef in fields_dict.items():
-        fdef_copy = dict(fdef)
-        if "field_name" not in fdef_copy:
-            fdef_copy["field_name"] = fname
-        field_data = decode_field(gray_warped, fdef_copy, thresh=0.28, margin=0.06)
-        decoded_all.update(field_data)
-        if "soal" in fname.lower() and "kode" not in fname.lower():
-            soal_dict.update(field_data)
+    decoded_all, soal_dict = _decode_fields(gray_warped, fields_dict)
+    if not _identity_complete(decoded_all, fields_dict):
+        # NIM/kode tidak terbaca utuh -> biasanya isi lembar bergeser dari posisi template (fotokopi
+        # menskalakan/menggeser isi 1-3 %, sampai setengah tinggi kotak). Coba lagi dengan posisi
+        # kotak dikoreksi terhadap garis tercetak. Lembar yang sudah terbaca utuh TIDAK pernah lewat sini.
+        fields_dict, decoded_all, soal_dict = _retry_with_registration(gray_warped, fields_dict, decoded_all, soal_dict, doc_name)
 
     student_record = {
         "Submit Date": current_submit_time,
