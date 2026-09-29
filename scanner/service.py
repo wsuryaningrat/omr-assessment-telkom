@@ -264,6 +264,13 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
     # selalu: blok yang sudah pas di posisi template dibiarkan (early-exit di estimate_field_warp).
     fields_dict, decoded_all, soal_dict = _retry_with_registration(gray_warped, fields_dict, decoded_all, soal_dict, doc_name)
 
+    # Kolom terisi-ganda (silang di >1 huruf yg sama) tetap ditandai "?" secara internal di atas --
+    # refine_identity() butuh itu utk tahu posisi mana yg masih perlu dicoba baca ulang. Begitu semua
+    # percobaan selesai, "?" TIDAK boleh nyasar ke hasil akhir (bukan huruf nama yg valid) -- jadikan
+    # kosong, sama seperti kolom yang memang tak diarsir.
+    if "NAMA" in decoded_all:
+        decoded_all["NAMA"] = decoded_all["NAMA"].replace("?", " ").rstrip()
+
     student_record = {
         "Submit Date": current_submit_time,
         "Nama Pengawas": nama_pengawas.strip() if (nama_pengawas and nama_pengawas.strip()) else "-",
