@@ -45,6 +45,10 @@ class ScanSession(Base):
     sync_attempts: Mapped[int] = mapped_column(Integer, default=0)
     sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     sync_next: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Validasi ADMIN (terpisah dari validasi per-lembar pengawas / Sheet.validated + ScanSession.submitted):
+    # dicentang manual dari dashboard admin setelah admin mengecek sesi yg sudah selesai discan.
+    admin_validated: Mapped[bool] = mapped_column(Boolean, default=False)
+    admin_validated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     files: Mapped[list["UploadFile"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     sheets: Mapped[list["Sheet"]] = relationship(back_populates="session", cascade="all, delete-orphan", order_by="Sheet.seq")
 
@@ -98,6 +102,7 @@ def _migrate():
             "kelas": "VARCHAR(100) DEFAULT ''",
             "synced_at": "TIMESTAMP", "sync_attempts": "INTEGER DEFAULT 0",
             "sync_error": "TEXT", "sync_next": "TIMESTAMP",
+            "admin_validated": "BOOLEAN DEFAULT FALSE", "admin_validated_at": "TIMESTAMP",
         },
         "kunci": {"source": "VARCHAR(20) DEFAULT 'manual'", "updated_at": "TIMESTAMP"},
     }

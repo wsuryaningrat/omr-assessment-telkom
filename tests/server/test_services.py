@@ -212,6 +212,91 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.delete("/api/admin/kunci/kj999", headers=ADM).status_code, 204)
         self.assertEqual(self.c.delete("/api/admin/kunci/kj999", headers=ADM).status_code, 404)
 
+    def test_admin_validate_session_requires_scan_done_then_toggles(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        # masih scanning -> admin belum boleh menandai validated (mencegah lembar yg belum sempat masuk
+        # daftar tersembunyi di balik status "validated").
+        r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        self.assertEqual(r.status_code, 409, r.text)
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        rows = self.c.get(f"/api/admin/sessions?q=ADMV-01", headers=ADM).json()["items"]
+        self.assertEqual(next(x for x in rows if x["id"] == sid)["status"], "perlu_cek")
+        r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["admin_validated"]), (200, True))
+        rows = self.c.get("/api/admin/sessions?status=validated", headers=ADM).json()["items"]
+        self.assertIn(sid, [x["id"] for x in rows])
+        self.assertNotIn(sid, [x["id"] for x in self.c.get("/api/admin/sessions?status=perlu_cek", headers=ADM).json()["items"]])
+        # batalkan tanda
+        r = self.c.post(f"/api/admin/sessions/{sid}/validate?value=false", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["admin_validated"]), (200, False))
+
+    def test_admin_validate_requires_token(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-02"}).json()["id"]
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate").status_code, 401)
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/stop").status_code, 401)
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/clear-photos").status_code, 401)
+        self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}").status_code, 401)
+
+    def test_admin_clear_photos_requires_validated_then_removes_folder_keeps_records(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMCLR-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        folder = os.path.join(config.UPLOAD_DIR, sid)
+        self.assertTrue(os.path.isdir(folder))
+        shid = self.c.get(f"/api/sessions/{sid}").json()["sheets"][0]["id"]
+        # belum admin_validated -> ditolak
+        r = self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertTrue(os.path.isdir(folder))
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM).status_code, 200)
+        r = self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["photos_cleared"]), (200, True))
+        self.assertFalse(os.path.exists(folder))
+        # rekap/DB tetap utuh: sesi & lembar masih ada
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertEqual(len(d["sheets"]), 1)
+        row = next(x for x in self.c.get(f"/api/admin/sessions?q=ADMCLR-01", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertTrue(row["photos_cleared"])
+        # pratinjau lembar sekarang 410 (berkas sumber sudah tak ada) -- ditangani, bukan error 500
+        self.assertEqual(self.c.get(f"/api/sheets/{shid}/preview").status_code, 410)
+
+    def test_admin_stop_session_cancels_pending_files(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMSTOP-01"}).json()["id"]
+        # lebih banyak berkas drpd SCAN_WORKERS (2 di tes) supaya sebagian PASTI masih menunggu di antrean
+        # pool saat stop dipanggil, bukan cuma sedang benar2 dieksekusi worker.
+        self.c.post(f"/api/sessions/{sid}/files",
+                    files=[("files", (f"s{i}.pdf", PDF, "application/pdf")) for i in range(10)])
+        r = self.c.post(f"/api/admin/sessions/{sid}/stop", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["dibatalkan"] + body["masih_berjalan"], 10)
+        self.assertGreaterEqual(body["dibatalkan"], 1, body)   # setidaknya sebagian sempat dibatalkan
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        cancelled = [f for f in d["files"]["failed"] if f["error"] == "Dibatalkan oleh admin"]
+        self.assertEqual(len(cancelled), body["dibatalkan"])
+
+    def test_admin_delete_session_removes_row_and_files(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMDEL-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        folder = os.path.join(config.UPLOAD_DIR, sid)
+        self.assertTrue(os.path.isdir(folder))
+        r = self.c.delete(f"/api/admin/sessions/{sid}", headers=ADM)
+        self.assertEqual(r.status_code, 204, r.text)
+        self.assertEqual(self.c.get(f"/api/sessions/{sid}").status_code, 404)
+        self.assertFalse(os.path.exists(folder))
+        self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}", headers=ADM).status_code, 404)
+
     def test_export_xlsx_and_filter(self):
         sid = self.submitted_session("XL-01")
         self.submit(sid)

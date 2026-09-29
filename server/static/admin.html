@@ -194,21 +194,33 @@
           <div class="f">
             <input type="search" placeholder="Cari pengawas / kelas / prodi…" x-model.trim="ses.q" @input.debounce.300ms="ses.page=1; loadSessions()">
             <select x-model="ses.status" @change="ses.page=1; loadSessions()">
-              <option value="all">Semua</option><option value="submitted">Sudah submit</option><option value="open">Belum submit</option><option value="unsynced">Belum tersinkron</option>
+              <option value="all">Semua</option>
+              <option value="scanning">Memindai</option><option value="perlu_cek">Perlu dicek</option><option value="validated">Validated (admin)</option>
+              <option value="submitted">Sudah submit</option><option value="open">Belum submit</option><option value="unsynced">Belum tersinkron</option>
             </select>
           </div>
         </div>
         <div class="tbl"><table>
-          <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th class="c" style="width:auto">Lembar</th><th>Status</th><th>Sheet</th><th></th></tr></thead>
+          <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th class="c" style="width:auto">Lembar</th><th class="c" style="width:auto">Mhs</th><th>Proses</th><th>Submit</th><th>Sheet</th><th></th></tr></thead>
           <tbody>
             <template x-for="i in ses.items" :key="i.id">
               <tr>
                 <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
                 <td x-text="i.kelas||'-'"></td><td x-text="i.prodi"></td>
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
+                <td class="c mono" style="width:auto" x-text="i.jml_mhs ?? '-'"></td>
+                <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>
+                  <span class="mute" x-show="i.files.failed" style="font-size:11px" x-text="i.files.failed+' gagal'"></span></td>
                 <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
                 <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>
-                <td><button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button></td>
+                <td class="actrow">
+                  <button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button>
+                  <button class="btn sm" x-show="i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
+                  <button class="btn sm" x-show="i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
+                  <button class="btn sm" x-show="i.status==='validated' && !i.photos_cleared" @click="clearPhotos(i.id)">Bersihkan foto</button>
+                  <span class="mute" style="font-size:11px" x-show="i.photos_cleared">Foto dibersihkan</span>
+                  <button class="btn sm d" @click="deleteSession(i.id)">Hapus</button>
+                </td>
               </tr>
             </template>
           </tbody>
