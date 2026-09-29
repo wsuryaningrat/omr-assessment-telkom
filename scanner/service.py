@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from core.alignment import detect_corners_and_crop
+from core.cnn_reader import read_missing_npm_digits
 from core.decoder import decode_field
 from core.detector import calculate_fill_ratio
 from core.evaluator import MAX_SOAL, find_matching_kunci_sheet, grade_student_record
@@ -187,14 +188,37 @@ def _rescue_answers(gray, fields, decoded, soal_dict):
     return n
 
 
+def _cnn_rescue_npm(gray, fields, decoded_all, doc_name):
+    """Lengkapi digit NPM yang masih kosong/'?' setelah pembaca utama + registrasi, pakai CNN mini
+    (core.cnn_reader) — dilatih pada lembar ujian asli, jauh lebih tahan geser posisi daripada rasio-gelap.
+    Hanya mengisi kolom yang BELUM terbaca dan lolos gerbang keyakinan; digit yang sudah terbaca (dan kolom
+    yang gerbangnya tak terlewati) tidak pernah disentuh. Kembalikan (npm_baru, {kolom: digit} yg diisi)."""
+    field = fields.get("NPM")
+    npm = decoded_all.get("NPM", "")
+    if not field:
+        return npm, {}
+    n = len(field["items"])
+    chars = list(npm.ljust(n))[:n]
+    unresolved = [i for i, c in enumerate(chars) if c in (" ", "?")]
+    if not unresolved:
+        return npm, {}
+    filled = read_missing_npm_digits(gray, field, unresolved)
+    for col, digit in filled.items():
+        chars[col] = digit
+    return "".join(chars).rstrip(), filled
+
+
 def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name):
     fields2, info = register_fields(gray, fields_dict)
     decoded2, soal2 = _decode_fields(gray, fields2)
     decoded2 = refine_identity(gray, fields2, decoded2, info)
     rescued = _rescue_answers(gray, fields2, decoded2, soal2)
+    before_npm = decoded2.get("NPM")
+    decoded2["NPM"], cnn_filled = _cnn_rescue_npm(gray, fields2, decoded2, doc_name)
     moved = {k: (v["dx"], v["dy"]) for k, v in info.items() if v.get("applied")}
-    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r | KODE %r -> %r | jawaban terselamatkan: %d", doc_name, moved,
-              decoded_all.get("NPM"), decoded2.get("NPM"), decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"), rescued)
+    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r -> %r (cnn: %s) | KODE %r -> %r | jawaban terselamatkan: %d",
+              doc_name, moved, decoded_all.get("NPM"), before_npm, decoded2["NPM"], cnn_filled,
+              decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"), rescued)
     return fields2, decoded2, soal2
 
 
