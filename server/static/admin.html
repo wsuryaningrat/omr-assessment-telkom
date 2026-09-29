@@ -211,11 +211,13 @@
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
                 <td class="c mono" style="width:auto" x-text="i.jml_mhs ?? '-'"></td>
                 <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>
-                  <span class="mute" x-show="i.files.failed" style="font-size:11px" x-text="i.files.failed+' gagal'"></span></td>
+                  <span class="mute" x-show="i.files.failed" style="font-size:11px" x-text="i.files.failed+' gagal'"></span>
+                  <div x-show="i.files.orphans" class="mute" style="font-size:11px;color:var(--bad);font-weight:700" x-text="i.files.orphans+' hilang senyap'"></div></td>
                 <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
                 <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>
                 <td class="actrow">
                   <button class="btn sm" @click="openDetail(i)">Detail</button>
+                  <button class="btn sm d" x-show="i.files.orphans" @click="reprocessOrphans(i)" x-text="'Proses ulang ('+i.files.orphans+')'"></button>
                   <button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button>
                   <button class="btn sm" x-show="i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
                   <button class="btn sm" x-show="i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
@@ -271,7 +273,15 @@
             </template>
           </tbody>
         </table></div>
-        <p class="empty" x-show="detail && !detail.loading && !detail.items.length">Belum ada lembar di sesi ini.</p>
+        <p class="empty" x-show="detail && !detail.loading && !detail.items.length && !(detail?.orphans||[]).length">Belum ada lembar di sesi ini.</p>
+        <div class="card" x-show="detail && !detail.loading && (detail?.orphans||[]).length" style="margin-top:14px;background:var(--bad-bg);border-color:var(--bad-line)">
+          <b style="color:var(--bad)">⚠ <span x-text="(detail?.orphans||[]).length"></span> berkas tercatat "selesai" tapi tak menghasilkan lembar sama sekali</b>
+          <p class="sub" style="margin:4px 0 10px">Foto sudah diterima & tersimpan aman, tapi pemindaiannya terputus (mis. server sempat di-restart di tengah proses) sehingga tak pernah jadi data. Klik untuk memindai ulang -- foto asli tak perlu diunggah lagi.</p>
+          <div class="actrow" style="margin-bottom:8px"><button class="btn sm d" @click="reprocessOrphans({id: detail.id, nama: detail.nama, kelas: detail.kelas})">Proses ulang semua</button></div>
+          <template x-for="o in (detail?.orphans||[])" :key="o.id">
+            <div class="actrow" style="padding:4px 0"><span x-text="o.name"></span> <button class="btn xs" @click="reprocessOneFile(o)">Proses ulang</button></div>
+          </template>
+        </div>
         <div x-show="preview.url" x-cloak style="margin-top:14px;text-align:center">
           <img :src="preview.url" style="max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--line)">
           <div style="margin-top:8px"><button class="btn sm" @click="preview.url=''">Tutup pratinjau</button></div>

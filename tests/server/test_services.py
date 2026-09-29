@@ -13,7 +13,7 @@ import zipfile
 from fastapi.testclient import TestClient
 
 from server import config, services, sheets
-from server.db import ScanSession, SessionLocal
+from server.db import ScanSession, Sheet, SessionLocal
 from server.main import app
 from tests.regression.fixtures import KUNCI
 
@@ -493,6 +493,58 @@ class TestServices(unittest.TestCase):
         self.assertFalse(r2.json()["exists"])   # sesi itu sendiri dikecualikan
         r3 = self.c.get("/api/kelas-check", params={"fakultas": VALID["fakultas"], "prodi": VALID["prodi"], "kelas": "KCHECK-BELUM-ADA"})
         self.assertFalse(r3.json()["exists"])
+
+    def _make_orphan_file(self, kelas):
+        """Sesi dgn 1 berkas yg SUKSES scan (1 sheet), lalu simulasikan bug "hilang senyap" yg ditemukan
+        29 Sep 2026: baris Sheet dihapus manual tapi UploadFile.state TETAP 'done' -- persis kondisi yg
+        ditemukan di produksi (scan terputus restart server, tak pernah tercatat gagal atau berhasil benar)."""
+        sid = self.submitted_session(kelas)
+        with SessionLocal() as db:
+            s = db.get(ScanSession, sid)
+            fid = s.files[0].id
+            for sh in list(s.sheets):
+                db.delete(sh)
+            db.commit()
+        return sid, fid
+
+    def test_orphan_files_detected_and_shown_in_session_list_and_detail(self):
+        sid, fid = self._make_orphan_file("ORPHAN-01")
+        row = next(x for x in self.c.get("/api/admin/sessions?q=ORPHAN-01", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertEqual(row["files"]["orphans"], 1)
+        d = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()
+        self.assertEqual(d["items"], [])
+        self.assertEqual(len(d["orphan_files"]), 1)
+        self.assertEqual(d["orphan_files"][0]["id"], fid)
+
+    def test_reprocess_single_orphan_file_recovers_sheet(self):
+        sid, fid = self._make_orphan_file("ORPHAN-02")
+        r = self.c.post(f"/api/admin/files/{fid}/reprocess", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["queued"])
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertEqual(len(d["sheets"]), 1)   # lembar pulih tanpa perlu unggah ulang
+        row = next(x for x in self.c.get("/api/admin/sessions?q=ORPHAN-02", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertEqual(row["files"]["orphans"], 0)
+
+    def test_reprocess_orphans_bulk_recovers_all(self):
+        sid, _fid = self._make_orphan_file("ORPHAN-03")
+        r = self.c.post(f"/api/admin/sessions/{sid}/reprocess-orphans", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["diproses_ulang"], 1)
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        self.assertEqual(len(self.c.get(f"/api/sessions/{sid}").json()["sheets"]), 1)
+        # dipanggil lagi -> tak ada lagi yg orphan, aman (tak menggandakan)
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/reprocess-orphans", headers=ADM)
+        self.assertEqual(r2.json()["diproses_ulang"], 0)
+
+    def test_reprocess_file_requires_token_and_404s_unknown(self):
+        self.assertEqual(self.c.post("/api/admin/files/tidak-ada/reprocess").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/files/tidak-ada/reprocess", headers=ADM).status_code, 404)
 
 
 if __name__ == "__main__":

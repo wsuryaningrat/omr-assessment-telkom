@@ -131,10 +131,11 @@ def _session_status(s: ScanSession) -> str:
     return "perlu_cek"
 
 
-def _session_row(s: ScanSession, jml_mhs_map: dict) -> dict:
+def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
     n_files = len(s.files)
     n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
     n_failed = sum(1 for f in s.files if f.state == "failed")
+    n_orphans = len(_orphan_files(db, s))
     # "dibersihkan" hanya berarti sesuatu bila sesi PERNAH punya berkas -- sesi baru yg belum punya berkas
     # sama sekali tidak dianggap "sudah dibersihkan". Foto kini dibagi per Fakultas/Prodi/Kelas (lihat
     # server/main.py _class_folder), jadi dicek per BERKAS milik sesi ini, bukan per folder.
@@ -148,7 +149,7 @@ def _session_row(s: ScanSession, jml_mhs_map: dict) -> dict:
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         "synced": s.synced_at is not None, "sync_attempts": s.sync_attempts or 0, "sync_error": s.sync_error,
-        "files": {"total": n_files, "pending": n_pending, "failed": n_failed},
+        "files": {"total": n_files, "pending": n_pending, "failed": n_failed, "orphans": n_orphans},
         "status": _session_status(s),
         "admin_validated": s.admin_validated,
         "admin_validated_at": s.admin_validated_at.isoformat() if s.admin_validated_at else None,
@@ -177,13 +178,13 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
         # SQL LIMIT/OFFSET tanpa join rumit, jadi disaring+dipaginasi di Python. Jumlah sesi total (bukan per
         # kelas ujian) di alat ini kecil, jadi memuat semua baris yg cocok `q` sekali lalu menyaring aman.
         all_rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()))
-        items_all = [_session_row(s, jml_mhs_map) for s in all_rows if _session_status(s) == status]
+        items_all = [_session_row(db, s, jml_mhs_map) for s in all_rows if _session_status(s) == status]
         total = len(items_all)
         items = items_all[(page - 1) * size: (page - 1) * size + size]
     else:
         total = db.scalar(select(func.count()).select_from(ScanSession).where(*cond)) or 0
         rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()).offset((page - 1) * size).limit(size))
-        items = [_session_row(s, jml_mhs_map) for s in rows]
+        items = [_session_row(db, s, jml_mhs_map) for s in rows]
     return {"total": total, "page": page, "size": size, "items": items}
 
 
@@ -212,7 +213,56 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
             "validated": sh.validated,
             "photo_exists": bool(up and up.path and os.path.exists(up.path)),
         })
-    return {"items": items}
+    orphans = [{"id": f.id, "name": f.name, "size": f.size} for f in _orphan_files(db, s)]
+    return {"items": items, "orphan_files": orphans}
+
+
+def _orphan_files(db, s: ScanSession):
+    """Berkas yg tercatat SELESAI (state='done') tapi TAK MENGHASILKAN lembar sama sekali -- ditemukan lewat
+    investigasi 29 Sep 2026: pemindaian lembar sulit bisa makan 30-90 dtk, dan kalau container di-restart
+    (deploy/insiden) tepat di tengah itu, prosesnya terputus tanpa sempat tercatat gagal ATAU sukses dgn
+    benar -- pengawas/admin tak melihat error apa pun, cuma lembar yg "hilang" diam-diam. Foto sumbernya
+    aman (tak terhapus), tinggal diproses ulang lewat admin_reprocess_file."""
+    return [f for f in s.files if f.state == "done"
+            and not db.scalar(select(func.count()).select_from(Sheet).where(Sheet.file_id == f.id))]
+
+
+@router.post("/sessions/{sid}/reprocess-orphans")
+def admin_reprocess_orphans(sid: str, db=Depends(get_db)):
+    """Proses ulang SEMUA berkas 'hilang senyap' (lihat _orphan_files) di sesi ini lewat antrean latar
+    belakang biasa -- aman dipanggil berkali-kali; hasil lama (kalau ada, tak ada di sini krn definisinya
+    nol lembar) tak tersentuh, cuma menambah lembar baru bila kali ini berhasil."""
+    from server import main as _main
+    s = _admin_session_or_404(db, sid)
+    orphans = _orphan_files(db, s)
+    for f in orphans:
+        if not f.path or not os.path.exists(f.path):
+            continue
+        f.state = "queued"
+        f.error = None
+    db.commit()
+    for f in orphans:
+        if f.path and os.path.exists(f.path):
+            _main._enqueue(f.id)
+    return {"ok": True, "diproses_ulang": len(orphans)}
+
+
+@router.post("/files/{fid}/reprocess")
+def admin_reprocess_file(fid: str, db=Depends(get_db)):
+    """Proses ulang SATU berkas 'hilang senyap' (state='done', nol lembar -- lihat _orphan_files) lewat
+    antrean latar belakang biasa (sama spt unggahan baru), BUKAN sinkron, krn bisa lambat (~1 menit utk foto
+    sulit). Kembalikan segera (queued=True); pantau hasilnya lewat GET /sessions/{sid}/sheets sesudahnya."""
+    from server import main as _main
+    f = db.get(UploadFile, fid)
+    if f is None:
+        raise HTTPException(404, "Berkas tidak ditemukan")
+    if not f.path or not os.path.exists(f.path):
+        raise HTTPException(410, "Berkas sumber sudah tak ada")
+    f.state = "queued"
+    f.error = None
+    db.commit()
+    _main._enqueue(fid)
+    return {"ok": True, "queued": True}
 
 
 class _BytesUpload:

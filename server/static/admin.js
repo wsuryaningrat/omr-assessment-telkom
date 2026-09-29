@@ -99,10 +99,22 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async openDetail(i) {
-      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], loading: true, previewBusy: false };
-      try { this.detail.items = (await this.json(`/api/admin/sessions/${i.id}/sheets`)).items; }
-      catch (e) { this.toast(e.message, true); this.detail = null; return; }
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], orphans: [], loading: true, previewBusy: false };
+      try {
+        const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
+        this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
+      } catch (e) { this.toast(e.message, true); this.detail = null; return; }
       this.detail.loading = false;
+    },
+    // "Hilang senyap": berkas tercatat selesai tapi nol lembar (mis. terputus restart server di tengah
+    // pemindaian lembar sulit). Foto sumbernya aman -- diproses ulang lewat antrean latar belakang biasa.
+    async reprocessOneFile(o) {
+      try { await this.json(`/api/admin/files/${o.id}/reprocess`, { method: "POST" }); this.toast(`${o.name}: diantre utk dipindai ulang`); await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas }); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async reprocessOrphans(i) {
+      try { const d = await this.json(`/api/admin/sessions/${i.id}/reprocess-orphans`, { method: "POST" }); this.toast(`${d.diproses_ulang} berkas diantre utk dipindai ulang`); await this.loadSessions(); if (this.detail && this.detail.id === i.id) await this.openDetail(i); }
+      catch (e) { this.toast(e.message, true); }
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url }; },
