@@ -77,7 +77,8 @@ function admin() {
     sesStatusLabel(st) { return { scanning: "Memindai…", perlu_cek: "Perlu dicek", validated: "Validated" }[st] || st; },
     sesStatusChip(st) { return { scanning: "pending", perlu_cek: "check", validated: "validated" }[st] || ""; },
     async validateSession(id, value) {
-      try { await this.json(`/api/admin/sessions/${id}/validate?value=${value}`, { method: "POST" }); this.toast(value ? "Sesi ditandai validated" : "Tanda validated dibatalkan"); await this.loadSessions(); }
+      if (value && !confirm("Tandai sesi ini validated? Semua lembar yang berhasil discan akan otomatis divalidasi & sesi dikunci (submit) supaya masuk ekspor/sinkron Sheet.")) return;
+      try { const d = await this.json(`/api/admin/sessions/${id}/validate?value=${value}`, { method: "POST" }); this.toast(value ? "Sesi divalidasi & disubmit" : "Tanda validated dibatalkan"); await this.loadSessions(); }
       catch (e) { this.toast(e.message, true); }
     },
     async stopSession(id) {

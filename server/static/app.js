@@ -20,7 +20,7 @@ const hpLocal = raw => { let d = String(raw || "").replace(/\D/g, ""); if (d.sta
 
 function ljk() {
   return {
-    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "" }, view: null, baseline: "", page: 0, pageSize: 10,
+    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", hari: "", kodeSoal: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
@@ -50,13 +50,14 @@ function ljk() {
     onPengawas() { if (!this.showHp) this.form.hp = ""; if (!this.manual) this.form.nama = ""; },
     get phoneOk() { return PHONE(this.form.hp); },
     cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
-    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal }); },
-    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && this.prodiFinal && this.kelasFinal); },
+    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal, hari_ujian: f.hari, kode_soal: f.kodeSoal }); },
+    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && this.prodiFinal && this.kelasFinal && f.hari && f.kodeSoal); },
     get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
       if (!f.ref) return "Pilih nama pengawas"; if (this.manual && !f.nama) return "Isi nama lengkap pengawas"; if (this.showHp && !this.phoneOk) return "Isi nomor HP yang valid";
       if (!this.prodiFinal) return f.prodi === "manual" ? "Isi program studi" : "Pilih program studi"; if (!this.kelasFinal) return f.kelas === "manual" ? "Isi nama kelas" : "Pilih kelas";
+      if (!f.hari) return "Pilih hari ujian"; if (!f.kodeSoal) return "Pilih kode soal";
       return "Siap — pilih berkas LJK di atas";
     },
     get step() { if (this.session?.submitted) return 3; if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
@@ -71,7 +72,8 @@ function ljk() {
       const ref = this.pengawasList.find(x => x.nama === p.nama);
       const kn = (this.meta.kelas || []).some(x => x.kelas === p.kelas), pn = (this.meta.prodi || []).includes(p.prodi);
       this.form = { ref: ref ? ref.id : "manual", nama: ref ? "" : p.nama, hp: !ref || ref.needs_hp ? hpLocal(p.hp) : "",
-        kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: pn ? p.prodi : (p.prodi ? "manual" : ""), prodiManual: pn ? "" : (p.prodi || "") };
+        kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: pn ? p.prodi : (p.prodi ? "manual" : ""), prodiManual: pn ? "" : (p.prodi || ""),
+        hari: p.hari_ujian || "", kodeSoal: p.kode_soal || "" };
       this.baseline = JSON.stringify(this.form);
     },
     async saveIdentity() {
@@ -205,7 +207,7 @@ function ljk() {
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
-      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
+      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
     },
 
     // ---- unggah

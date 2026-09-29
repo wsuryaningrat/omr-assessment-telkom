@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import Integer, func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
+from scanner.service import classify_scan_status
 from server import auth, config, plotting, services, sheets
 from server.db import Kunci, ScanSession, Sheet, SessionLocal
 
@@ -142,6 +143,7 @@ def _session_row(s: ScanSession, jml_mhs_map: dict) -> dict:
     return {
         "id": s.id, "nama": s.nama_pengawas, "hp": s.hp, "kelas": s.kelas,
         "prodi": s.prodi, "lembar": len(s.sheets),
+        "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
         "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
         "validated": sum(1 for x in s.sheets if x.validated), "submitted": s.submitted,
         "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -195,15 +197,31 @@ def _admin_session_or_404(db, sid: str) -> ScanSession:
 
 @router.post("/sessions/{sid}/validate")
 def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db)):
-    """Tandai (atau batalkan tanda) sesi sudah dicek admin. Hanya bermakna bila pemindaian sudah selesai --
-    menandai sesi yg masih 'scanning' berisiko menyembunyikan lembar yg belum sempat masuk daftar."""
+    """Tandai (atau batalkan tanda) sesi sudah divalidasi admin. Sejak pemindaian dipindah ke latar belakang
+    & pengawas cukup unggah foto (validasi per-lembar tak lagi jadi tugas pengawas), aksi ini JUGA
+    memfinalisasi sesi -- dulu ini tugas tombol Submit pengawas: memvalidasi semua lembar yg berhasil
+    discan (bukan yg gagal), menilai ulang, lalu mengunci sesi (submitted=True) supaya ikut disinkron ke
+    Google Sheet & masuk ekspor. Lembar yg gagal (pojok LJK tak terdeteksi) TETAP gagal apa pun statusnya --
+    tidak ikut divalidasi, tidak memblokir sisanya (beda dgn submit() lama yg menolak bila ADA yg gagal).
+    Hanya bermakna bila pemindaian sudah selesai -- menandai sesi yg masih 'scanning' berisiko
+    menyembunyikan lembar yg belum sempat masuk daftar."""
     s = _admin_session_or_404(db, sid)
-    if value and _session_status(s) == "scanning":
-        raise HTTPException(409, "Pemindaian sesi ini masih berjalan")
+    if value:
+        if _session_status(s) == "scanning":
+            raise HTTPException(409, "Pemindaian sesi ini masih berjalan")
+        if not s.sheets:
+            raise HTTPException(409, "Sesi ini belum punya lembar")
+        for sh in s.sheets:
+            if classify_scan_status({"status": sh.scan_status}, False) != "Gagal":
+                sh.validated = True
+        if not s.submitted:
+            services.regrade_session(db, s)
+            s.submitted, s.submitted_at = True, dt.datetime.now(dt.timezone.utc)
+            s.synced_at, s.sync_attempts, s.sync_error, s.sync_next = None, 0, None, None
     s.admin_validated = value
     s.admin_validated_at = dt.datetime.now(dt.timezone.utc) if value else None
     db.commit()
-    return {"ok": True, "admin_validated": s.admin_validated}
+    return {"ok": True, "admin_validated": s.admin_validated, "submitted": s.submitted}
 
 
 @router.post("/sessions/{sid}/stop")

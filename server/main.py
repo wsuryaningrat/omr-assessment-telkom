@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 
 from scanner.service import classify_scan_status, load_default_template
 from server import refdata, admin, auth, config, services, worker
-from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
+from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
 _pending = multiprocessing.Value("i", 0)   # pekerjaan pindai berjalan + mengantre; dibaca worker untuk menentukan jumlah thread
@@ -65,7 +65,7 @@ def _norm_hp(raw: str):
 
 def _pengawas(s: ScanSession):
     return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
-            "fakultas": "", "prodi": s.prodi}
+            "fakultas": "", "prodi": s.prodi, "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian}
 
 
 def _apply_identity(record: dict, s: ScanSession) -> dict:
@@ -217,10 +217,18 @@ def _fakultas_options():
     return [str(b.get("option")) for b in items[0].get("bubbles", []) if b.get("option")]
 
 
+HARI_UJIAN = ["SENIN", "SELASA", "RABU", "KAMIS", "JUMAT"]
+
+
+def _kunci_names(db):
+    return [k.name for k in db.scalars(select(Kunci).order_by(Kunci.name))]
+
+
 @app.get("/api/meta")
-def meta():
+def meta(db=Depends(get_db)):
     return {"pengawas": [{"id": p["id"], "nama": p["nama"], "dosen": p["dosen"], "needs_hp": not p["hp"] and not p["dosen"]} for p in refdata.pengawas()],
             "kelas": refdata.kelas(), "prodi": refdata.prodi_list(), "fakultas": _fakultas_options(),
+            "kunci": _kunci_names(db), "hari": HARI_UJIAN,
             "max_upload_mb": config.MAX_UPLOAD_MB, "extensions": sorted(config.ALLOWED_EXT)}
 
 
@@ -230,9 +238,11 @@ class SessionIn(BaseModel):
     hp: str = ""
     kelas: str
     prodi: str
+    kode_soal: str = ""
+    hari_ujian: str = ""
 
 
-def _resolve_identity(body: SessionIn):
+def _resolve_identity(body: SessionIn, db):
     """Validasi isian dan kembalikan (nama, hp) pengawas: dari daftar terdaftar bila dipilih, atau isian sendiri."""
     errors = []
     nama, hp = body.nama_pengawas.strip(), _norm_hp(body.hp)
@@ -257,15 +267,27 @@ def _resolve_identity(body: SessionIn):
         errors.append("Kelas wajib diisi")
     elif len(body.kelas.strip()) > 100:
         errors.append("Kelas terlalu panjang")
+    if body.hari_ujian.strip().upper() not in HARI_UJIAN:
+        errors.append("Hari ujian wajib dipilih")
+    kode_soal = body.kode_soal.strip()
+    if not kode_soal:
+        errors.append("Kode soal wajib dipilih")
+    else:
+        known = _kunci_names(db)
+        # kunci blm tentu sudah diunggah admin saat sesi dibuat -- kalau daftar kunci masih kosong, terima
+        # apa adanya (tak boleh memblokir pengawas hanya krn admin belum sempat unggah kunci).
+        if known and kode_soal not in known:
+            errors.append(f"Kode soal harus salah satu dari: {', '.join(known)}")
     if errors:
         raise HTTPException(422, errors)
-    return nama, hp
+    return nama, hp, kode_soal, body.hari_ujian.strip().upper()
 
 
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
-    nama, hp = _resolve_identity(body)
-    s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas="", prodi=body.prodi.strip())
+    nama, hp, kode_soal, hari_ujian = _resolve_identity(body, db)
+    s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas="", prodi=body.prodi.strip(),
+                     kode_soal=kode_soal, hari_ujian=hari_ujian)
     db.add(s)
     db.commit()
     return {"id": s.id}
@@ -277,9 +299,10 @@ def update_session(sid: str, body: SessionIn, db=Depends(get_db)):
     s = _session_or_404(db, sid)
     if s.submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
-    nama, hp = _resolve_identity(body)
+    nama, hp, kode_soal, hari_ujian = _resolve_identity(body, db)
     s.nama_pengawas, s.hp = nama, hp
     s.kelas, s.prodi = body.kelas.strip(), body.prodi.strip()
+    s.kode_soal, s.hari_ujian = kode_soal, hari_ujian
     for sh in s.sheets:
         sh.record = _apply_identity(sh.record, s)
     db.commit()
@@ -326,6 +349,26 @@ def get_session(sid: str, db=Depends(get_db)):
                     "perlu_validasi": sum(1 for x in sheets if x["label"] == "Perlu Validasi"),
                     "gagal": sum(1 for x in sheets if x["label"] == "Gagal")},
     }
+
+
+@app.get("/api/monitor-sesi")
+def monitor_sesi(db=Depends(get_db)):
+    """Status pemindaian SEMUA sesi, PUBLIK (tanpa token admin) -- supaya pengawas & siapa pun yg tahu URL-nya
+    bisa memantau progres scan tanpa perlu login. Sengaja TIDAK menyertakan nomor HP pengawas (data pribadi)
+    atau apa pun soal mahasiswa (NPM/nama/jawaban) -- hanya status proses per sesi, sama spt yg admin lihat
+    di tab Sesi tapi tanpa detail sensitif & tanpa aksi kelola."""
+    rows = db.scalars(select(ScanSession).order_by(ScanSession.created_at.desc()))
+    items = []
+    for s in rows:
+        n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
+        status = "scanning" if n_pending else ("validated" if s.admin_validated else "perlu_cek")
+        items.append({
+            "nama": s.nama_pengawas, "kelas": s.kelas, "prodi": s.prodi,
+            "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
+            "lembar": len(s.sheets), "status": status,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+    return {"items": items}
 
 
 # --------------------------------------------------------------------------- upload
@@ -589,6 +632,11 @@ def ljk_page():
 @app.get("/panduan", include_in_schema=False)
 def panduan_page():
     return FileResponse(os.path.join(os.path.dirname(__file__), "static", "panduan.html"))
+
+
+@app.get("/monitor", include_in_schema=False)
+def monitor_page():
+    return FileResponse(os.path.join(os.path.dirname(__file__), "static", "monitor.html"))
 
 
 app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static"), html=True), name="ui")

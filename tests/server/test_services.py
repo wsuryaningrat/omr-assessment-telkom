@@ -20,7 +20,7 @@ from tests.regression.fixtures import KUNCI
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ADM = {"X-Admin-Token": "rahasia"}
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi"}
+         "prodi": "S1 Sistem Informasi", "hari_ujian": "SENIN", "kode_soal": "A"}
 PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
 
 
@@ -225,13 +225,37 @@ class TestServices(unittest.TestCase):
         rows = self.c.get(f"/api/admin/sessions?q=ADMV-01", headers=ADM).json()["items"]
         self.assertEqual(next(x for x in rows if x["id"] == sid)["status"], "perlu_cek")
         r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
-        self.assertEqual((r.status_code, r.json()["admin_validated"]), (200, True))
+        self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, True, True))
+        # validasi admin JUGA memfinalisasi sesi (dulu tugas pengawas via submit()): lembar yg berhasil discan
+        # otomatis tervalidasi & sesi terkunci (submitted) -- pengawas tak perlu apa2 lagi.
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertTrue(d["submitted"])
+        self.assertTrue(all(x["validated"] for x in d["sheets"]))
         rows = self.c.get("/api/admin/sessions?status=validated", headers=ADM).json()["items"]
         self.assertIn(sid, [x["id"] for x in rows])
         self.assertNotIn(sid, [x["id"] for x in self.c.get("/api/admin/sessions?status=perlu_cek", headers=ADM).json()["items"]])
-        # batalkan tanda
+        # batalkan tanda -- tak menyentuh submitted (sinkron mungkin sudah berjalan; lihat docstring)
         r = self.c.post(f"/api/admin/sessions/{sid}/validate?value=false", headers=ADM)
-        self.assertEqual((r.status_code, r.json()["admin_validated"]), (200, False))
+        self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, False, True))
+
+    def test_admin_validate_session_requires_at_least_one_sheet(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-EMPTY"}).json()["id"]
+        r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        self.assertEqual(r.status_code, 409, r.text)
+
+    def test_public_monitor_sesi_lists_status_without_login_or_phone(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMMON-01", "kode_soal": "A", "hari_ujian": "RABU"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        r = self.c.get("/api/monitor-sesi")   # tanpa token
+        self.assertEqual(r.status_code, 200, r.text)
+        row = next(x for x in r.json()["items"] if x["kelas"] == "ADMMON-01")
+        self.assertEqual((row["hari_ujian"], row["kode_soal"], row["status"]), ("RABU", "A", "scanning"))
+        self.assertNotIn("hp", row)
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        row = next(x for x in self.c.get("/api/monitor-sesi").json()["items"] if x["kelas"] == "ADMMON-01")
+        self.assertEqual(row["status"], "perlu_cek")
 
     def test_admin_validate_requires_token(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-02"}).json()["id"]
