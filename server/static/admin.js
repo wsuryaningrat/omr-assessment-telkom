@@ -2,7 +2,7 @@ function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
     tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null,
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "" },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
     async init() {
@@ -99,12 +99,40 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async openDetail(i) {
-      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], loading: true };
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], loading: true, previewBusy: false };
       try { this.detail.items = (await this.json(`/api/admin/sessions/${i.id}/sheets`)).items; }
       catch (e) { this.toast(e.message, true); this.detail = null; return; }
       this.detail.loading = false;
     },
-    closeDetail() { this.detail = null; },
+    closeDetail() { this._setPreview(""); this.detail = null; },
+    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url }; },
+    async previewOriginal(x) {
+      // Foto ASLI (belum diproses) -- cepat, cuma decode gambar, tanpa pipeline OMR.
+      this.detail && (this.detail.previewBusy = true);
+      try { const r = await this.api(`/api/admin/sheets/${x.id}/photo`); this._setPreview(URL.createObjectURL(await r.blob())); }
+      catch (e) { this.toast(e.message, true); }
+      this.detail && (this.detail.previewBusy = false);
+    },
+    previewScan(x) { this._setPreview(`/api/sheets/${x.id}/preview?t=${Date.now()}`); },
+    async rescanSheet(x) {
+      x.busy = true;
+      try {
+        const d = await this.json(`/api/admin/sheets/${x.id}/rescan`, { method: "POST" });
+        this.toast("Dipindai ulang — status: " + d.label);
+        await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas });
+      } catch (e) { this.toast(e.message, true); }
+      x.busy = false;
+    },
+    async replaceSheetPhoto(x, ev) {
+      const f = ev.target.files && ev.target.files[0]; if (!f) return;
+      const fd = new FormData(); fd.append("file", f, f.name);
+      try {
+        const d = await this.json(`/api/admin/sheets/${x.id}/replace`, { method: "POST", body: fd });
+        this.toast("Foto diganti & dipindai ulang — status: " + d.label);
+        await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas });
+      } catch (e) { this.toast(e.message, true); }
+      ev.target.value = "";
+    },
     async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
     async act(path, okMsg) {
       this.busy = true;

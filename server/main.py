@@ -48,6 +48,22 @@ def _safe_name(name):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.basename(name or "berkas"))[:120] or "berkas"
 
 
+def _safe_segment(name):
+    """Satu ruas path aman (fakultas/prodi/kelas) -- tanpa "/" atau "..", panjang wajar."""
+    s = re.sub(r"[^A-Za-z0-9._ -]+", "_", (name or "").strip())
+    s = re.sub(r"\s+", " ", s).strip(" .")[:80]
+    return s or "-"
+
+
+def _class_folder(s: ScanSession) -> str:
+    """Folder foto sumber: UPLOAD_DIR/Fakultas/Prodi/Kelas -- DIBAGI antar sesi dari fakultas/prodi/kelas
+    yg sama (bukan per-sesi lagi), supaya foto tertata per kelas & gampang dicek admin di disk. Nama berkas
+    di dalamnya tetap diberi prefiks acak (lihat upload_files/replace_photo) jadi aman dari tabrakan nama;
+    yg TIDAK aman dari tabrakan adalah makna "satu kelas = satu sesi" -- lihat /api/kelas-check &
+    services.remove_session_files (hapus per-berkas milik sesi ini saja, bukan rmtree seluruh folder)."""
+    return os.path.join(config.UPLOAD_DIR, _safe_segment(s.fakultas), _safe_segment(s.prodi), _safe_segment(s.kelas))
+
+
 def _kunci(db):
     from server.db import Kunci
     return {k.name: k.data for k in db.scalars(select(Kunci))}
@@ -65,7 +81,7 @@ def _norm_hp(raw: str):
 
 def _pengawas(s: ScanSession):
     return {"nama": s.nama_pengawas, "hp": s.hp, "ruangan": s.ruangan, "kelas": s.kelas,
-            "fakultas": "", "prodi": s.prodi, "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian}
+            "fakultas": s.fakultas, "prodi": s.prodi, "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian}
 
 
 def _apply_identity(record: dict, s: ScanSession) -> dict:
@@ -241,12 +257,31 @@ def meta(db=Depends(get_db)):
             "max_upload_mb": config.MAX_UPLOAD_MB, "extensions": sorted(config.ALLOWED_EXT)}
 
 
+@app.get("/api/kelas-check")
+def kelas_check(fakultas: str, prodi: str, kelas: str, exclude_sid: str = "", db=Depends(get_db)):
+    """Cek apakah kombinasi Fakultas/Prodi/Kelas ini SUDAH pernah dipakai sesi lain -- foto sumber kini
+    disimpan per kelas (lihat _class_folder), dibagi antar sesi dgn fakultas/prodi/kelas yg sama. Dipanggil
+    FE SEBELUM mulai unggah supaya bisa tanya konfirmasi ke pengawas ("kelas ini sudah ada isinya,
+    lanjutkan?") -- tidak menghapus/menimpa apa pun di server, murni informasi."""
+    cond = [ScanSession.fakultas == fakultas.strip(), ScanSession.prodi == prodi.strip(), ScanSession.kelas == kelas.strip()]
+    if exclude_sid:
+        cond.append(ScanSession.id != exclude_sid)
+    existing = [s for s in db.scalars(select(ScanSession).where(*cond)) if s.files]
+    if not existing:
+        return {"exists": False}
+    latest = max(existing, key=lambda s: s.created_at)
+    return {"exists": True, "sesi": len(existing), "lembar": sum(len(s.sheets) for s in existing),
+            "pengawas_terakhir": latest.nama_pengawas,
+            "dibuat_terakhir": latest.created_at.isoformat() if latest.created_at else None}
+
+
 class SessionIn(BaseModel):
     pengawas_ref: str = ""      # id dari /api/meta; kosong = isi sendiri (nama_pengawas + hp wajib)
     nama_pengawas: str = ""
     hp: str = ""
     kelas: str
     prodi: str
+    fakultas: str = ""
     kode_soal: str = ""
     hari_ujian: str = ""
 
@@ -276,6 +311,9 @@ def _resolve_identity(body: SessionIn, db):
         errors.append("Kelas wajib diisi")
     elif len(body.kelas.strip()) > 100:
         errors.append("Kelas terlalu panjang")
+    fakultas_opts = _fakultas_options()
+    if body.fakultas.strip() not in fakultas_opts:
+        errors.append(f"Fakultas wajib dipilih (salah satu dari: {', '.join(fakultas_opts)})")
     hari_ujian = body.hari_ujian.strip()
     if hari_ujian not in HARI_UJIAN_VALUES:
         errors.append("Hari ujian wajib dipilih")
@@ -289,13 +327,13 @@ def _resolve_identity(body: SessionIn, db):
         errors.append("Kode soal terlalu panjang (maks. 20 karakter)")
     if errors:
         raise HTTPException(422, errors)
-    return nama, hp, kode_soal, hari_ujian
+    return nama, hp, body.fakultas.strip(), kode_soal, hari_ujian
 
 
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
-    nama, hp, kode_soal, hari_ujian = _resolve_identity(body, db)
-    s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas="", prodi=body.prodi.strip(),
+    nama, hp, fakultas, kode_soal, hari_ujian = _resolve_identity(body, db)
+    s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas=fakultas, prodi=body.prodi.strip(),
                      kode_soal=kode_soal, hari_ujian=hari_ujian)
     db.add(s)
     db.commit()
@@ -308,9 +346,9 @@ def update_session(sid: str, body: SessionIn, db=Depends(get_db)):
     s = _session_or_404(db, sid)
     if s.submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
-    nama, hp, kode_soal, hari_ujian = _resolve_identity(body, db)
+    nama, hp, fakultas, kode_soal, hari_ujian = _resolve_identity(body, db)
     s.nama_pengawas, s.hp = nama, hp
-    s.kelas, s.prodi = body.kelas.strip(), body.prodi.strip()
+    s.kelas, s.prodi, s.fakultas = body.kelas.strip(), body.prodi.strip(), fakultas
     s.kode_soal, s.hari_ujian = kode_soal, hari_ujian
     for sh in s.sheets:
         sh.record = _apply_identity(sh.record, s)
@@ -410,7 +448,7 @@ async def upload_files(sid: str, files: list[FUploadFile] = File(...), db=Depend
     have = db.scalar(select(func.count()).select_from(UploadFile).where(UploadFile.session_id == s.id)) or 0
     if have + len(files) > config.MAX_FILES_PER_SESSION:
         raise HTTPException(413, f"Batas {config.MAX_FILES_PER_SESSION} berkas per sesi terlampaui")
-    folder = os.path.join(config.UPLOAD_DIR, s.id)
+    folder = _class_folder(s)
     os.makedirs(folder, exist_ok=True)
     ids = []
     for up in files:
@@ -550,7 +588,7 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     _guard_open(db, sh)
     s = db.get(ScanSession, sh.session_id)
     _check_ext(file.filename or "")
-    dest = os.path.join(config.UPLOAD_DIR, s.id, f"{uuid.uuid4().hex[:8]}_{_safe_name(file.filename)}")
+    dest = os.path.join(_class_folder(s), f"{uuid.uuid4().hex[:8]}_{_safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _save_stream(file, dest)
     fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0)

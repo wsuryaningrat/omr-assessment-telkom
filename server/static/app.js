@@ -20,7 +20,7 @@ const hpLocal = raw => { let d = String(raw || "").replace(/\D/g, ""); if (d.sta
 
 function ljk() {
   return {
-    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", hari: "", kodeSoal: "" }, view: null, baseline: "", page: 0, pageSize: 10,
+    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "", page: 0, pageSize: 10,
     ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
     upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
@@ -52,12 +52,13 @@ function ljk() {
     onPengawas() { if (!this.showHp) this.form.hp = ""; if (!this.manual) this.form.nama = ""; },
     get phoneOk() { return PHONE(this.form.hp); },
     cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
-    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal, hari_ujian: f.hari, kode_soal: f.kodeSoal }); },
-    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && this.prodiFinal && this.kelasFinal && f.hari && f.kodeSoal); },
+    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal, fakultas: f.fakultas, hari_ujian: f.hari, kode_soal: f.kodeSoal }); },
+    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && f.fakultas && this.prodiFinal && this.kelasFinal && f.hari && f.kodeSoal); },
     get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
       if (!f.ref) return "Pilih nama pengawas"; if (this.manual && !f.nama) return "Isi nama lengkap pengawas"; if (this.showHp && !this.phoneOk) return "Isi nomor HP yang valid";
+      if (!f.fakultas) return "Pilih fakultas";
       if (!this.prodiFinal) return f.prodi === "manual" ? "Isi program studi" : "Pilih program studi"; if (!this.kelasFinal) return f.kelas === "manual" ? "Isi nama kelas" : "Pilih kelas";
       if (!f.hari) return "Pilih hari ujian"; if (!f.kodeSoal) return "Pilih kode soal";
       return "Siap — pilih berkas LJK di atas";
@@ -75,7 +76,7 @@ function ljk() {
       const kn = (this.meta.kelas || []).some(x => x.kelas === p.kelas), pn = (this.meta.prodi || []).includes(p.prodi);
       this.form = { ref: ref ? ref.id : "manual", nama: ref ? "" : p.nama, hp: !ref || ref.needs_hp ? hpLocal(p.hp) : "",
         kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: pn ? p.prodi : (p.prodi ? "manual" : ""), prodiManual: pn ? "" : (p.prodi || ""),
-        hari: p.hari_ujian || "", kodeSoal: p.kode_soal || "" };
+        fakultas: p.fakultas || "", hari: p.hari_ujian || "", kodeSoal: p.kode_soal || "" };
       this.baseline = JSON.stringify(this.form);
     },
     async saveIdentity() {
@@ -209,7 +210,7 @@ function ljk() {
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
-      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
+      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
     },
 
     // ---- unggah
@@ -228,12 +229,30 @@ function ljk() {
       this.pick(files).finally(() => { try { input.value = ""; } catch {} });
     },
     onReplace(ev) { const input = ev.target, f = input.files && input.files[0]; if (f) this.replace(f).finally(() => { try { input.value = ""; } catch {} }); },
+    // Foto sumber kini disimpan per Fakultas/Prodi/Kelas (dibagi antar sesi sekelas) -- cek dulu apakah
+    // kombinasi ini sudah pernah diunggah sesi LAIN, supaya pengawas sadar sebelum menambah foto ke tempat
+    // yang sama (tak ada apa pun yang dihapus/ditimpa di server -- ini murni pemberitahuan).
+    async confirmKelasNotDuplicate() {
+      const f = this.form;
+      try {
+        const q = new URLSearchParams({ fakultas: f.fakultas, prodi: this.prodiFinal, kelas: this.kelasFinal });
+        const r = await fetch("/api/kelas-check?" + q);
+        const d = await r.json();
+        if (!d.exists) return true;
+        return await this.ask({
+          title: "Kelas ini sudah ada foto tersimpan",
+          body: `${d.sesi} sesi (${d.lembar} lembar) sudah diunggah utk kelas ini sebelumnya, terakhir oleh ${d.pengawas_terakhir}. Foto baru akan ditambahkan ke tempat yang sama (bukan menimpa). Lanjutkan?`,
+          ok: "Lanjutkan", cancel: "Batal",
+        });
+      } catch { return true; }   // gagal cek -> jangan blokir unggah krn hal sepele
+    },
     async pick(files) {
       files = [...(files || [])]; if (!files.length) return;
       if (!this.formValid) { this.upErr = "Lengkapi data dulu: " + this.formHint.toLowerCase() + "."; this.toast(this.formHint, true); return; }
       this.upErr = "";
       if (this.dirty && !(await this.saveIdentity())) return;
       if (!this.sid) {
+        if (!(await this.confirmKelasNotDuplicate())) return;
         try {
           const f = this.form;
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },

@@ -2,7 +2,6 @@
 import datetime as dt
 import logging
 import os
-import shutil
 
 from sqlalchemy import select
 
@@ -153,12 +152,31 @@ def sync_kunci_once():
 
 
 # --------------------------------------------------------------------------- pembersihan
+def remove_session_files(s) -> int:
+    """Hapus berkas sumber milik SESI INI saja. Foto kini disimpan per Fakultas/Prodi/Kelas (dibagi antar
+    sesi yg sama kombinasinya -- lihat server/main.py _class_folder), jadi TIDAK boleh rmtree seluruh folder
+    kelas (bisa ikut menghapus punya sesi lain) -- hapus file per file sesuai UploadFile.path sesi ini."""
+    n = 0
+    for f in s.files:
+        if f.path and os.path.exists(f.path):
+            try:
+                os.remove(f.path)
+                n += 1
+            except OSError:
+                pass
+    return n
+
+
+def session_has_photos(s) -> bool:
+    return any(f.path and os.path.exists(f.path) for f in s.files)
+
+
 def cleanup_once():
     """Hapus berkas sumber sesi yang sudah lama (sudah disubmit: UPLOAD_RETENTION_HOURS; belum: UNSUBMITTED_RETENTION_HOURS).
     Dimatikan sepenuhnya bila CLEANUP_ENABLED=0 (lihat server/config.py) -- dipakai saat admin masih perlu
     mengecek foto asli, tanpa risiko keburu terhapus otomatis."""
     if not config.CLEANUP_ENABLED:
-        return {"folders_removed": 0, "disabled": True}
+        return {"files_removed": 0, "disabled": True}
     now = _now()
     cut_sub = now - dt.timedelta(hours=config.UPLOAD_RETENTION_HOURS)
     cut_open = now - dt.timedelta(hours=config.UNSUBMITTED_RETENTION_HOURS)
@@ -168,9 +186,6 @@ def cleanup_once():
             ((ScanSession.submitted.is_(True)) & (ScanSession.submitted_at < cut_sub))
             | ((ScanSession.submitted.is_(False)) & (ScanSession.created_at < cut_open)))))
         for s in old:
-            folder = os.path.join(config.UPLOAD_DIR, s.id)
-            if os.path.isdir(folder):
-                shutil.rmtree(folder, ignore_errors=True)
-                removed += 1
+            removed += remove_session_files(s)
     STATE["cleanup_last"] = now.isoformat()
-    return {"folders_removed": removed}
+    return {"files_removed": removed}

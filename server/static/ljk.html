@@ -82,6 +82,16 @@
         <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Program studi dan kelas peserta ujian.'"></p>
         <div class="grid">
           <div class="full">
+            <label class="f" for="fk">Fakultas</label>
+            <div class="selbox">
+              <span class="face" :class="{ph: !form.fakultas}" x-text="form.fakultas || 'Pilih fakultas'"></span>
+              <select autocomplete="off" id="fk" x-model="form.fakultas" aria-label="Fakultas">
+                <option value="">Pilih fakultas</option>
+                <template x-for="f in meta.fakultas||[]" :key="f"><option :value="f" x-text="f"></option></template>
+              </select>
+            </div>
+          </div>
+          <div class="full">
             <label class="f" for="pr">Program Studi</label>
             <div class="selbox">
               <span class="face" :class="{ph: !form.prodi}" x-text="form.prodi === 'manual' ? 'Lainnya — isi sendiri' : (form.prodi || 'Pilih program studi')"></span>

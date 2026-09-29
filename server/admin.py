@@ -3,16 +3,18 @@ import csv
 import datetime as dt
 import io
 import os
-import shutil
+import uuid
 
+import cv2
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile as FUploadFile
 from fastapi.responses import Response
 from sqlalchemy import Integer, func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
+from core.pdf_utils import iter_images_from_file
 from scanner.service import classify_scan_status
 from server import auth, config, plotting, services, sheets
-from server.db import Kunci, ScanSession, Sheet, SessionLocal
+from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile
 
 
 def get_db():
@@ -129,20 +131,17 @@ def _session_status(s: ScanSession) -> str:
     return "perlu_cek"
 
 
-def _photo_folder(sid: str) -> str:
-    return os.path.join(config.UPLOAD_DIR, sid)
-
-
 def _session_row(s: ScanSession, jml_mhs_map: dict) -> dict:
     n_files = len(s.files)
     n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
     n_failed = sum(1 for f in s.files if f.state == "failed")
-    # "dibersihkan" hanya berarti sesuatu bila sesi PERNAH punya berkas -- sesi baru yg foldernya belum
-    # dibuat sama sekali tidak dianggap "sudah dibersihkan".
-    photos_cleared = n_files > 0 and not os.path.isdir(_photo_folder(s.id))
+    # "dibersihkan" hanya berarti sesuatu bila sesi PERNAH punya berkas -- sesi baru yg belum punya berkas
+    # sama sekali tidak dianggap "sudah dibersihkan". Foto kini dibagi per Fakultas/Prodi/Kelas (lihat
+    # server/main.py _class_folder), jadi dicek per BERKAS milik sesi ini, bukan per folder.
+    photos_cleared = n_files > 0 and not services.session_has_photos(s)
     return {
         "id": s.id, "nama": s.nama_pengawas, "hp": s.hp, "kelas": s.kelas,
-        "prodi": s.prodi, "lembar": len(s.sheets),
+        "prodi": s.prodi, "fakultas": s.fakultas, "lembar": len(s.sheets),
         "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
         "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
         "validated": sum(1 for x in s.sheets if x.validated), "submitted": s.submitted,
@@ -204,14 +203,107 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
     items = []
     for sh in s.sheets:
         r = sh.record
+        up = db.get(UploadFile, sh.file_id)
         items.append({
             "id": sh.id, "seq": sh.seq, "file": r.get("File"), "nama": r.get("Nama Mahasiswa"),
             "npm": r.get("NPM"), "kode_soal": r.get("Kode Soal"), "fakultas_ljk": r.get("Fakultas (LJK)"),
             "terisi": r.get("Jawaban Terisi"), "nilai": r.get("Nilai"),
             "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
             "validated": sh.validated,
+            "photo_exists": bool(up and up.path and os.path.exists(up.path)),
         })
     return {"items": items}
+
+
+class _BytesUpload:
+    """Adaptor kecil supaya core.pdf_utils.iter_images_from_file (dibuat utk objek upload FastAPI/Streamlit)
+    bisa dipakai langsung dgn path berkas yg sudah tersimpan di disk."""
+    def __init__(self, path):
+        self.name = os.path.basename(path)
+        self._path = path
+
+    def read(self):
+        with open(self._path, "rb") as f:
+            return f.read()
+
+
+@router.get("/sheets/{shid}/photo")
+def admin_sheet_photo(shid: str, db=Depends(get_db)):
+    """Foto ASLI lembar ini (belum diproses) -- CEPAT: cuma decode gambar (termasuk HEIC/halaman PDF terkait),
+    TANPA menjalankan pipeline OMR (deteksi pojok, baca bulatan). Beda dgn GET /api/sheets/{shid}/preview
+    (endpoint pengawas) yg menjalankan pemindaian penuh & bisa sampai puluhan detik -- dipakai admin utk
+    intip cepat foto sumbernya apa adanya."""
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    up = db.get(UploadFile, sh.file_id)
+    if not up or not up.path or not os.path.exists(up.path):
+        raise HTTPException(410, "Berkas sumber sudah tak ada")
+    try:
+        for i, (_name, bgr) in enumerate(iter_images_from_file(_BytesUpload(up.path), max_side=1600)):
+            if i == sh.page:
+                ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if not ok:
+                    raise HTTPException(422, "Gagal membuat pratinjau")
+                return Response(buf.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"})
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Gagal membaca berkas: {e}")
+    raise HTTPException(404, "Halaman tak ditemukan dalam berkas")
+
+
+@router.post("/sheets/{shid}/rescan")
+def admin_rescan_sheet(shid: str, db=Depends(get_db)):
+    """Pindai ulang lembar ini dgn foto sumber yg SAMA (tak berubah) -- mis. utk membetulkan hasil baca
+    setelah perbaikan kode, tanpa perlu pengawas foto ulang. Admin-only, TIDAK terhalang sesi sudah disubmit
+    (beda dgn alur pengawas) -- rekap/nilai ikut diperbarui langsung krn kunci jawaban disertakan saat
+    memindai (lihat scan_page)."""
+    from server import main as _main   # impor lokal: hindari impor melingkar (main mengimpor admin)
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    s = db.get(ScanSession, sh.session_id)
+    up = db.get(UploadFile, sh.file_id)
+    if not up or not up.path or not os.path.exists(up.path):
+        raise HTTPException(410, "Berkas sumber sudah tak ada (mis. sudah 'Bersihkan foto') -- tak bisa dipindai ulang")
+    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page)
+    try:
+        res = fut.result(timeout=120)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Gagal memindai ulang: {e}")
+    if not res:
+        raise HTTPException(422, "Hasil pindai ulang kosong (halaman tak terbaca)")
+    sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
+    db.commit()
+    return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
+
+
+@router.post("/sheets/{shid}/replace")
+async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db=Depends(get_db)):
+    """Ganti foto lembar ini dgn berkas baru dari admin. Sama spt endpoint pengawas (POST
+    /api/sheets/{shid}/replace) tapi admin-only & TIDAK terhalang sesi sudah disubmit."""
+    from server import main as _main
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    s = db.get(ScanSession, sh.session_id)
+    _main._check_ext(file.filename or "")
+    dest = os.path.join(_main._class_folder(s), f"{uuid.uuid4().hex[:8]}_{_main._safe_name(file.filename)}")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    size = await _main._save_stream(file, dest)
+    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), 0)
+    try:
+        res = fut.result(timeout=120)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Gagal memproses foto baru: {e}")
+    if not res:
+        raise HTTPException(422, "Foto baru tidak berisi halaman")
+    up = db.get(UploadFile, sh.file_id)
+    up.path, up.name, up.size = dest, file.filename, size
+    sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
+    db.commit()
+    return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
 
 @router.post("/sessions/{sid}/validate")
@@ -254,30 +346,34 @@ def admin_stop_session(sid: str, db=Depends(get_db)):
 
 @router.delete("/sessions/{sid}", status_code=204)
 def admin_delete_session(sid: str, db=Depends(get_db)):
-    """Hapus sesi (kaskade: berkas & lembar ikut terhapus dari DB) + folder unggahannya di disk. Bila sesi
-    masih ada pemindaian berjalan, coba hentikan dulu (upaya terbaik) supaya worker tak sia-sia memproses
-    sesi yg sebentar lagi lenyap; sisa yg sudah benar2 jalan aman diselesaikan (lihat guard di _on_done)."""
+    """Hapus sesi (kaskade: berkas & lembar ikut terhapus dari DB) + berkas fotonya di disk. Bila sesi masih
+    ada pemindaian berjalan, coba hentikan dulu (upaya terbaik) supaya worker tak sia-sia memproses sesi yg
+    sebentar lagi lenyap; sisa yg sudah benar2 jalan aman diselesaikan (lihat guard di _on_done). Foto kini
+    dibagi per Fakultas/Prodi/Kelas antar sesi sekelas (lihat server/main.py _class_folder) -- HANYA berkas
+    milik sesi INI yg dihapus (services.remove_session_files), bukan seluruh folder kelas (bisa ikut
+    menghapus foto sesi lain). Daftar berkas diambil SEBELUM db.delete/commit -- setelah itu relasi s.files
+    sudah lenyap dari DB."""
     from server.main import cancel_pending_files   # impor lokal: hindari impor melingkar
     s = _admin_session_or_404(db, sid)
     cancel_pending_files(db, s)
+    services.remove_session_files(s)
     db.delete(s)
     db.commit()
-    shutil.rmtree(_photo_folder(sid), ignore_errors=True)
 
 
 @router.post("/sessions/{sid}/clear-photos")
 def admin_clear_photos(sid: str, db=Depends(get_db)):
-    """Hapus foto ASLI yg diunggah (folder di disk) utk sesi yg sudah 'validated' (selesai discan + admin
-    sudah menandai beres) -- membebaskan ruang disk. TIDAK menyentuh baris DB (ScanSession/UploadFile/Sheet):
-    rekap/nilai/ekspor tetap utuh, cuma berkas sumbernya yg lenyap. Setelah ini, pratinjau lembar sesi ini
-    (GET /api/sheets/{shid}/preview) akan menjawab 410 (sudah ditangani di sana) -- wajar & disengaja, krn
-    sesi yg sudah divalidasi seharusnya tak perlu dipratinjau ulang lagi. Sama seperti pembersihan otomatis
-    berbasis usia (services.cleanup_once), hanya dipicu manual & lebih dini (begitu admin menandai validated),
-    bukan menunggu retensi waktu."""
+    """Hapus foto ASLI yg diunggah (berkas milik sesi ini di disk -- lihat services.remove_session_files)
+    utk sesi yg sudah 'validated' (selesai discan + admin sudah menandai beres) -- membebaskan ruang disk.
+    TIDAK menyentuh baris DB (ScanSession/UploadFile/Sheet): rekap/nilai/ekspor tetap utuh, cuma berkas
+    sumbernya yg lenyap. Setelah ini, pratinjau lembar sesi ini (GET /api/sheets/{shid}/preview) akan
+    menjawab 410 (sudah ditangani di sana) -- wajar & disengaja, krn sesi yg sudah divalidasi seharusnya tak
+    perlu dipratinjau ulang lagi. Sama seperti pembersihan otomatis berbasis usia (services.cleanup_once),
+    hanya dipicu manual & lebih dini (begitu admin menandai validated), bukan menunggu retensi waktu."""
     s = _admin_session_or_404(db, sid)
     if _session_status(s) != "validated":
         raise HTTPException(409, "Sesi baru bisa dibersihkan setelah ditandai validated oleh admin")
-    shutil.rmtree(_photo_folder(sid), ignore_errors=True)
+    services.remove_session_files(s)
     return {"ok": True, "photos_cleared": True}
 
 

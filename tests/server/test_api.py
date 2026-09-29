@@ -17,7 +17,7 @@ from tests.regression.fixtures import KUNCI  # noqa: E402
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GOLDEN = json.load(open(os.path.join(ROOT, "tests", "regression", "golden_scan.json"), encoding="utf-8"))
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi", "hari_ujian": "2026-09-28", "kode_soal": "A"}
+         "prodi": "S1 Sistem Informasi", "fakultas": "FIF", "hari_ujian": "2026-09-28", "kode_soal": "A"}
 
 
 class TestAPI(unittest.TestCase):
@@ -102,7 +102,7 @@ class TestAPI(unittest.TestCase):
             # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar tetap wajib mengisi sendiri
             self.assertTrue(p[3]["dosen"] and not p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
             self.assertNotIn("hp", p[0])
-            base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
+            base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[1]["id"]})
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]

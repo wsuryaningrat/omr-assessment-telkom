@@ -248,7 +248,7 @@
         </div>
         <p class="sub" x-show="detail && detail.loading">Memuat…</p>
         <div class="tbl" x-show="detail && !detail.loading"><table>
-          <thead><tr><th class="c" style="width:auto">No</th><th>Nama</th><th>NPM</th><th>Kode Soal</th><th>Fakultas</th><th>Terisi</th><th class="c" style="width:auto">Nilai</th><th>Status</th></tr></thead>
+          <thead><tr><th class="c" style="width:auto">No</th><th>Nama</th><th>NPM</th><th>Kode Soal</th><th>Fakultas</th><th>Terisi</th><th class="c" style="width:auto">Nilai</th><th>Status</th><th></th></tr></thead>
           <tbody>
             <template x-for="x in (detail?.items||[])" :key="x.id">
               <tr>
@@ -260,11 +260,22 @@
                 <td x-text="x.terisi||'-'"></td>
                 <td class="c" style="width:auto" x-text="x.nilai ?? '-'"></td>
                 <td><span class="chip" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" x-text="x.label"></span></td>
+                <td class="actrow">
+                  <button class="btn xs" x-show="x.photo_exists" :disabled="detail.previewBusy" @click="previewOriginal(x)">Foto asli</button>
+                  <button class="btn xs" x-show="x.photo_exists" @click="previewScan(x)">Hasil scan</button>
+                  <button class="btn xs" x-show="x.photo_exists" :disabled="x.busy" @click="rescanSheet(x)">Pindai ulang</button>
+                  <label class="btn xs" style="cursor:pointer">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" @change="replaceSheetPhoto(x, $event)"></label>
+                  <span class="mute" style="font-size:11px" x-show="!x.photo_exists">Foto tak ada</span>
+                </td>
               </tr>
             </template>
           </tbody>
         </table></div>
         <p class="empty" x-show="detail && !detail.loading && !detail.items.length">Belum ada lembar di sesi ini.</p>
+        <div x-show="preview.url" x-cloak style="margin-top:14px;text-align:center">
+          <img :src="preview.url" style="max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--line)">
+          <div style="margin-top:8px"><button class="btn sm" @click="preview.url=''">Tutup pratinjau</button></div>
+        </div>
       </div>
     </div>
 

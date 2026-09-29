@@ -20,7 +20,7 @@ from tests.regression.fixtures import KUNCI
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ADM = {"X-Admin-Token": "rahasia"}
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi", "hari_ujian": "2026-09-28", "kode_soal": "A"}
+         "prodi": "S1 Sistem Informasi", "fakultas": "FIF", "hari_ujian": "2026-09-28", "kode_soal": "A"}
 PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
 
 
@@ -270,17 +270,18 @@ class TestServices(unittest.TestCase):
         t = time.time()
         while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
             time.sleep(0.4)
-        folder = os.path.join(config.UPLOAD_DIR, sid)
-        self.assertTrue(os.path.isdir(folder))
+        with SessionLocal() as db:
+            paths = [f.path for f in db.get(ScanSession, sid).files]
+        self.assertTrue(paths and all(os.path.exists(p) for p in paths))
         shid = self.c.get(f"/api/sessions/{sid}").json()["sheets"][0]["id"]
         # belum admin_validated -> ditolak
         r = self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
         self.assertEqual(r.status_code, 409, r.text)
-        self.assertTrue(os.path.isdir(folder))
+        self.assertTrue(all(os.path.exists(p) for p in paths))
         self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM).status_code, 200)
         r = self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
         self.assertEqual((r.status_code, r.json()["photos_cleared"]), (200, True))
-        self.assertFalse(os.path.exists(folder))
+        self.assertFalse(any(os.path.exists(p) for p in paths))
         # rekap/DB tetap utuh: sesi & lembar masih ada
         d = self.c.get(f"/api/sessions/{sid}").json()
         self.assertEqual(len(d["sheets"]), 1)
@@ -313,13 +314,32 @@ class TestServices(unittest.TestCase):
         t = time.time()
         while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
             time.sleep(0.4)
-        folder = os.path.join(config.UPLOAD_DIR, sid)
-        self.assertTrue(os.path.isdir(folder))
+        with SessionLocal() as db:
+            paths = [f.path for f in db.get(ScanSession, sid).files]
+        self.assertTrue(paths and all(os.path.exists(p) for p in paths))
         r = self.c.delete(f"/api/admin/sessions/{sid}", headers=ADM)
         self.assertEqual(r.status_code, 204, r.text)
         self.assertEqual(self.c.get(f"/api/sessions/{sid}").status_code, 404)
-        self.assertFalse(os.path.exists(folder))
+        self.assertFalse(any(os.path.exists(p) for p in paths))
         self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}", headers=ADM).status_code, 404)
+
+    def test_admin_delete_session_keeps_other_sessions_photos_in_shared_class_folder(self):
+        # Dua sesi kelas SAMA (fakultas/prodi/kelas sama) -> folder foto DIBAGI (lihat _class_folder).
+        # Hapus satu sesi tak boleh ikut menghapus foto sesi lain di kelas yg sama.
+        a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMDEL-SHARED"}).json()["id"]
+        b = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMDEL-SHARED"}).json()["id"]
+        self.c.post(f"/api/sessions/{a}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        self.c.post(f"/api/sessions/{b}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        t = time.time()
+        while time.time() - t < 120 and (self.c.get(f"/api/sessions/{a}").json()["scanning"] or self.c.get(f"/api/sessions/{b}").json()["scanning"]):
+            time.sleep(0.4)
+        with SessionLocal() as db:
+            a_paths = [f.path for f in db.get(ScanSession, a).files]
+            b_paths = [f.path for f in db.get(ScanSession, b).files]
+        self.assertTrue(a_paths and b_paths and os.path.dirname(a_paths[0]) == os.path.dirname(b_paths[0]))
+        self.assertEqual(self.c.delete(f"/api/admin/sessions/{a}", headers=ADM).status_code, 204)
+        self.assertFalse(any(os.path.exists(p) for p in a_paths))
+        self.assertTrue(all(os.path.exists(p) for p in b_paths))   # sesi B tak tersentuh
 
     def test_export_xlsx_and_filter(self):
         sid = self.submitted_session("XL-01")
@@ -375,15 +395,21 @@ class TestServices(unittest.TestCase):
         self.assertEqual(got, order, f"urutan kunci berubah di {engine.dialect.name}")
 
     def test_cleanup_removes_old_upload_folders_only(self):
+        # Foto kini disimpan per Fakultas/Prodi/Kelas (dibagi antar sesi sekelas -- lihat _class_folder di
+        # server/main.py), bukan lagi per id sesi -- jadi pembersihan dicek per BERKAS (UploadFile.path),
+        # bukan per folder bernama id sesi.
         old, fresh = self.submitted_session("OLD"), self.submitted_session("NEW")
         self.submit(old); self.submit(fresh)
         with SessionLocal() as db:
             db.get(ScanSession, old).submitted_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.UPLOAD_RETENTION_HOURS + 2)
             db.commit()
-        self.assertTrue(os.path.isdir(os.path.join(config.UPLOAD_DIR, old)))
+        with SessionLocal() as db:
+            old_paths = [f.path for f in db.get(ScanSession, old).files]
+            fresh_paths = [f.path for f in db.get(ScanSession, fresh).files]
+        self.assertTrue(old_paths and all(os.path.exists(p) for p in old_paths))
         services.cleanup_once()
-        self.assertFalse(os.path.isdir(os.path.join(config.UPLOAD_DIR, old)))
-        self.assertTrue(os.path.isdir(os.path.join(config.UPLOAD_DIR, fresh)))
+        self.assertFalse(any(os.path.exists(p) for p in old_paths))
+        self.assertTrue(fresh_paths and all(os.path.exists(p) for p in fresh_paths))
 
     def test_cleanup_disabled_removes_nothing(self):
         old = self.submitted_session("DISABLEDCLEAN")
@@ -391,12 +417,14 @@ class TestServices(unittest.TestCase):
         with SessionLocal() as db:
             db.get(ScanSession, old).submitted_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.UPLOAD_RETENTION_HOURS + 2)
             db.commit()
+        with SessionLocal() as db:
+            paths = [f.path for f in db.get(ScanSession, old).files]
         old_flag = config.CLEANUP_ENABLED
         config.CLEANUP_ENABLED = False
         try:
             r = services.cleanup_once()
-            self.assertEqual(r, {"folders_removed": 0, "disabled": True})
-            self.assertTrue(os.path.isdir(os.path.join(config.UPLOAD_DIR, old)))
+            self.assertEqual(r, {"files_removed": 0, "disabled": True})
+            self.assertTrue(paths and all(os.path.exists(p) for p in paths))
         finally:
             config.CLEANUP_ENABLED = old_flag
 
@@ -407,12 +435,64 @@ class TestServices(unittest.TestCase):
         items = r.json()["items"]
         self.assertEqual(len(items), 1)
         x = items[0]
-        for k in ("seq", "file", "nama", "npm", "kode_soal", "fakultas_ljk", "terisi", "nilai", "label", "validated"):
+        for k in ("seq", "file", "nama", "npm", "kode_soal", "fakultas_ljk", "terisi", "nilai", "label", "validated", "photo_exists"):
             self.assertIn(k, x)
+        self.assertTrue(x["photo_exists"])
         self.assertEqual(self.c.get(f"/api/admin/sessions/{sid}/sheets").status_code, 401)   # tanpa token
 
     def test_admin_session_sheets_404_for_unknown_session(self):
         self.assertEqual(self.c.get("/api/admin/sessions/tidak-ada/sheets", headers=ADM).status_code, 404)
+
+    def test_admin_sheet_photo_fast_original_preview(self):
+        sid = self.submitted_session("ADMPHOTO-01")
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.get(f"/api/admin/sheets/{shid}/photo", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.headers["content-type"], "image/jpeg")
+        self.assertGreater(len(r.content), 100)
+        self.assertEqual(self.c.get(f"/api/admin/sheets/{shid}/photo").status_code, 401)   # tanpa token
+        self.assertEqual(self.c.get("/api/admin/sheets/tidak-ada/photo", headers=ADM).status_code, 404)
+
+    def test_admin_rescan_sheet_updates_record_even_after_submit(self):
+        sid = self.submitted_session("ADMRESCAN-01")
+        self.submit(sid)   # sesi terkunci -- endpoint admin tak boleh terhalang spt endpoint pengawas
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.post(f"/api/admin/sheets/{shid}/rescan", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn("label", r.json())
+        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid}/rescan").status_code, 401)   # tanpa token
+        self.assertEqual(self.c.post("/api/admin/sheets/tidak-ada/rescan", headers=ADM).status_code, 404)
+
+    def test_admin_replace_sheet_photo_works_even_after_submit(self):
+        sid = self.submitted_session("ADMREPL-01")
+        self.submit(sid)
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.post(f"/api/admin/sheets/{shid}/replace", headers=ADM, files={"file": ("baru.pdf", PDF, "application/pdf")})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn("label", r.json())
+
+    def test_upload_path_organized_by_fakultas_prodi_kelas(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ORGTEST-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        with SessionLocal() as db:
+            path = db.get(ScanSession, sid).files[0].path
+        rel = os.path.relpath(path, config.UPLOAD_DIR)
+        parts = rel.split(os.sep)
+        self.assertEqual(parts[:3], [VALID["fakultas"], VALID["prodi"], "ORGTEST-01"])
+
+    def test_kelas_check_reports_existing_session_then_excludes_self(self):
+        sid1 = self.c.post("/api/sessions", json={**VALID, "kelas": "KCHECK-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid1}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        r = self.c.get("/api/kelas-check", params={"fakultas": VALID["fakultas"], "prodi": VALID["prodi"], "kelas": "KCHECK-01"})
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertTrue(d["exists"])
+        self.assertEqual(d["sesi"], 1)
+        self.assertEqual(d["pengawas_terakhir"], VALID["nama_pengawas"])
+        r2 = self.c.get("/api/kelas-check", params={"fakultas": VALID["fakultas"], "prodi": VALID["prodi"], "kelas": "KCHECK-01", "exclude_sid": sid1})
+        self.assertFalse(r2.json()["exists"])   # sesi itu sendiri dikecualikan
+        r3 = self.c.get("/api/kelas-check", params={"fakultas": VALID["fakultas"], "prodi": VALID["prodi"], "kelas": "KCHECK-BELUM-ADA"})
+        self.assertFalse(r3.json()["exists"])
 
 
 if __name__ == "__main__":
