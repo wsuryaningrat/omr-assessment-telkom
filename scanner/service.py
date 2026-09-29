@@ -150,7 +150,8 @@ def _decode_fields(gray, fields_dict, only=None):
 
 
 def _identity_complete(decoded_all, fields_dict):
-    """True bila NIM dan kode soal terbaca utuh (tiap kolom satu digit, tanpa kosong/'?')."""
+    """True bila NIM, kode soal (tiap kolom satu digit, tanpa kosong/'?'), dan fakultas (persis satu pilihan,
+    tanpa kosong/'?'/ganda) terbaca utuh."""
     for name in ("NPM", "KODE SOAL"):
         field = fields_dict.get(name)
         if not field:
@@ -158,6 +159,9 @@ def _identity_complete(decoded_all, fields_dict):
         val = decoded_all.get(name, "")
         if len(val) != len(field["items"]) or not val.isdigit():
             return False
+    fak_field = fields_dict.get("FAKULTAS")
+    if fak_field and not _choice_field_complete(decoded_all.get("FAKULTAS", ""), fak_field):
+        return False
     return True
 
 
@@ -189,68 +193,135 @@ def _rescue_answers(gray, fields, decoded, soal_dict):
     return n
 
 
-def _npm_locator_rescue(gray, fields, decoded_all, doc_name):
-    """Upaya TERAKHIR utk NPM: dipanggil hanya bila masih kosong/tak lengkap setelah registrasi kisi +
-    _cnn_rescue_npm (biasanya krn potongan halaman itu sendiri meleset jauh — mis. cadangan regmark/doc_inset
-    saat 4 marker ArUco tak ketemu — sehingga posisi kotak template jauh dari kotak cetak sesungguhnya).
-    core.npm_locator mencari posisi blok NPM lewat CNN sendiri (geser+skala luas, bukan koordinat pasti),
-    lalu membaca digit di posisi itu dgn gerbang keyakinan yg sama. Lambat (~1-90 detik, jalur langka) —
-    jangan dipanggil di luar retry. Kembalikan npm baru (str)."""
-    field = fields.get("NPM")
-    npm = decoded_all.get("NPM", "")
+# Anggaran waktu keras per field utk core.npm_locator (upaya terakhir, jalur langka). NPM paling penting jadi
+# dapat anggaran penuh; KODE SOAL & FAKULTAS dipersempit supaya total waktu 1 lembar (dlm skenario terburuk,
+# ketiganya dipanggil) tak membengkak tanpa batas. FAKULTAS dapat anggaran paling kecil krn bobot CNN-nya
+# (core/cnn_reader.py) dilatih dari kotak digit NPM, belum tentu akurat utk gaya kotak checkbox+labelnya.
+_LOCATOR_BUDGET = {"NPM": 90.0, "KODE SOAL": 45.0, "FAKULTAS": 30.0}
+
+
+def _digit_field_complete(val, field):
+    return bool(field) and len(val) == len(field["items"]) and val.isdigit()
+
+
+def _choice_field_complete(val, field):
+    """Field pilihan-tunggal (mis. FAKULTAS): lengkap bila persis satu opsi terpilih (bukan kosong/'?'/ganda)."""
+    return bool(field) and bool(val) and val not in ("BLANK", "?", "MULTIPLE") and ", " not in val
+
+
+def _digit_locator_rescue(gray, fields, decoded_all, doc_name, field_name):
+    """Upaya TERAKHIR generik utk field digit multi-kolom (NPM, KODE SOAL): dipanggil hanya bila field itu
+    masih kosong/tak lengkap setelah registrasi kisi + CNN-per-digit (biasanya krn potongan halaman itu
+    sendiri meleset jauh — mis. cadangan regmark/doc_inset saat 4 marker ArUco tak ketemu — sehingga posisi
+    kotak template jauh dari kotak cetak sesungguhnya). core.npm_locator mencari posisi blok itu lewat CNN
+    sendiri (geser+skala luas, bukan koordinat pasti), lalu membaca digit di posisi itu dgn gerbang keyakinan
+    yg sama. Lambat (~1 dtk sampai batas anggaran, jalur langka) — jangan dipanggil di luar retry.
+    Kembalikan (nilai_baru: str, timed_out: bool)."""
+    field = fields.get(field_name)
+    val = decoded_all.get(field_name, "")
     if not field:
-        return npm
+        return val, False
     n = len(field["items"])
-    if _npm_complete(npm, fields):
-        return npm            # sudah lengkap (mestinya tak pernah sampai sini, tapi jangan sentuh bila iya)
+    if _digit_field_complete(val, field):
+        return val, False     # sudah lengkap (mestinya tak pernah sampai sini, tapi jangan sentuh bila iya)
+    budget_s = _LOCATOR_BUDGET.get(field_name, npm_locator._BUDGET_S)
     try:
-        filled, pose, score = npm_locator.read(gray, field)
+        filled, pose, score, timed_out = npm_locator.read(gray, field, budget_s=budget_s)
     except Exception:         # noqa: BLE001 -- upaya terakhir; kegagalan di sini tak boleh menggagalkan scan
-        _log.exception("pencarian posisi NPM (npm_locator) gagal utk %s", doc_name)
-        return npm
+        _log.exception("pencarian posisi %s (npm_locator) gagal utk %s", field_name, doc_name)
+        return val, False
     if not filled:
-        return npm
-    chars = list(npm.ljust(n))[:n]
+        return val, timed_out
+    chars = list(val.ljust(n))[:n]
     for col, digit in filled.items():
         chars[col] = digit
-    new_npm = "".join(chars).rstrip()
-    _log.info("pencarian posisi NPM %s: geser=(%.0f,%.0f) skala=%.2f skor=%.2f | NPM %r -> %r",
-              doc_name, pose[0], pose[1], pose[2], score, npm, new_npm)
-    return new_npm
+    new_val = "".join(chars).rstrip()
+    _log.info("pencarian posisi %s %s: geser=(%.0f,%.0f) skala=%.2f skor=%.2f timeout=%s | %r -> %r",
+              field_name, doc_name, pose[0], pose[1], pose[2], score, timed_out, val, new_val)
+    return new_val, timed_out
 
 
-def _cnn_rescue_npm(gray, fields, decoded_all, doc_name):
-    """Lengkapi digit NPM yang masih kosong/'?' setelah pembaca utama + registrasi, pakai CNN mini
-    (core.cnn_reader) — dilatih pada lembar ujian asli, jauh lebih tahan geser posisi daripada rasio-gelap.
-    Hanya mengisi kolom yang BELUM terbaca dan lolos gerbang keyakinan; digit yang sudah terbaca (dan kolom
-    yang gerbangnya tak terlewati) tidak pernah disentuh. Kembalikan (npm_baru, {kolom: digit} yg diisi)."""
-    field = fields.get("NPM")
-    npm = decoded_all.get("NPM", "")
+def _choice_locator_rescue(gray, fields, decoded_all, doc_name, field_name):
+    """Sama seperti _digit_locator_rescue, tapi utk field pilihan-tunggal 1-kolom (FAKULTAS): hasil `filled`
+    dari npm_locator.read hanya punya kunci 0 (satu2nya kolom) berisi opsi terpilih (bukan digit).
+    Kembalikan (nilai_baru: str, timed_out: bool)."""
+    field = fields.get(field_name)
+    val = decoded_all.get(field_name, "")
+    if not field or _choice_field_complete(val, field):
+        return val, False
+    budget_s = _LOCATOR_BUDGET.get(field_name, npm_locator._BUDGET_S)
+    try:
+        filled, pose, score, timed_out = npm_locator.read(gray, field, budget_s=budget_s)
+    except Exception:         # noqa: BLE001
+        _log.exception("pencarian posisi %s (npm_locator) gagal utk %s", field_name, doc_name)
+        return val, False
+    if 0 not in filled:
+        return val, timed_out
+    new_val = filled[0]
+    _log.info("pencarian posisi %s %s: geser=(%.0f,%.0f) skala=%.2f skor=%.2f timeout=%s | %r -> %r",
+              field_name, doc_name, pose[0], pose[1], pose[2], score, timed_out, val, new_val)
+    return new_val, timed_out
+
+
+def _npm_locator_rescue(gray, fields, decoded_all, doc_name):
+    """Alias tipis atas _digit_locator_rescue utk NPM -- nama & tanda tangan lama dipertahankan krn dipakai
+    tes (tests/test_npm_locator.py). Lihat _digit_locator_rescue utk dokumentasi lengkap; kini juga dipakai
+    generik utk KODE SOAL, dan _choice_locator_rescue utk FAKULTAS (lihat _retry_with_registration)."""
+    new_val, _timed_out = _digit_locator_rescue(gray, fields, decoded_all, doc_name, "NPM")
+    return new_val
+
+
+def _cnn_rescue_digits(gray, fields, decoded_all, doc_name, field_name):
+    """Lengkapi digit field (NPM, KODE SOAL) yang masih kosong/'?' setelah pembaca utama + registrasi, pakai
+    CNN mini (core.cnn_reader) — dilatih pada lembar ujian asli, jauh lebih tahan geser posisi daripada
+    rasio-gelap. Hanya mengisi kolom yang BELUM terbaca dan lolos gerbang keyakinan; digit yang sudah terbaca
+    (dan kolom yang gerbangnya tak terlewati) tidak pernah disentuh. Kembalikan (nilai_baru, {kolom: digit})."""
+    field = fields.get(field_name)
+    val = decoded_all.get(field_name, "")
     if not field:
-        return npm, {}
+        return val, {}
     n = len(field["items"])
-    chars = list(npm.ljust(n))[:n]
+    chars = list(val.ljust(n))[:n]
     unresolved = [i for i, c in enumerate(chars) if c in (" ", "?")]
     if not unresolved:
-        return npm, {}
+        return val, {}
     filled = read_missing_npm_digits(gray, field, unresolved)
     for col, digit in filled.items():
         chars[col] = digit
     return "".join(chars).rstrip(), filled
 
 
+def _cnn_rescue_npm(gray, fields, decoded_all, doc_name):
+    """Alias tipis; nama lama dipertahankan krn dipakai tes (tests/test_cnn_reader.py)."""
+    return _cnn_rescue_digits(gray, fields, decoded_all, doc_name, "NPM")
+
+
+def _cnn_rescue_choice(gray, fields, decoded_all, doc_name, field_name):
+    """Sama spt _cnn_rescue_digits tapi utk field pilihan-tunggal 1-kolom (FAKULTAS): 'tak terbaca' berarti
+    BLANK/'?'/MULTIPLE (bukan char kosong per-kolom, krn nilainya bukan string per-digit). Bobot CNN dilatih
+    dari kotak digit NPM -- belum tentu seakurat itu utk gaya kotak checkbox+label FAKULTAS. Kembalikan
+    (nilai_baru, {0: opsi} bila terisi)."""
+    field = fields.get(field_name)
+    val = decoded_all.get(field_name, "")
+    if not field or _choice_field_complete(val, field):
+        return val, {}
+    filled = read_missing_npm_digits(gray, field, [0])
+    return filled.get(0, val), filled
+
+
 def _npm_locator_enabled():
-    """Upaya terakhir utk NPM (core.npm_locator) LAMBAT (~10 dtk - 3 mnt tergantung sesulit apa lembarnya) --
-    jalur langka (hanya lembar yg registrasi biasa gagal total), tapi tes/CI yg memakai lembar sintetis/kosong
-    (NPM-nya memang selalu tak lengkap) bisa memicunya berulang kali & membuat suite lambat sekali. Dibaca
-    ulang tiap panggilan (BUKAN konstanta modul) supaya nilainya tak "kebeku" tergantung urutan impor tes.
-    Default menyala di produksi; set SCAN_NPM_LOCATOR=0 utk mematikan (dipakai oleh bootstrap tes)."""
+    """Upaya terakhir (core.npm_locator) LAMBAT (~1 dtk sampai batas anggaran per field, lihat _LOCATOR_BUDGET)
+    -- jalur langka (hanya lembar yg registrasi biasa gagal total), tapi tes/CI yg memakai lembar
+    sintetis/kosong (field2 identitasnya memang selalu tak lengkap) bisa memicunya berulang kali & membuat
+    suite lambat sekali. Dibaca ulang tiap panggilan (BUKAN konstanta modul) supaya nilainya tak "kebeku"
+    tergantung urutan impor tes. Satu saklar utk ketiga field (NPM, KODE SOAL, FAKULTAS) krn semuanya lewat
+    modul core.npm_locator yg sama. Default menyala di produksi; set SCAN_NPM_LOCATOR=0 utk mematikan
+    (dipakai oleh bootstrap tes)."""
     return os.environ.get("SCAN_NPM_LOCATOR", "1") == "1"
 
 
 def _npm_complete(npm, fields):
-    field = fields.get("NPM")
-    return bool(field) and len(npm) == len(field["items"]) and npm.isdigit()
+    return _digit_field_complete(npm, fields.get("NPM"))
 
 
 def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name):
@@ -259,15 +330,34 @@ def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name
     decoded2 = refine_identity(gray, fields2, decoded2, info)
     rescued = _rescue_answers(gray, fields2, decoded2, soal2)
     before_npm = decoded2.get("NPM")
-    decoded2["NPM"], cnn_filled = _cnn_rescue_npm(gray, fields2, decoded2, doc_name)
-    # Upaya terakhir (lambat, jalur langka): dipanggil hanya bila NPM MASIH tak lengkap -- biasanya krn
-    # registrasi kisi kecil di atas gagal total (posisi kotak template jauh dari kotak cetak sesungguhnya).
-    if _npm_locator_enabled() and not _npm_complete(decoded2.get("NPM", ""), fields2):
-        decoded2["NPM"] = _npm_locator_rescue(gray, fields2, decoded2, doc_name)
+    before_kode = decoded2.get("KODE SOAL")
+    before_fak = decoded2.get("FAKULTAS")
+    # Tahap murah dulu (CNN per-kolom, asumsi posisi kotak kira2 benar): NPM & KODE SOAL sama2 field digit
+    # (lihat _cnn_rescue_digits); FAKULTAS field pilihan-tunggal (lihat _cnn_rescue_choice).
+    decoded2["NPM"], cnn_filled = _cnn_rescue_digits(gray, fields2, decoded2, doc_name, "NPM")
+    decoded2["KODE SOAL"], cnn_filled_kode = _cnn_rescue_digits(gray, fields2, decoded2, doc_name, "KODE SOAL")
+    decoded2["FAKULTAS"], cnn_filled_fak = _cnn_rescue_choice(gray, fields2, decoded2, doc_name, "FAKULTAS")
+    # Upaya TERAKHIR (lambat, jalur langka): dipanggil per field hanya bila field itu MASIH tak lengkap setelah
+    # tahap murah di atas -- biasanya krn registrasi kisi kecil sudah gagal total (posisi kotak template jauh
+    # dari kotak cetak sesungguhnya), sehingga tahap murah (yg mengasumsikan posisi kira2 benar) tak menemukan
+    # apa pun juga.
+    timed_out = {}
+    if _npm_locator_enabled():
+        if not _npm_complete(decoded2.get("NPM", ""), fields2):
+            decoded2["NPM"], timed_out["NPM"] = _digit_locator_rescue(gray, fields2, decoded2, doc_name, "NPM")
+        if not _digit_field_complete(decoded2.get("KODE SOAL", ""), fields2.get("KODE SOAL")):
+            decoded2["KODE SOAL"], timed_out["KODE SOAL"] = _digit_locator_rescue(
+                gray, fields2, decoded2, doc_name, "KODE SOAL")
+        if not _choice_field_complete(decoded2.get("FAKULTAS", ""), fields2.get("FAKULTAS")):
+            decoded2["FAKULTAS"], timed_out["FAKULTAS"] = _choice_locator_rescue(
+                gray, fields2, decoded2, doc_name, "FAKULTAS")
     moved = {k: (v["dx"], v["dy"]) for k, v in info.items() if v.get("applied")}
-    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r -> %r (cnn: %s) | KODE %r -> %r | jawaban terselamatkan: %d",
+    _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r -> %r (cnn: %s) | KODE %r -> %r -> %r (cnn: %s) | "
+              "FAKULTAS %r -> %r -> %r (cnn: %s) | jawaban terselamatkan: %d | pencarian posisi timeout: %s",
               doc_name, moved, decoded_all.get("NPM"), before_npm, decoded2["NPM"], cnn_filled,
-              decoded_all.get("KODE SOAL"), decoded2.get("KODE SOAL"), rescued)
+              decoded_all.get("KODE SOAL"), before_kode, decoded2.get("KODE SOAL"), cnn_filled_kode,
+              decoded_all.get("FAKULTAS"), before_fak, decoded2.get("FAKULTAS"), cnn_filled_fak,
+              rescued, {k: v for k, v in timed_out.items() if v})
     return fields2, decoded2, soal2
 
 
