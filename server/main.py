@@ -283,10 +283,13 @@ def get_session(sid: str, db=Depends(get_db)):
     files = s.files
     pending = sum(1 for f in files if f.state in ("queued", "processing"))
     sheets = [_sheet_view(x) for x in s.sheets]
+    # Antrean per-berkas (queued/processing): pemindaian sebagian foto (mis. registrasi lembar sulit) bisa
+    # sampai beberapa menit, jadi pengawas perlu tahu berkas MANA yang masih diproses, bukan cuma jumlahnya.
+    queue = [{"name": f.name, "state": f.state} for f in files if f.state in ("queued", "processing")]
     return {
         "id": s.id, "pengawas": _pengawas(s), "submitted": s.submitted,
         "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
-        "files": {"total": len(files), "pending": pending, "failed": [
+        "files": {"total": len(files), "pending": pending, "queue": queue, "failed": [
             {"name": f.name, "error": f.error} for f in files if f.state == "failed"]},
         "scanning": pending > 0,
         "sheets": sheets,

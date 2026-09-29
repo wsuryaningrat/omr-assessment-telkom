@@ -151,6 +151,11 @@
     <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:10px">
       <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+(session?.files.total||0)"></span></div>
       <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
+      <ul class="queue" x-show="(session?.files.queue||[]).length">
+        <template x-for="f in (session?.files.queue||[])" :key="f.name">
+          <li><span class="dot" :class="f.state==='processing'?'check':'idle'"></span><span class="fn" x-text="f.name"></span><span class="mute" x-text="f.state==='processing' ? 'memindai…' : 'menunggu antrean'"></span></li>
+        </template>
+      </ul>
     </div>
 
     <div class="stats">
