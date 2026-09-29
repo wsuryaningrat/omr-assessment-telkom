@@ -277,6 +277,22 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.delete(f"/api/sheets/{one}").status_code, 204)
         self.assertEqual(self.c.get(f"/api/sessions/{sid}").json()["summary"]["lembar"], 5)
 
+    def test_files_queue_shows_pending_names_then_empties(self):
+        """Antrean per-berkas (queued/processing): pengawas bisa lihat berkas MANA yg masih diproses,
+        bukan cuma jumlahnya -- penting krn sebagian lembar sulit bisa lama dipindai."""
+        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+        files = [("files", (f"q{i}.pdf", data, "application/pdf")) for i in range(6)]
+        self.c.post(f"/api/sessions/{sid}/files", files=files)
+        d0 = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertEqual(len(d0["files"]["queue"]), d0["files"]["pending"])
+        for item in d0["files"]["queue"]:
+            self.assertEqual(set(item), {"name", "state"})
+            self.assertIn(item["state"], ("queued", "processing"))
+            self.assertTrue(item["name"].startswith("q"))
+        d = self.wait(sid)
+        self.assertEqual((d["files"]["queue"], d["files"]["pending"]), ([], 0))
+
 
 if __name__ == "__main__":
     unittest.main()

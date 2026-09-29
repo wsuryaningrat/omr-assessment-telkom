@@ -204,7 +204,10 @@ button.stat.sel{box-shadow:0 0 0 2px var(--ink)}
 .stat.st-check b{color:#B58900}.stat.st-warn b{color:var(--bad)}.stat.st-ok b{color:var(--ok)}
 .legend{margin:-4px 0 12px;color:var(--ink2);font-size:12px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
-.dot.check{background:#E9B700}.dot.warning{background:var(--bad)}.dot.validated{background:var(--ok)}
+.dot.check{background:#E9B700}.dot.warning{background:var(--bad)}.dot.validated{background:var(--ok)}.dot.idle{background:var(--line)}
+.queue{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto}
+.queue li{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.queue .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .bad{color:var(--bad)!important;font-weight:700}
 /* tabel compact */
 .card.flush{padding:14px}
