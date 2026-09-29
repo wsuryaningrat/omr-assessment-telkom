@@ -41,9 +41,10 @@ def _int_keys(kunci):
     return {name: {int(q): a for q, a in data.items()} for name, data in kunci.items()}
 
 
-def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
+def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False, calib=None):
     """Pindai satu berkas (semua halaman, atau `only_page`).
 
+    `calib`: koreksi posisi manual per blok dari menu Kalibrasi admin (lihat scanner.service.apply_field_calib).
     Mengembalikan list dict: {page, doc_name, record, status, overlay_jpeg?}.
     """
     import cv2
@@ -60,7 +61,7 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False):
     for page, (doc_name, img_bgr) in enumerate(iter_images_from_file(PathUpload(path, name), target_dpi=200, max_side=SCAN_MAX_SIDE)):
         if only_page is not None and page != only_page:
             continue
-        rec, prev = scan_page(img_bgr, doc_name, tpl, pengawas["fakultas"], pengawas["nama"], k_cache, info, with_overlay=with_overlay)
+        rec, prev = scan_page(img_bgr, doc_name, tpl, pengawas["fakultas"], pengawas["nama"], k_cache, info, with_overlay=with_overlay, calib=calib)
         item = {"page": page, "doc_name": doc_name, "record": rec, "status": prev["status"]}
         if with_overlay and prev.get("overlay") is not None:
             ok, buf = cv2.imencode(".jpg", prev["overlay"], [int(cv2.IMWRITE_JPEG_QUALITY), 85])

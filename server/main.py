@@ -31,11 +31,11 @@ _RESCAN_PENDING = {}    # session_id -> jumlah lembar yg masih diantre/diproses 
 _rescan_lock = threading.Lock()
 
 
-def _submit_scan(*args):
+def _submit_scan(*args, **kwargs):
     with _pending.get_lock():
         _pending.value += 1
     try:
-        fut = _pool.submit(worker.scan_file, *args)
+        fut = _pool.submit(worker.scan_file, *args, **kwargs)
     except Exception:
         _scan_finished(None)
         raise
@@ -71,6 +71,11 @@ def _class_folder(s: ScanSession) -> str:
 def _kunci(db):
     from server.db import Kunci
     return {k.name: k.data for k in db.scalars(select(Kunci))}
+
+
+def _calib(db):
+    from server.db import TemplateCalib
+    return {c.field_name: (c.dx, c.dy) for c in db.scalars(select(TemplateCalib))}
 
 
 def _norm_hp(raw: str):
@@ -110,8 +115,9 @@ def _enqueue(file_id):
         s = db.get(ScanSession, f.session_id)
         f.state = "processing"
         args = (f.path, f.name, _pengawas(s), _kunci(db))
+        calib = _calib(db)
         db.commit()
-    fut = _submit_scan(*args)
+    fut = _submit_scan(*args, calib=calib)
     _FUTURES[file_id] = fut
     fut.add_done_callback(lambda fu, fid=file_id: _on_done(fid, fu))
 
@@ -153,10 +159,11 @@ def _enqueue_rescan(sheet_id):
         if not up or not up.path or not os.path.exists(up.path):
             return False
         args = (up.path, up.name, _pengawas(s), _kunci(db), sh.page)
+        calib = _calib(db)
         session_id = sh.session_id
     with _rescan_lock:
         _RESCAN_PENDING[session_id] = _RESCAN_PENDING.get(session_id, 0) + 1
-    fut = _submit_scan(*args)
+    fut = _submit_scan(*args, calib=calib)
     _RESCAN_FUTURES[sheet_id] = fut
     fut.add_done_callback(lambda fu, sid=sheet_id, ssid=session_id: _on_rescan_done(sid, ssid, fu))
     return True
@@ -648,7 +655,7 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     dest = os.path.join(_class_folder(s), f"{uuid.uuid4().hex[:8]}_{_safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _save_stream(file, dest)
-    fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0)
+    fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0, calib=_calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -670,7 +677,7 @@ def preview(shid: str, db=Depends(get_db)):
     up = db.get(UploadFile, sh.file_id)
     if not os.path.exists(up.path):
         raise HTTPException(410, "Berkas sumber sudah dihapus")
-    fut = _submit_scan(up.path, up.name, _pengawas(s), _kunci(db), sh.page, True)
+    fut = _submit_scan(up.path, up.name, _pengawas(s), _kunci(db), sh.page, True, calib=_calib(db))
     res = fut.result(timeout=120)
     if not res or "overlay_jpeg" not in res[0]:
         raise HTTPException(404, "Preview tidak tersedia")

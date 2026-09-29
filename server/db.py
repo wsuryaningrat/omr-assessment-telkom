@@ -93,6 +93,18 @@ class Kunci(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class TemplateCalib(Base):
+    """Koreksi posisi kotak template per blok (mis. NAMA, NPM, KODE SOAL, Soal-A) -- offset (dx, dy) dlm
+    piksel kanvas template (1700x2400) yg DITAMBAHKAN ke posisi asli setiap bubble blok itu saat memindai.
+    Dipakai menu Kalibrasi di admin utk membetulkan pergeseran cetak/pindai kecil TANPA mengedit file
+    template JSON -- lihat scanner.service.apply_field_calib (satu-satunya tempat nilai ini dipakai)."""
+    __tablename__ = "template_calib"
+    field_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    dx: Mapped[float] = mapped_column(default=0.0)
+    dy: Mapped[float] = mapped_column(default=0.0)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate()

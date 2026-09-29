@@ -1,8 +1,9 @@
 function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
+    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "" },
+    calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
     async init() {
@@ -68,7 +69,7 @@ function admin() {
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
-    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); },
+    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
@@ -158,6 +159,90 @@ function admin() {
       ev.target.value = "";
     },
     async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
+    // Kalibrasi posisi template: unggah 1 foto referensi (sekali, dicache di server), lalu geser tiap blok
+    // & lihat pratinjau langsung tanpa unggah ulang. Lihat server/admin.py bag. "kalibrasi template".
+    async loadCalib() {
+      try {
+        const d = await this.json("/api/admin/calib/fields");
+        this.calib.fields = d.fields; this.calib.canvas = d.canvas; this.calib.maxOffset = d.max_offset;
+        if (!this.calib.field && d.fields.length) this.selectCalibField(d.fields[0].name);
+      } catch (e) { this.toast(e.message, true); }
+    },
+    selectCalibField(name) {
+      const f = this.calib.fields.find(x => x.name === name);
+      this.calib.field = name;
+      this.calib.savedDx = f ? f.dx : 0; this.calib.savedDy = f ? f.dy : 0;
+      this.calib.draftDx = this.calib.savedDx; this.calib.draftDy = this.calib.savedDy;
+      this.refreshCalibPreview();
+    },
+    async uploadCalibPhoto(ev) {
+      const f = ev.target.files && ev.target.files[0]; if (!f) return;
+      this.calib.uploading = true;
+      const fd = new FormData(); fd.append("file", f, f.name);
+      try {
+        const d = await this.json("/api/admin/calib/upload", { method: "POST", body: fd });
+        this.calib.token = d.token;
+        await this.refreshCalibPreview();
+        this.toast("Foto referensi siap — pilih blok utk dikalibrasi");
+      } catch (e) { this.toast(e.message, true); }
+      this.calib.uploading = false;
+      ev.target.value = "";
+    },
+    async refreshCalibPreview() {
+      if (!this.calib.token) return;
+      this.calib.busy = true;
+      try {
+        const q = new URLSearchParams({ token: this.calib.token, field: this.calib.field || "", dx: this.calib.draftDx, dy: this.calib.draftDy });
+        const r = await this.api("/api/admin/calib/preview?" + q);
+        const blob = await r.blob();
+        if (this.calib.previewUrl) URL.revokeObjectURL(this.calib.previewUrl);
+        this.calib.previewUrl = URL.createObjectURL(blob);
+      } catch (e) { this.toast(e.message, true); }
+      this.calib.busy = false;
+    },
+    scheduleCalibPreview() {
+      const m = this.calib.maxOffset;
+      this.calib.draftDx = Math.max(-m, Math.min(m, this.calib.draftDx || 0));
+      this.calib.draftDy = Math.max(-m, Math.min(m, this.calib.draftDy || 0));
+      clearTimeout(this.calib._t);
+      this.calib._t = setTimeout(() => this.refreshCalibPreview(), 300);
+    },
+    nudgeCalib(dx, dy) {
+      const m = this.calib.maxOffset;
+      this.calib.draftDx = Math.max(-m, Math.min(m, +(this.calib.draftDx + dx).toFixed(1)));
+      this.calib.draftDy = Math.max(-m, Math.min(m, +(this.calib.draftDy + dy).toFixed(1)));
+      this.refreshCalibPreview();
+    },
+    async saveCalib() {
+      try {
+        await this.json(`/api/admin/calib/fields/${encodeURIComponent(this.calib.field)}`,
+          { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dx: this.calib.draftDx, dy: this.calib.draftDy }) });
+        this.toast("Kalibrasi disimpan — dipakai mulai pemindaian berikutnya");
+        const sel = this.calib.field;
+        await this.loadCalib();
+        this.selectCalibField(sel);   // loadCalib() tak menyeleksi ulang field yg sama -- "savedDx/Dy" perlu disegarkan manual di sini
+      } catch (e) { this.toast(e.message, true); }
+    },
+    async resetCalibField(name) {
+      if (!confirm(`Kembalikan blok "${name}" ke posisi asli template?`)) return;
+      try {
+        await this.api(`/api/admin/calib/fields/${encodeURIComponent(name)}`, { method: "DELETE" });
+        this.toast("Dikembalikan ke posisi asli");
+        const wasSelected = this.calib.field === name;
+        await this.loadCalib();
+        if (wasSelected) this.selectCalibField(name);
+      } catch (e) { this.toast(e.message, true); }
+    },
+    async resetCalibAll() {
+      if (!confirm("Kembalikan SEMUA blok ke posisi asli template? Semua koreksi kalibrasi tersimpan akan dihapus.")) return;
+      try {
+        const d = await this.json("/api/admin/calib/reset", { method: "POST" });
+        this.toast(`${d.direset} blok dikembalikan ke posisi asli`);
+        const sel = this.calib.field;
+        await this.loadCalib();
+        if (sel) this.selectCalibField(sel);
+      } catch (e) { this.toast(e.message, true); }
+    },
     async act(path, okMsg) {
       this.busy = true;
       try { const d = await this.json(path, { method: "POST" }); this.toast(okMsg + (d && d.synced !== undefined ? ` (${d.synced} sesi terkirim)` : "")); await this.loadSummary(); }

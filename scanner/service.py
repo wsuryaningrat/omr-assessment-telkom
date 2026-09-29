@@ -111,6 +111,40 @@ def is_valid_phone(value):
 _log = logging.getLogger("scanner.service")
 
 
+# Batas wajar koreksi kalibrasi manual (piksel kanvas) -- jaring pengaman thd salah ketik di menu
+# Kalibrasi admin; kanvas template 1700x2400, jadi ini jauh di bawah ukuran satu blok field.
+CALIB_MAX_OFFSET = 300.0
+
+
+def apply_field_calib(fields_dict, calib):
+    """Terapkan koreksi posisi (dx, dy piksel) dari `calib` ({field_name: (dx, dy)}, lihat server.db.TemplateCalib)
+    ke fields_dict -- dipakai SAAT MEMINDAI SUNGGUHAN (scan_page di bawah) & saat pratinjau di menu Kalibrasi
+    admin, supaya keduanya pasti konsisten. Cuma menggeser `items[*].bubbles[*].cx/cy` (satu2nya posisi yg
+    dibaca decode_field/register_fields -- "cells"/"roi" cuma metadata, tak dipakai baca) + `roi` (kosmetik,
+    dipakai gambar kotak pratinjau). fields_dict ASLI (baik dict dari file JSON maupun cache di worker
+    proses) TIDAK PERNAH diubah di tempat -- selalu kembalikan dict baru."""
+    if not calib:
+        return fields_dict
+    out = {}
+    for name, fdef in fields_dict.items():
+        dx, dy = calib.get(name, (0.0, 0.0))
+        dx = max(-CALIB_MAX_OFFSET, min(CALIB_MAX_OFFSET, dx or 0.0))
+        dy = max(-CALIB_MAX_OFFSET, min(CALIB_MAX_OFFSET, dy or 0.0))
+        if not dx and not dy:
+            out[name] = fdef
+            continue
+        fdef2 = dict(fdef)
+        if fdef2.get("roi"):
+            rx, ry, rw, rh = fdef2["roi"]
+            fdef2["roi"] = [rx + dx, ry + dy, rw, rh]
+        fdef2["items"] = [
+            {**it, "bubbles": [{**b, "cx": b["cx"] + dx, "cy": b["cy"] + dy} for b in it.get("bubbles", [])]}
+            for it in fdef2.get("items", [])
+        ]
+        out[name] = fdef2
+    return out
+
+
 def _limit_soal(fields):
     """Buang butir soal bernomor > MAX_SOAL dari blok jawaban (Soal-*); blok yang habis ikut dibuang.
     Efeknya: tidak dibaca, tidak digambar di preview, tidak masuk rekap/"Jawaban Terisi"."""
@@ -198,13 +232,16 @@ def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name
     return fields2, decoded2, soal2
 
 
-def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None, with_overlay=False):
+def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_cache, pengawas_info=None, with_overlay=False, calib=None):
     """Runs the full OMR pipeline (alignment + decode + grading) on one page/photo
     and returns (student_record, preview). Shared by the batch scan and the
-    per-row 'Ganti Foto' replacement flow so both stay perfectly in sync."""
+    per-row 'Ganti Foto' replacement flow so both stay perfectly in sync.
+
+    `calib`: koreksi posisi manual per blok dari menu Kalibrasi admin -- lihat apply_field_calib."""
     canvas_w = template.get("canvas", {}).get("width", 1700)
     canvas_h = template.get("canvas", {}).get("height", 2400)
     fields_dict = _limit_soal(template.get("fields", {}))
+    fields_dict = apply_field_calib(fields_dict, calib)
     k_cache = {n: {q: a for q, a in d.items() if q <= MAX_SOAL} for n, d in (k_cache or {}).items()}
     aruco_dict = template.get("aruco_dict", "DICT_4X4_50")
     expected_ids = template.get("aruco_corner_ids")
@@ -219,11 +256,13 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
     current_submit_time = datetime.now(wib_tz).strftime("%Y-%m-%d %H:%M")
 
     decoded_all, soal_dict = _decode_fields(gray_warped, fields_dict)
-    if not _identity_complete(decoded_all, fields_dict):
-        # NIM/kode tidak terbaca utuh -> biasanya isi lembar bergeser dari posisi template (fotokopi
-        # menskalakan/menggeser isi 1-3 %, sampai setengah tinggi kotak). Coba lagi dengan posisi
-        # kotak dikoreksi terhadap garis tercetak. Lembar yang sudah terbaca utuh TIDAK pernah lewat sini.
-        fields_dict, decoded_all, soal_dict = _retry_with_registration(gray_warped, fields_dict, decoded_all, soal_dict, doc_name)
+    # Koreksi posisi SETIAP blok kategori (NAMA/NPM/FAKULTAS/KODE SOAL/Soal-*/Kuisioner-*) terhadap
+    # garis kotak yang benar-benar tercetak — bukan hanya saat NIM/kode gagal terbaca utuh. Fotokopi
+    # bisa menggeser satu blok saja (mis. hanya Jawaban Soal di bagian bawah halaman) sementara NIM/kode
+    # di bagian atas kebetulan tetap terbaca; menggantungkan koreksi pada status NIM/kode saja membuat
+    # blok lain yang bergeser sendirian lolos tanpa koreksi. register_fields() sudah aman dipanggil
+    # selalu: blok yang sudah pas di posisi template dibiarkan (early-exit di estimate_field_warp).
+    fields_dict, decoded_all, soal_dict = _retry_with_registration(gray_warped, fields_dict, decoded_all, soal_dict, doc_name)
 
     student_record = {
         "Submit Date": current_submit_time,

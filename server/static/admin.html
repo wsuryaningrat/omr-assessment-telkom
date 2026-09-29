@@ -341,6 +341,77 @@
       </div>
     </section>
 
+    <!-- kalibrasi -->
+    <section x-show="tab==='kalibrasi'">
+      <div class="card">
+        <h2>Kalibrasi posisi template</h2>
+        <p class="sub">Unggah foto LJK apa saja (kosong ataupun sudah diarsir) utk melihat posisi kotak template saat ini, lalu geser per blok kalau meleset. Koreksi berlaku utk pemindaian BARU sejak disimpan — lembar yang sudah discan sebelumnya perlu <b>&ldquo;Pindai ulang semua lembar&rdquo;</b> (menu ⋮ tab Sesi) kalau ingin ikut disegarkan.</p>
+        <div class="row-act">
+          <span class="btn p sm rel">Unggah foto referensi<input type="file" class="ovl" accept="image/*,.pdf,.heic,.heif" :disabled="calib.uploading" @change="uploadCalibPhoto($event)"></span>
+          <span class="mute" x-show="calib.uploading">Memproses foto…</span>
+          <button class="btn sm d" @click="resetCalibAll()">Kembalikan semua blok ke posisi asli</button>
+        </div>
+      </div>
+
+      <div class="card" x-show="calib.token" style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,0.9fr);gap:18px;align-items:start">
+        <div>
+          <div style="position:relative;background:var(--soft);border-radius:10px;overflow:hidden;min-height:160px">
+            <img x-show="calib.previewUrl" :src="calib.previewUrl" style="width:100%;display:block">
+            <p class="mute" x-show="!calib.previewUrl" style="padding:40px;text-align:center">Memuat pratinjau…</p>
+          </div>
+          <p class="mute" style="font-size:12px;margin-top:6px">Kotak hijau tebal = blok yang sedang dipilih (tiap bubble ditampilkan). Kotak abu = blok lain, sebagai konteks posisi saja.</p>
+        </div>
+        <div>
+          <label class="f" for="calibField">Blok yang dikalibrasi</label>
+          <select id="calibField" x-model="calib.field" @change="selectCalibField(calib.field)">
+            <template x-for="f in calib.fields" :key="f.name">
+              <option :value="f.name" x-text="f.name + ((f.dx || f.dy) ? ' (disesuaikan)' : '')"></option>
+            </template>
+          </select>
+
+          <div class="grid" style="margin-top:12px;grid-template-columns:1fr 1fr;gap:10px">
+            <div><label class="f" for="calibDx">Geser X (px)</label><input id="calibDx" type="number" step="0.5" x-model.number="calib.draftDx" @input="scheduleCalibPreview()"></div>
+            <div><label class="f" for="calibDy">Geser Y (px)</label><input id="calibDy" type="number" step="0.5" x-model.number="calib.draftDy" @input="scheduleCalibPreview()"></div>
+          </div>
+          <div class="actrow" style="margin-top:8px">
+            <button class="btn sm" @click="nudgeCalib(-1,0)">◀ 1px</button>
+            <button class="btn sm" @click="nudgeCalib(1,0)">1px ▶</button>
+            <button class="btn sm" @click="nudgeCalib(0,-1)">▲ 1px</button>
+            <button class="btn sm" @click="nudgeCalib(0,1)">▼ 1px</button>
+            <button class="btn sm" @click="nudgeCalib(0,-5)">▲ 5px</button>
+            <button class="btn sm" @click="nudgeCalib(0,5)">▼ 5px</button>
+          </div>
+          <div class="row-act" style="margin-top:14px">
+            <button class="btn p sm" @click="saveCalib()" :disabled="calib.draftDx===calib.savedDx && calib.draftDy===calib.savedDy">Simpan koreksi blok ini</button>
+            <button class="btn sm" x-show="calib.savedDx || calib.savedDy" @click="resetCalibField(calib.field)">Kembalikan blok ini</button>
+          </div>
+          <p class="mute" style="font-size:12px;margin-top:8px" x-show="calib.draftDx!==calib.savedDx || calib.draftDy!==calib.savedDy">Belum disimpan — ini baru pratinjau.</p>
+        </div>
+      </div>
+
+      <div class="card flush" x-show="calib.fields.length">
+        <div class="tools"><div class="tt"><h2>Semua blok</h2></div></div>
+        <div class="tbl"><table>
+          <thead><tr><th>Blok</th><th class="c" style="width:auto">Bubble</th><th class="c" style="width:auto">dx</th><th class="c" style="width:auto">dy</th><th>Diperbarui</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="f in calib.fields" :key="f.name">
+              <tr>
+                <td class="nm" x-text="f.name"></td>
+                <td class="c mono" style="width:auto" x-text="f.n_bubbles"></td>
+                <td class="c mono" style="width:auto" x-text="f.dx"></td>
+                <td class="c mono" style="width:auto" x-text="f.dy"></td>
+                <td x-text="fmt(f.updated_at)"></td>
+                <td class="actrow">
+                  <button class="btn xs" @click="selectCalibField(f.name)">Pilih</button>
+                  <button class="btn xs d" x-show="f.dx || f.dy" @click="resetCalibField(f.name)">Reset</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table></div>
+      </div>
+    </section>
+
     <!-- ekspor -->
     <section x-show="tab==='ekspor'">
       <div class="card">

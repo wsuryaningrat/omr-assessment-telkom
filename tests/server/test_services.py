@@ -13,7 +13,7 @@ import zipfile
 from fastapi.testclient import TestClient
 
 from server import config, services, sheets
-from server.db import ScanSession, Sheet, SessionLocal
+from server.db import ScanSession, Sheet, SessionLocal, TemplateCalib
 from server.main import app
 from tests.regression.fixtures import KUNCI
 
@@ -60,12 +60,13 @@ class TestServices(unittest.TestCase):
         self.drain()
 
     def drain(self):
-        """Isolasi antar tes: anggap semua sesi lama sudah tersinkron & hapus semua kunci."""
+        """Isolasi antar tes: anggap semua sesi lama sudah tersinkron & hapus semua kunci + kalibrasi."""
         from server.db import Kunci
         with SessionLocal() as db:
             for s in db.query(ScanSession).filter(ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None)):
                 s.synced_at = dt.datetime.now(dt.timezone.utc)
             db.query(Kunci).delete()
+            db.query(TemplateCalib).delete()
             db.commit()
         self.fake.calls.clear()
 
@@ -585,6 +586,81 @@ class TestServices(unittest.TestCase):
     def test_rescan_all_requires_token_and_404s_unknown(self):
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all").status_code, 401)
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all", headers=ADM).status_code, 404)
+
+    # ---------------------------------------------------------------- kalibrasi template
+    def test_apply_field_calib_shifts_bubbles_and_roi_without_mutating_input(self):
+        from scanner.service import apply_field_calib
+        fields = {"X": {"roi": [10, 20, 100, 50], "items": [{"name": "X_1", "bubbles": [{"cx": 15.0, "cy": 25.0, "w": 4, "h": 4}]}]}}
+        out = apply_field_calib(fields, {"X": (5, -3)})
+        b = out["X"]["items"][0]["bubbles"][0]
+        self.assertEqual((b["cx"], b["cy"]), (20.0, 22.0))
+        self.assertEqual(out["X"]["roi"], [15, 17, 100, 50])
+        self.assertEqual(fields["X"]["items"][0]["bubbles"][0]["cx"], 15.0)   # asli tak tersentuh
+
+    def test_apply_field_calib_clamps_extreme_offset(self):
+        from scanner.service import CALIB_MAX_OFFSET, apply_field_calib
+        fields = {"X": {"items": [{"name": "X_1", "bubbles": [{"cx": 0.0, "cy": 0.0}]}]}}
+        out = apply_field_calib(fields, {"X": (99999, -99999)})
+        b = out["X"]["items"][0]["bubbles"][0]
+        self.assertEqual((b["cx"], b["cy"]), (CALIB_MAX_OFFSET, -CALIB_MAX_OFFSET))
+
+    def test_calib_fields_default_set_and_clear(self):
+        d = self.c.get("/api/admin/calib/fields", headers=ADM).json()
+        names = {f["name"] for f in d["fields"]}
+        self.assertIn("NPM", names)
+        npm = next(f for f in d["fields"] if f["name"] == "NPM")
+        self.assertEqual((npm["dx"], npm["dy"], npm["updated_at"]), (0.0, 0.0, None))
+
+        r = self.c.put("/api/admin/calib/fields/NPM", json={"dx": 12.5, "dy": -3}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["dx"], r.json()["dy"]), (12.5, -3.0))
+        npm2 = next(f for f in self.c.get("/api/admin/calib/fields", headers=ADM).json()["fields"] if f["name"] == "NPM")
+        self.assertEqual((npm2["dx"], npm2["dy"]), (12.5, -3.0))
+        self.assertIsNotNone(npm2["updated_at"])
+
+        self.assertEqual(self.c.delete("/api/admin/calib/fields/NPM", headers=ADM).status_code, 200)
+        npm3 = next(f for f in self.c.get("/api/admin/calib/fields", headers=ADM).json()["fields"] if f["name"] == "NPM")
+        self.assertEqual((npm3["dx"], npm3["dy"]), (0.0, 0.0))
+
+    def test_calib_set_unknown_field_404_and_requires_token(self):
+        self.assertEqual(self.c.put("/api/admin/calib/fields/TIDAK-ADA", json={"dx": 1, "dy": 1}, headers=ADM).status_code, 404)
+        self.assertEqual(self.c.put("/api/admin/calib/fields/NPM", json={"dx": 1, "dy": 1}).status_code, 401)
+        self.assertEqual(self.c.get("/api/admin/calib/fields").status_code, 401)
+
+    def test_calib_reset_all(self):
+        self.c.put("/api/admin/calib/fields/NPM", json={"dx": 5, "dy": 5}, headers=ADM)
+        self.c.put("/api/admin/calib/fields/NAMA", json={"dx": 5, "dy": 5}, headers=ADM)
+        r = self.c.post("/api/admin/calib/reset", headers=ADM)
+        self.assertEqual(r.json()["direset"], 2)
+        d = self.c.get("/api/admin/calib/fields", headers=ADM).json()
+        self.assertTrue(all((f["dx"], f["dy"]) == (0.0, 0.0) for f in d["fields"]))
+
+    def test_calib_upload_and_preview_roundtrip(self):
+        r = self.c.post("/api/admin/calib/upload", headers=ADM, files={"file": ("l.pdf", PDF, "application/pdf")})
+        self.assertEqual(r.status_code, 200, r.text)
+        token = r.json()["token"]
+        self.assertEqual(r.json()["canvas"], {"width": 1700, "height": 2400})
+        p1 = self.c.get(f"/api/admin/calib/preview?token={token}", headers=ADM)
+        self.assertEqual((p1.status_code, p1.headers["content-type"]), (200, "image/jpeg"))
+        p2 = self.c.get(f"/api/admin/calib/preview?token={token}&field=NPM&dx=10&dy=-5", headers=ADM)
+        self.assertEqual(p2.status_code, 200)
+        self.assertNotEqual(p1.content, p2.content)   # menonjolkan blok NPM benar2 mengubah gambar
+        self.assertEqual(self.c.get("/api/admin/calib/preview?token=tidak-ada", headers=ADM).status_code, 410)
+        self.assertEqual(self.c.post("/api/admin/calib/upload", files={"file": ("l.pdf", PDF, "application/pdf")}).status_code, 401)
+
+    def test_calib_offset_changes_real_scan_result(self):
+        # Bukti ujung-ke-ujung: koreksi kalibrasi bukan cuma tersimpan di DB, tapi BENAR2 dipakai worker
+        # proses saat memindai sungguhan (lihat server.main._calib & scanner.service.apply_field_calib).
+        base_sid = self.submitted_session("CALIBTEST-BASE")
+        base_npm = self.c.get(f"/api/admin/sessions/{base_sid}/sheets", headers=ADM).json()["items"][0]["npm"]
+        r = self.c.put("/api/admin/calib/fields/NPM", json={"dx": 0, "dy": 43}, headers=ADM)   # ~1 baris kotak
+        self.assertEqual(r.status_code, 200, r.text)
+        try:
+            shift_sid = self.submitted_session("CALIBTEST-SHIFT")
+            shift_npm = self.c.get(f"/api/admin/sessions/{shift_sid}/sheets", headers=ADM).json()["items"][0]["npm"]
+        finally:
+            self.c.delete("/api/admin/calib/fields/NPM", headers=ADM)
+        self.assertNotEqual(base_npm, shift_npm)
 
 
 if __name__ == "__main__":

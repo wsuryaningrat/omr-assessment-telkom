@@ -1,20 +1,23 @@
-"""Endpoint admin (header X-Admin-Token): ringkasan, sesi, kunci jawaban, sinkron Google Sheet, ekspor."""
+"""Endpoint admin (header X-Admin-Token): ringkasan, sesi, kunci jawaban, sinkron Google Sheet, ekspor,
+kalibrasi template."""
 import csv
 import datetime as dt
 import io
 import os
+import time
 import uuid
 
 import cv2
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile as FUploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import Integer, func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
-from scanner.service import classify_scan_status
+from scanner.service import CALIB_MAX_OFFSET, apply_field_calib, classify_scan_status, load_default_template
 from server import auth, config, plotting, services, sheets
-from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile
+from server.db import Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
 
 
 def get_db():
@@ -335,7 +338,7 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
     up = db.get(UploadFile, sh.file_id)
     if not up or not up.path or not os.path.exists(up.path):
         raise HTTPException(410, "Berkas sumber sudah tak ada (mis. sudah 'Bersihkan foto') -- tak bisa dipindai ulang")
-    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page)
+    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page, calib=_main._calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -360,7 +363,7 @@ async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db
     dest = os.path.join(_main._class_folder(s), f"{uuid.uuid4().hex[:8]}_{_main._safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _main._save_stream(file, dest)
-    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), 0)
+    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), 0, calib=_main._calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -583,3 +586,186 @@ def export_xlsx(kelas: str = "", sid: str = "", db=Depends(get_db)):
     wb.save(buf)
     return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": "attachment; filename=rekap_ljk.xlsx"})
+
+
+# ---------------------------------------------------------------- kalibrasi template
+def _calib_template():
+    tpl = load_default_template()
+    if not tpl:
+        raise HTTPException(500, "Template pemindai tidak ditemukan")
+    return tpl
+
+
+class _RawUpload:
+    """Adaptor kecil spy bytes yg sudah dibaca di memori (bukan berkas di disk) bisa dipakai langsung dgn
+    core.pdf_utils.iter_images_from_file (butuh .name + .getvalue())."""
+    def __init__(self, name, data):
+        self.name = name
+        self._data = data
+
+    def getvalue(self):
+        return self._data
+
+
+def _calib_tmp_dir():
+    d = os.path.join(config.UPLOAD_DIR, "_calib_tmp")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _sweep_calib_tmp(max_age_s=7200):
+    """Foto referensi kalibrasi cuma dipakai sementara selagi admin menyesuaikan offset di layar --
+    sapu yg lebih tua dari 2 jam tiap ada unggahan baru, drpd menambah tugas latar belakang terpisah
+    cuma utk ini (bandingkan services.cleanup_once, yg utk foto sesi ujian sungguhan)."""
+    d = _calib_tmp_dir()
+    now = time.time()
+    for fn in os.listdir(d):
+        p = os.path.join(d, fn)
+        try:
+            if now - os.path.getmtime(p) > max_age_s:
+                os.remove(p)
+        except OSError:
+            pass
+
+
+_CALIB_SEL_COLOR = (40, 180, 60)     # hijau (BGR) -- blok yg sedang dikalibrasi: garis besar + tiap bubble
+_CALIB_DIM_COLOR = (150, 150, 150)   # abu -- blok lain, cuma garis besar biar admin tetap dpt konteks posisi
+
+
+def _draw_calib_overlay(warped_bgr, fields_dict, selected=None):
+    img = warped_bgr.copy()
+    for name, fdef in fields_dict.items():
+        roi = fdef.get("roi")
+        if not roi:
+            continue
+        is_sel = name == selected
+        color = _CALIB_SEL_COLOR if is_sel else _CALIB_DIM_COLOR
+        x, y, w, h = (int(round(v)) for v in roi)
+        cv2.rectangle(img, (x, y), (x + w, y + h), color, 3 if is_sel else 1)
+        cv2.putText(img, name, (x, max(20, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color,
+                    2 if is_sel else 1, cv2.LINE_AA)
+        if is_sel:   # blok yg dikalibrasi: tampilkan tiap kotak bubble, bukan cuma garis besar ROI
+            for it in fdef.get("items", []):
+                for b in it.get("bubbles", []):
+                    bw, bh = b.get("w", 24), b.get("h", 24)
+                    x0, y0 = int(round(b["cx"] - bw / 2)), int(round(b["cy"] - bh / 2))
+                    x1, y1 = int(round(b["cx"] + bw / 2)), int(round(b["cy"] + bh / 2))
+                    cv2.rectangle(img, (x0, y0), (x1, y1), (0, 140, 255), 1)
+    return img
+
+
+@router.get("/calib/fields")
+def calib_fields(db=Depends(get_db)):
+    """Daftar blok template (NAMA, NPM, KODE SOAL, Soal-A, dst) + koreksi (dx, dy) yg tersimpan utk tiap
+    blok -- dipakai mengisi dropdown & tabel ringkasan di menu Kalibrasi admin."""
+    tpl = _calib_template()
+    saved = {c.field_name: c for c in db.scalars(select(TemplateCalib))}
+    fields = []
+    for name, fdef in tpl.get("fields", {}).items():
+        c = saved.get(name)
+        n_bubbles = sum(len(it.get("bubbles", [])) for it in fdef.get("items", []))
+        fields.append({"name": name, "n_bubbles": n_bubbles, "dx": c.dx if c else 0.0, "dy": c.dy if c else 0.0,
+                        "updated_at": c.updated_at.isoformat() if c else None})
+    return {"canvas": tpl.get("canvas", {"width": 1700, "height": 2400}), "fields": fields, "max_offset": CALIB_MAX_OFFSET}
+
+
+class _CalibIn(BaseModel):
+    dx: float = 0.0
+    dy: float = 0.0
+
+
+@router.put("/calib/fields/{field_name}")
+def calib_set(field_name: str, body: _CalibIn, db=Depends(get_db)):
+    """Simpan koreksi (dx, dy) blok ini -- dipakai SEJAK SEKARANG oleh pemindaian baru (lihat
+    server.main._calib & scanner.service.apply_field_calib). Lembar yg SUDAH discan sebelumnya TIDAK ikut
+    berubah otomatis -- pakai "Pindai ulang semua lembar" di tab Sesi kalau perlu disegarkan."""
+    tpl = _calib_template()
+    if field_name not in tpl.get("fields", {}):
+        raise HTTPException(404, "Blok tidak dikenal di template")
+    dx = max(-CALIB_MAX_OFFSET, min(CALIB_MAX_OFFSET, body.dx))
+    dy = max(-CALIB_MAX_OFFSET, min(CALIB_MAX_OFFSET, body.dy))
+    c = db.get(TemplateCalib, field_name)
+    if c is None:
+        c = TemplateCalib(field_name=field_name)
+        db.add(c)
+    c.dx, c.dy = dx, dy
+    db.commit()
+    return {"ok": True, "field": field_name, "dx": dx, "dy": dy}
+
+
+@router.delete("/calib/fields/{field_name}")
+def calib_clear(field_name: str, db=Depends(get_db)):
+    """Kembalikan blok ini ke posisi asli template (hapus koreksi tersimpan)."""
+    c = db.get(TemplateCalib, field_name)
+    if c is not None:
+        db.delete(c)
+        db.commit()
+    return {"ok": True}
+
+
+@router.post("/calib/reset")
+def calib_reset_all(db=Depends(get_db)):
+    """Hapus SEMUA koreksi kalibrasi tersimpan -- kembali ke posisi asli template utk semua blok."""
+    n = db.scalar(select(func.count()).select_from(TemplateCalib)) or 0
+    db.query(TemplateCalib).delete()
+    db.commit()
+    return {"ok": True, "direset": n}
+
+
+@router.post("/calib/upload")
+async def calib_upload(file: FUploadFile = File(...), page: int = Query(0, ge=0)):
+    """Simpan foto referensi kalibrasi sementara (2 jam, lihat _sweep_calib_tmp) & jalankan deteksi
+    pojok+crop SEKALI -- tahap termahal. Pratinjau berikutnya (GET /calib/preview, dipanggil tiap admin
+    geser offset) tinggal gambar ulang kotak di atas hasil crop yg sudah dicache ini, jadi cepat & foto
+    tak perlu dikirim ulang tiap geser. Cocok dipakai dgn foto LJK APA SAJA (kosong ataupun sudah
+    diarsir) -- cuma posisi kotaknya yg dicek di sini, bukan isinya."""
+    from core.alignment import detect_corners_and_crop
+    _sweep_calib_tmp()
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(422, "Berkas kosong")
+    try:
+        images = list(iter_images_from_file(_RawUpload(file.filename or "foto.jpg", raw), max_side=2200))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Gagal membaca berkas: {e}")
+    if page >= len(images):
+        raise HTTPException(404, "Halaman tak ditemukan dlm berkas")
+    _name, img_bgr = images[page]
+    tpl = _calib_template()
+    canvas = tpl.get("canvas", {"width": 1700, "height": 2400})
+    warped, _pts, method, _c_ids, _dict, status, _reg = detect_corners_and_crop(
+        img_bgr, canvas_w=canvas["width"], canvas_h=canvas["height"], preferred_method="aruco",
+        expected_ids=tpl.get("aruco_corner_ids"), dict_name=tpl.get("aruco_dict", "DICT_4X4_50"), crop_mode="inner")
+    if warped is None:
+        raise HTTPException(422, f"Sudut LJK tak terdeteksi di foto ini ({status}) -- coba foto lain yg lebih jelas/rata")
+    ok, buf = cv2.imencode(".jpg", warped, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not ok:
+        raise HTTPException(422, "Gagal menyimpan hasil crop")
+    token = uuid.uuid4().hex
+    with open(os.path.join(_calib_tmp_dir(), f"{token}.jpg"), "wb") as f:
+        f.write(buf.tobytes())
+    return {"token": token, "canvas": canvas, "method": method}
+
+
+@router.get("/calib/preview")
+def calib_preview(token: str, field: str = "", dx: float = 0.0, dy: float = 0.0, db=Depends(get_db)):
+    """Gambar ulang kotak template di atas hasil crop yg dicache dari /calib/upload. Koreksi TERSIMPAN
+    dipakai utk semua blok, KECUALI `field` (kalau diisi) yg memakai dx/dy dari slider -- pratinjau
+    langsung, BELUM disimpan (simpan lewat PUT /calib/fields/{field}). `field` kosong = cuma tampilkan
+    garis besar semua blok, tak ada yg ditonjolkan."""
+    path = os.path.join(_calib_tmp_dir(), f"{token}.jpg")
+    if not os.path.exists(path):
+        raise HTTPException(410, "Foto referensi sudah kedaluwarsa (>2 jam) -- unggah lagi")
+    warped = cv2.imread(path)
+    if warped is None:
+        raise HTTPException(422, "Gagal membaca foto referensi")
+    tpl = _calib_template()
+    calib = {c.field_name: (c.dx, c.dy) for c in db.scalars(select(TemplateCalib))}
+    if field:
+        calib = {**calib, field: (dx, dy)}
+    fields_dict = apply_field_calib(tpl.get("fields", {}), calib)
+    img = _draw_calib_overlay(warped, fields_dict, selected=field or None)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        raise HTTPException(422, "Gagal membuat pratinjau")
+    return Response(buf.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
