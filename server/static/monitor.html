@@ -9,6 +9,11 @@
 <meta name="description" content="Status pemindaian LJK semua sesi: sedang memindai, perlu dicek, atau sudah divalidasi.">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="stylesheet" href="/style.css">
+<style>
+/* style.css menyembunyikan .tbl di layar sempit (admin punya tampilan kartu alternatif .only-m) -- laman
+   publik ini tak punya itu, jadi tabelnya tetap ditampilkan & digulir mendatar drpd lenyap tanpa jejak. */
+@media(max-width:820px){.tbl{display:block!important;overflow-x:auto}.tbl table{min-width:680px}}
+</style>
 <script defer src="/vendor/alpine.min.js"></script>
 <script src="/monitor.js"></script>
 </head>
@@ -46,8 +51,8 @@
             <td><div class="nm" x-text="i.nama"></div></td>
             <td x-text="i.kelas||'-'"></td>
             <td x-text="i.prodi||'-'"></td>
-            <td x-text="i.hari_ujian||'-'"></td>
-            <td x-text="i.kode_soal||'-'"></td>
+            <td x-text="hariLabel(i.hari_ujian)"></td>
+            <td x-text="stripKode(i.kode_soal)"></td>
             <td class="c mono" style="width:auto" x-text="i.lembar"></td>
             <td><span class="chip" :class="statusChip(i.status)" x-text="statusLabel(i.status)"></span></td>
           </tr>

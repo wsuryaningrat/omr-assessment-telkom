@@ -217,7 +217,16 @@ def _fakultas_options():
     return [str(b.get("option")) for b in items[0].get("bubbles", []) if b.get("option")]
 
 
-HARI_UJIAN = ["SENIN", "SELASA", "RABU", "KAMIS", "JUMAT"]
+# Hari ujian literasi numerik: tanggal TETAP (bukan hari-dalam-minggu berulang), 28 Sep - 2 Okt 2026 --
+# disimpan sbg tanggal ISO (mis. "2026-09-28"), label lengkap dgn nama hari utk ditampilkan.
+HARI_UJIAN = [
+    {"value": "2026-09-28", "label": "Senin, 28 September 2026"},
+    {"value": "2026-09-29", "label": "Selasa, 29 September 2026"},
+    {"value": "2026-09-30", "label": "Rabu, 30 September 2026"},
+    {"value": "2026-10-01", "label": "Kamis, 1 Oktober 2026"},
+    {"value": "2026-10-02", "label": "Jumat, 2 Oktober 2026"},
+]
+HARI_UJIAN_VALUES = [d["value"] for d in HARI_UJIAN]
 
 
 def _kunci_names(db):
@@ -267,7 +276,8 @@ def _resolve_identity(body: SessionIn, db):
         errors.append("Kelas wajib diisi")
     elif len(body.kelas.strip()) > 100:
         errors.append("Kelas terlalu panjang")
-    if body.hari_ujian.strip().upper() not in HARI_UJIAN:
+    hari_ujian = body.hari_ujian.strip()
+    if hari_ujian not in HARI_UJIAN_VALUES:
         errors.append("Hari ujian wajib dipilih")
     kode_soal = body.kode_soal.strip()
     if not kode_soal:
@@ -280,7 +290,7 @@ def _resolve_identity(body: SessionIn, db):
             errors.append(f"Kode soal harus salah satu dari: {', '.join(known)}")
     if errors:
         raise HTTPException(422, errors)
-    return nama, hp, kode_soal, body.hari_ujian.strip().upper()
+    return nama, hp, kode_soal, hari_ujian
 
 
 @app.post("/api/sessions", status_code=201)

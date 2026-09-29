@@ -108,20 +108,20 @@
           <div>
             <label class="f" for="hr">Hari Ujian</label>
             <div class="selbox">
-              <span class="face" :class="{ph: !form.hari}" x-text="form.hari || 'Pilih hari'"></span>
+              <span class="face" :class="{ph: !form.hari}" x-text="hariLabel(form.hari) || 'Pilih hari'"></span>
               <select autocomplete="off" id="hr" x-model="form.hari" aria-label="Hari ujian">
                 <option value="">Pilih hari</option>
-                <template x-for="h in meta.hari||[]" :key="h"><option :value="h" x-text="h"></option></template>
+                <template x-for="h in meta.hari||[]" :key="h.value"><option :value="h.value" x-text="h.label"></option></template>
               </select>
             </div>
           </div>
           <div>
             <label class="f" for="ks">Kode Soal</label>
             <div class="selbox">
-              <span class="face" :class="{ph: !form.kodeSoal}" x-text="form.kodeSoal || 'Pilih kode soal'"></span>
+              <span class="face" :class="{ph: !form.kodeSoal}" x-text="stripKode(form.kodeSoal) || 'Pilih kode soal'"></span>
               <select autocomplete="off" id="ks" x-model="form.kodeSoal" aria-label="Kode soal">
                 <option value="">Pilih kode soal</option>
-                <template x-for="k in meta.kunci||[]" :key="k"><option :value="k" x-text="k"></option></template>
+                <template x-for="k in meta.kunci||[]" :key="k"><option :value="k" x-text="stripKode(k)"></option></template>
               </select>
             </div>
             <p class="mute" style="font-size:12px;margin-top:4px" x-show="!(meta.kunci||[]).length">Belum ada kunci jawaban terdaftar — hubungi admin bila daftar ini kosong.</p>

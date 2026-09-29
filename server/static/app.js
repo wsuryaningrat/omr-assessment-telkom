@@ -41,6 +41,8 @@ function ljk() {
     get showHp() { return this.manual || !!this.picked?.needs_hp; },
     get namaOk() { return this.manual ? !!this.form.nama : !!this.picked; },
     get prodiOptions() { return this.meta.prodi || []; },
+    hariLabel(v) { return (this.meta.hari || []).find(h => h.value === v)?.label || ""; },
+    stripKode(k) { const m = /^k[j]?(\d+)$/i.exec(k || ""); return m ? m[1] : (k || ""); },
     get prodiKnown() { return !!this.form.prodi && this.form.prodi !== "manual"; },
     get prodiFinal() { return this.form.prodi === "manual" ? this.form.prodiManual.trim() : this.form.prodi; },
     get kelasFinal() { return this.form.kelas === "manual" ? this.form.kelasManual.trim() : this.form.kelas; },

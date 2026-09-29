@@ -20,7 +20,7 @@ from tests.regression.fixtures import KUNCI
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ADM = {"X-Admin-Token": "rahasia"}
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi", "hari_ujian": "SENIN", "kode_soal": "A"}
+         "prodi": "S1 Sistem Informasi", "hari_ujian": "2026-09-28", "kode_soal": "A"}
 PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
 
 
@@ -244,12 +244,12 @@ class TestServices(unittest.TestCase):
         self.assertEqual(r.status_code, 409, r.text)
 
     def test_public_monitor_sesi_lists_status_without_login_or_phone(self):
-        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMMON-01", "kode_soal": "A", "hari_ujian": "RABU"}).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMMON-01", "kode_soal": "A", "hari_ujian": "2026-09-30"}).json()["id"]
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
         r = self.c.get("/api/monitor-sesi")   # tanpa token
         self.assertEqual(r.status_code, 200, r.text)
         row = next(x for x in r.json()["items"] if x["kelas"] == "ADMMON-01")
-        self.assertEqual((row["hari_ujian"], row["kode_soal"], row["status"]), ("RABU", "A", "scanning"))
+        self.assertEqual((row["hari_ujian"], row["kode_soal"], row["status"]), ("2026-09-30", "A", "scanning"))
         self.assertNotIn("hp", row)
         t = time.time()
         while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:

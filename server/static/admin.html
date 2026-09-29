@@ -207,7 +207,7 @@
               <tr>
                 <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
                 <td x-text="i.kelas||'-'"></td><td x-text="i.prodi"></td>
-                <td x-text="i.hari_ujian||'-'"></td><td x-text="i.kode_soal||'-'"></td>
+                <td x-text="hariLabel(i.hari_ujian)"></td><td x-text="stripKode(i.kode_soal)"></td>
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
                 <td class="c mono" style="width:auto" x-text="i.jml_mhs ?? '-'"></td>
                 <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>

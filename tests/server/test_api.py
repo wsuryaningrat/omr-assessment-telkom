@@ -17,7 +17,7 @@ from tests.regression.fixtures import KUNCI  # noqa: E402
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GOLDEN = json.load(open(os.path.join(ROOT, "tests", "regression", "golden_scan.json"), encoding="utf-8"))
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi", "hari_ujian": "SENIN", "kode_soal": "A"}
+         "prodi": "S1 Sistem Informasi", "hari_ujian": "2026-09-28", "kode_soal": "A"}
 
 
 class TestAPI(unittest.TestCase):
@@ -60,16 +60,18 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(m["prodi"], sorted(set(k["prodi"] for k in m["kelas"]), key=str.lower))
         self.assertNotIn("fakultas_prodi", m)
         # hari ujian & kode soal (baru): wajib diisi, kode soal harus salah satu kunci yg terdaftar (kelas ini
-        # sudah punya kunci "A" dari setUpClass)
+        # sudah punya kunci "A" dari setUpClass). Hari ujian = tanggal TETAP (28 Sep - 2 Okt 2026), bukan
+        # hari-dalam-minggu berulang -- lihat HARI_UJIAN di server/main.py.
         self.assertIn("A", m["kunci"])
-        self.assertEqual(m["hari"], ["SENIN", "SELASA", "RABU", "KAMIS", "JUMAT"])
+        self.assertEqual([h["value"] for h in m["hari"]], ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"])
+        self.assertEqual(m["hari"][1]["label"], "Selasa, 29 September 2026")
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": ""}).status_code, 422)
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "MINGGU"}).status_code, 422)   # di luar Senin-Jumat
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-27"}).status_code, 422)   # di luar 28 Sep-2 Okt
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA"}).status_code, 422)
-        r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "selasa"})   # tak peka huruf besar/kecil
+        r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-29"})
         self.assertEqual(r.status_code, 201, r.text)
-        self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hari_ujian"], "SELASA")
+        self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hari_ujian"], "2026-09-29")
 
     def test_pending_counter_returns_to_zero(self):
         from server import main as srv
