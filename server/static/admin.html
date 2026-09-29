@@ -201,29 +201,37 @@
           </div>
         </div>
         <div class="tbl"><table>
-          <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th>Hari</th><th>Kode Soal</th><th class="c" style="width:auto">Lembar</th><th class="c" style="width:auto">Mhs</th><th>Proses</th><th>Submit</th><th>Sheet</th><th></th></tr></thead>
+          <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th>Ujian</th><th class="c" style="width:auto">Lembar</th><th class="c" style="width:auto">Mhs</th><th>Proses</th><th>Kirim</th><th></th></tr></thead>
           <tbody>
             <template x-for="i in ses.items" :key="i.id">
               <tr>
                 <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
-                <td x-text="i.kelas||'-'"></td><td x-text="i.prodi"></td>
-                <td x-text="hariLabel(i.hari_ujian)"></td><td x-text="stripKode(i.kode_soal)"></td>
+                <td x-text="i.kelas||'-'"></td>
+                <td><span class="trunc" :title="i.prodi" x-text="i.prodi"></span></td>
+                <td><span x-text="hariLabel(i.hari_ujian)"></span><div class="mute" style="font-size:11.5px" x-text="'#'+stripKode(i.kode_soal)"></div></td>
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
                 <td class="c mono" style="width:auto" x-text="i.jml_mhs ?? '-'"></td>
                 <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>
                   <span class="mute" x-show="i.files.failed" style="font-size:11px" x-text="i.files.failed+' gagal'"></span>
                   <div x-show="i.files.orphans" class="mute" style="font-size:11px;color:var(--bad);font-weight:700" x-text="i.files.orphans+' hilang senyap'"></div></td>
-                <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
-                <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>
-                <td class="actrow">
+                <td>
+                  <span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span><br>
+                  <span class="chip" style="margin-top:3px" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span>
+                </td>
+                <td class="actrow" x-data="{menuOpen:false}">
                   <button class="btn sm" @click="openDetail(i)">Detail</button>
                   <button class="btn sm d" x-show="i.files.orphans" @click="reprocessOrphans(i)" x-text="'Proses ulang ('+i.files.orphans+')'"></button>
-                  <button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button>
-                  <button class="btn sm" x-show="i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
-                  <button class="btn sm" x-show="i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
-                  <button class="btn sm" x-show="i.status==='validated' && !i.photos_cleared" @click="clearPhotos(i.id)">Bersihkan foto</button>
-                  <span class="mute" style="font-size:11px" x-show="i.photos_cleared">Foto dibersihkan</span>
-                  <button class="btn sm d" @click="deleteSession(i.id)">Hapus</button>
+                  <button class="btn sm" x-show="!i.files.orphans && i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
+                  <button class="btn sm" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
+                  <div class="rowmenu" @click.outside="menuOpen=false">
+                    <button class="btn sm ico" @click="menuOpen=!menuOpen" aria-label="Aksi lain" title="Aksi lain">⋮</button>
+                    <div class="rowmenu-pop" x-show="menuOpen" x-cloak x-transition.opacity>
+                      <button x-show="i.submitted" @click="menuOpen=false; download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">Unduh XLSX</button>
+                      <button x-show="i.status==='validated' && !i.photos_cleared" @click="menuOpen=false; clearPhotos(i.id)">Bersihkan foto</button>
+                      <span class="mute" style="display:block;padding:6px 10px;font-size:12px" x-show="i.photos_cleared">Foto sudah dibersihkan</span>
+                      <button class="d" @click="menuOpen=false; deleteSession(i.id)">Hapus sesi</button>
+                    </div>
+                  </div>
                 </td>
               </tr>
             </template>

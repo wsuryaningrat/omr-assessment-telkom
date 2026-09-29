@@ -3,6 +3,7 @@
   --bg:#F7F8FA; --card:#fff; --ink:#0B0F19; --ink2:#5B6473; --ink3:#9AA3B2; --line:#E6E8EC; --soft:#F1F3F6;
   --brand:#BA0C2F; --ok:#0F8F5F; --ok-bg:#E8F8F0; --ok-line:#BFEBD6;
   --warn:#B45309; --warn-bg:#FFF6E5; --warn-line:#F6DDA6; --bad:#C0262D; --bad-bg:#FDECEC; --bad-line:#F6C4C6;
+  --info:#1D5FD6; --info-bg:#E9F0FE; --info-line:#C7D9FB;
   --r:14px; --safe-b:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -103,6 +104,13 @@ input::placeholder{color:var(--ink3)}
 .tbl tbody tr{cursor:pointer;transition:background .12s}
 .tbl tbody tr:hover{background:#FAFBFC}
 .tbl .nm{font-weight:700}.tbl .fl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink2);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl .trunc{display:block;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* menu titik-tiga per baris (aksi sekunder) -- sama spt .menu header, supaya kolom Aksi tak menumpuk banyak tombol */
+.rowmenu{position:relative;display:inline-block}
+.rowmenu-pop{position:absolute;right:0;top:calc(100% + 4px);min-width:180px;background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;z-index:30}
+.rowmenu-pop button{display:flex;width:100%;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:none;border:0;text-align:left;font:inherit;font-size:13px;cursor:pointer;color:inherit}
+.rowmenu-pop button:hover{background:var(--soft)}
+.rowmenu-pop button.d{color:var(--bad)}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;border-radius:99px;padding:3px 10px;border:1px solid var(--line);background:var(--soft);white-space:nowrap}
 .chip.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-line)}
@@ -251,6 +259,10 @@ th.c,td.c{width:36px;padding-left:8px;padding-right:4px}
 
 .chip.pending{background:#FFF8DB;color:#8A6500;border-color:#F3E3A0}
 .rc.pending{border-left:3px solid #E9B700}
+/* status proses sesi (scanning/perlu_cek/validated): tiga warna berbeda spy tak tertukar sekilas --
+   scanning (biru, sedang berjalan) beda dari perlu_cek (kuning .check, butuh perhatian) & validated (hijau) */
+.chip.scanning{background:var(--info-bg);color:var(--info);border-color:var(--info-line)}
+.dot.scanning{background:var(--info)}
 .stats{grid-template-columns:repeat(3,1fr)}
 .fakinfo{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:99px;padding:3px 12px 3px 10px;font-size:12.5px;max-width:100%}
 .fakinfo small{color:var(--ink2);font-size:11px}.fakinfo b{font-weight:700}
