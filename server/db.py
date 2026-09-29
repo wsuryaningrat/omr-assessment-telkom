@@ -37,6 +37,10 @@ class ScanSession(Base):
     kelas: Mapped[str] = mapped_column(String(100), default="")
     fakultas: Mapped[str] = mapped_column(String(100))
     prodi: Mapped[str] = mapped_column(String(150))
+    # Diisi pengawas di form awal (sebelum unggah): kode paket soal yg dipakai kelas ini & hari ujian --
+    # label bantu admin memantau, terpisah dari "Kode Soal" hasil baca LJK per-mahasiswa.
+    kode_soal: Mapped[str] = mapped_column(String(100), default="")
+    hari_ujian: Mapped[str] = mapped_column(String(20), default="")
     submitted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     submitted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -103,6 +107,7 @@ def _migrate():
             "synced_at": "TIMESTAMP", "sync_attempts": "INTEGER DEFAULT 0",
             "sync_error": "TEXT", "sync_next": "TIMESTAMP",
             "admin_validated": "BOOLEAN DEFAULT FALSE", "admin_validated_at": "TIMESTAMP",
+            "kode_soal": "VARCHAR(100) DEFAULT ''", "hari_ujian": "VARCHAR(20) DEFAULT ''",
         },
         "kunci": {"source": "VARCHAR(20) DEFAULT 'manual'", "updated_at": "TIMESTAMP"},
     }

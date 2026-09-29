@@ -17,7 +17,7 @@ from tests.regression.fixtures import KUNCI  # noqa: E402
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GOLDEN = json.load(open(os.path.join(ROOT, "tests", "regression", "golden_scan.json"), encoding="utf-8"))
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
-         "prodi": "S1 Sistem Informasi"}
+         "prodi": "S1 Sistem Informasi", "hari_ujian": "SENIN", "kode_soal": "A"}
 
 
 class TestAPI(unittest.TestCase):
@@ -59,6 +59,17 @@ class TestAPI(unittest.TestCase):
         self.assertGreater(len(m["kelas"]), 100)
         self.assertEqual(m["prodi"], sorted(set(k["prodi"] for k in m["kelas"]), key=str.lower))
         self.assertNotIn("fakultas_prodi", m)
+        # hari ujian & kode soal (baru): wajib diisi, kode soal harus salah satu kunci yg terdaftar (kelas ini
+        # sudah punya kunci "A" dari setUpClass)
+        self.assertIn("A", m["kunci"])
+        self.assertEqual(m["hari"], ["SENIN", "SELASA", "RABU", "KAMIS", "JUMAT"])
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": ""}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "MINGGU"}).status_code, 422)   # di luar Senin-Jumat
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA"}).status_code, 422)
+        r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "selasa"})   # tak peka huruf besar/kecil
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hari_ujian"], "SELASA")
 
     def test_pending_counter_returns_to_zero(self):
         from server import main as srv
@@ -87,7 +98,7 @@ class TestAPI(unittest.TestCase):
             # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar tetap wajib mengisi sendiri
             self.assertTrue(p[3]["dosen"] and not p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
             self.assertNotIn("hp", p[0])
-            base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"]}
+            base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[1]["id"]})
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]

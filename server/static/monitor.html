@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex">
+<title>Monitoring Pemindaian — Math Center</title>
+<meta name="description" content="Status pemindaian LJK semua sesi: sedang memindai, perlu dicek, atau sudah divalidasi.">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/style.css">
+<script defer src="/vendor/alpine.min.js"></script>
+<script src="/monitor.js"></script>
+</head>
+<body x-data="monitor()" x-cloak>
+
+<header><div class="in">
+  <div class="brand">
+    <a href="/" title="Math Center — beranda"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
+    <h1>Monitoring Pemindaian<small>Status unggahan &amp; scan semua sesi</small></h1>
+  </div>
+</div></header>
+
+<main class="wrap">
+  <section class="card flush">
+    <div class="tools">
+      <div class="tt">
+        <h2>Status sesi</h2>
+        <p class="sub">Pemindaian berjalan di latar belakang — halaman ini bisa ditinggal &amp; akan otomatis diperbarui. Validasi akhir dilakukan admin.</p>
+      </div>
+      <div class="f">
+        <input type="search" placeholder="Cari pengawas / kelas / prodi / kode soal…" x-model.trim="q">
+        <select x-model="status">
+          <option value="all">Semua status</option>
+          <option value="scanning">Memindai</option>
+          <option value="perlu_cek">Perlu dicek</option>
+          <option value="validated">Validated</option>
+        </select>
+      </div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th>Hari</th><th>Kode Soal</th><th class="c" style="width:auto">Lembar</th><th>Status</th></tr></thead>
+      <tbody>
+        <template x-for="i in filtered" :key="i.nama + i.kelas + i.created_at">
+          <tr>
+            <td><div class="nm" x-text="i.nama"></div></td>
+            <td x-text="i.kelas||'-'"></td>
+            <td x-text="i.prodi||'-'"></td>
+            <td x-text="i.hari_ujian||'-'"></td>
+            <td x-text="i.kode_soal||'-'"></td>
+            <td class="c mono" style="width:auto" x-text="i.lembar"></td>
+            <td><span class="chip" :class="statusChip(i.status)" x-text="statusLabel(i.status)"></span></td>
+          </tr>
+        </template>
+      </tbody>
+    </table></div>
+    <p class="empty" x-show="!loading && !filtered.length">Belum ada sesi yang cocok.</p>
+    <div class="pagebar">
+      <span class="mute" x-text="filtered.length+' sesi'"></span>
+      <span class="mute" x-text="lastLoad ? 'Diperbarui '+lastLoad : ''"></span>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>
