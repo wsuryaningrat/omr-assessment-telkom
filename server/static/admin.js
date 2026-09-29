@@ -46,7 +46,7 @@ function admin() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
     async loadMonitor(refresh = false) {
       this.monBusy = true;
       try {
@@ -73,6 +73,27 @@ function admin() {
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
       try { const d = await this.json("/api/admin/sessions?" + p); Object.assign(this.ses, { items: d.items, total: d.total }); } catch (e) { this.toast(e.message, true); }
+    },
+    sesStatusLabel(st) { return { scanning: "Memindai…", perlu_cek: "Perlu dicek", validated: "Validated" }[st] || st; },
+    sesStatusChip(st) { return { scanning: "pending", perlu_cek: "check", validated: "validated" }[st] || ""; },
+    async validateSession(id, value) {
+      try { await this.json(`/api/admin/sessions/${id}/validate?value=${value}`, { method: "POST" }); this.toast(value ? "Sesi ditandai validated" : "Tanda validated dibatalkan"); await this.loadSessions(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async stopSession(id) {
+      if (!confirm("Hentikan pemindaian sesi ini? Berkas yang belum mulai diproses akan dibatalkan; yang sudah berjalan tetap diselesaikan.")) return;
+      try { const d = await this.json(`/api/admin/sessions/${id}/stop`, { method: "POST" }); this.toast(`Dihentikan — ${d.dibatalkan} dibatalkan, ${d.masih_berjalan} masih berjalan`); await this.loadSessions(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async deleteSession(id) {
+      if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;
+      try { await this.api(`/api/admin/sessions/${id}`, { method: "DELETE" }); this.toast("Sesi dihapus"); await this.loadSessions(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async clearPhotos(id) {
+      if (!confirm("Hapus foto asli sesi ini dari server? Rekap/nilai TETAP tersimpan, hanya berkas foto sumbernya yang dihapus (tidak bisa dibatalkan).")) return;
+      try { await this.json(`/api/admin/sessions/${id}/clear-photos`, { method: "POST" }); this.toast("Foto dibersihkan"); await this.loadSessions(); }
+      catch (e) { this.toast(e.message, true); }
     },
     async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
     async act(path, okMsg) {

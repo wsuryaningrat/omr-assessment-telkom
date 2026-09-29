@@ -24,6 +24,7 @@ from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
 _pending = multiprocessing.Value("i", 0)   # pekerjaan pindai berjalan + mengantre; dibaca worker untuk menentukan jumlah thread
+_FUTURES = {}   # file_id -> Future, hanya utk yg masih 'queued'/'processing' (lihat cancel_pending_files)
 
 
 def _submit_scan(*args):
@@ -91,10 +92,12 @@ def _enqueue(file_id):
         args = (f.path, f.name, _pengawas(s), _kunci(db))
         db.commit()
     fut = _submit_scan(*args)
+    _FUTURES[file_id] = fut
     fut.add_done_callback(lambda fu, fid=file_id: _on_done(fid, fu))
 
 
 def _on_done(file_id, fut):
+    _FUTURES.pop(file_id, None)
     try:
         results = fut.result()
         err = None
@@ -113,6 +116,32 @@ def _on_done(file_id, fut):
         f.state = "failed" if err else "done"
         f.error = err
         db.commit()
+
+
+def cancel_pending_files(db, s: ScanSession) -> dict:
+    """Upaya admin utk MENGHENTIKAN pemindaian sesi `s` yg masih berjalan. DB menandai berkas 'processing'
+    segera setelah diserahkan ke pool (lihat _enqueue) -- itu TIDAK berarti sedang benar2 dieksekusi oleh
+    worker saat ini, krn ProcessPoolExecutor punya antrean internal sendiri saat semua worker sibuk. Jadi
+    setiap berkas 'queued'/'processing' yg futurenya masih hidup dicoba dibatalkan lewat Future.cancel():
+    berhasil (True) hanya bila belum benar2 diambil worker; kalau sudah benar2 jalan, cancel() gagal (False)
+    dan tak ada cara aman menghentikannya di tengah jalan tanpa mematikan proses worker (bisa mengganggu sesi
+    LAIN yg berbagi pool yg sama) -- dibiarkan selesai secara alami, hasilnya tetap masuk normal lewat
+    _on_done (aman meski sesi ini kelak dihapus, lihat guard `f is None` di atas).
+    Kembalikan {"dibatalkan": n, "masih_berjalan": n}."""
+    cancelled = still_running = 0
+    for f in s.files:
+        if f.state not in ("queued", "processing"):
+            continue
+        fut = _FUTURES.get(f.id)
+        if fut is not None and fut.cancel():
+            _FUTURES.pop(f.id, None)
+            f.state = "failed"
+            f.error = "Dibatalkan oleh admin"
+            cancelled += 1
+        else:
+            still_running += 1
+    db.commit()
+    return {"dibatalkan": cancelled, "masih_berjalan": still_running}
 
 
 async def _loop(fn, every, first_delay=0):
