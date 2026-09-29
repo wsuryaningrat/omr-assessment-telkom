@@ -166,7 +166,7 @@
       <div class="tools">
         <div class="tt"><h2>Daftar Mahasiswa & Hasil Pindaian</h2></div>
         <div class="f">
-          <input type="search" placeholder="Cari nama / NPM…" x-model.trim="q" @input="page=0" aria-label="Cari">
+          <input type="search" placeholder="Cari NPM / berkas…" x-model.trim="q" @input="page=0" aria-label="Cari">
           <select x-model="filter" @change="page=0" aria-label="Filter status">
             <option value="all">Semua status</option><option value="warning">Warning</option>
             <option value="validated">Validated</option><option value="pending">Checking</option>
@@ -181,14 +181,13 @@
 
       <!-- tabel desktop -->
       <div class="tbl"><table>
-        <thead><tr><th class="c">No</th><th>Status</th><th>Nama mahasiswa</th><th>NPM</th><th>Fak.</th><th>Kode</th><th>Terisi</th><th style="text-align:right">Aksi</th></tr></thead>
+        <thead><tr><th class="c">No</th><th>Status</th><th>NPM</th><th>Fak.</th><th>Kode</th><th>Terisi</th><th style="text-align:right">Aksi</th></tr></thead>
         <tbody>
           <template x-for="s in paged" :key="s.id">
             <tr @click="open(s)">
               <td class="c mono" x-text="numOf(s)"></td>
               <td><span class="chip" :class="status(s)" :title="reasons(s).join('\n')" x-text="statusText(s)"></span></td>
-              <td><div class="nm" x-text="nameOf(s)"></div><div class="fl" x-text="s.file"></div></td>
-              <td class="mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></td>
+              <td><div class="nm mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></div></td>
               <td class="fak" x-text="fakText(s)"></td>
               <td class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></td>
               <td class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></td>
@@ -208,8 +207,8 @@
           <div class="rc" :class="status(s)">
             <span class="num" x-text="numOf(s)"></span>
             <div class="main" @click="open(s)">
-              <div class="l1"><span class="nm" x-text="nameOf(s)"></span><span class="chip xs" :class="status(s)" x-text="statusText(s)"></span></div>
-              <div class="l2"><span class="mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></span><span>·</span><span class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></span><span>·</span><span class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></span><span>·</span><span class="fak" x-text="fakText(s)"></span></div>
+              <div class="l1"><span class="nm mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></span><span class="chip xs" :class="status(s)" x-text="statusText(s)"></span></div>
+              <div class="l2"><span class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></span><span>·</span><span class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></span><span>·</span><span class="fak" x-text="fakText(s)"></span></div>
             </div>
             <div class="side">
               <button class="ib" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" aria-label="Validasi"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
@@ -273,17 +272,50 @@
     <div class="veil" @click="close()"></div>
     <div class="sheet" role="dialog" aria-modal="true" @keydown.window.arrow-right="!dlg && move(1)" @keydown.window.arrow-left="!dlg && move(-1)">
       <div class="grab"></div>
-      <h3><span class="mono mute" x-text="'#'+numOf(sel)"></span> <span x-text="nameOf(sel)"></span>
+      <h3><span class="mono mute" x-text="'#'+numOf(sel)"></span> <span class="mono" x-text="sel.file"></span>
         <span class="mute mono" style="font-size:12px;font-weight:400;float:right" x-show="selIndex>=0" x-text="(selIndex+1)+' / '+filtered.length" aria-label="Posisi lembar pada daftar"></span></h3>
-      <span class="chip" :class="status(sel)" x-text="statusText(sel)"></span> <span class="mono" style="font-size:12px;color:var(--ink2)" x-text="sel.file"></span>
+      <span class="chip" :class="status(sel)" x-text="statusText(sel)"></span>
       <div class="warnbox" x-show="status(sel)==='warning'">
         <b>Perlu dicek ulang</b>
         <ul><template x-for="r in reasons(sel)" :key="r"><li x-text="r"></li></template></ul>
       </div>
       <dl class="kv">
-        <dt>NPM</dt><dd class="mono" :class="{bad: npmBad(sel)}" x-text="npmText(sel)"></dd>
-        <dt>Fakultas (LJK)</dt><dd class="fak" x-text="fakText(sel)"></dd>
-        <dt>Kode soal</dt><dd class="mono" :class="{bad: kodeBad(sel)}" x-text="sel.kode_soal||'-'"></dd>
+        <dt>NPM</dt>
+        <dd x-show="edit.field!=='npm'" class="mono edd" :class="{bad: npmBad(sel)}">
+          <span x-text="npmText(sel)"></span>
+          <button class="ed" @click="startEdit('npm')" title="Koreksi NPM" aria-label="Koreksi NPM">✎</button>
+        </dd>
+        <dd x-show="edit.field==='npm'" class="edrow">
+          <input id="ed_npm" class="mono" x-model="edit.val" inputmode="numeric" maxlength="10" placeholder="10 digit NPM" @keydown.enter="saveEdit()" @keydown.escape="cancelEdit()">
+          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
+          <button class="btn xs" @click="cancelEdit()">Batal</button>
+        </dd>
+
+        <dt>Fakultas (LJK)</dt>
+        <dd x-show="edit.field!=='fakultas_ljk'" class="edd">
+          <span class="fak" x-text="fakText(sel)"></span>
+          <button class="ed" @click="startEdit('fakultas_ljk')" title="Koreksi fakultas" aria-label="Koreksi fakultas">✎</button>
+        </dd>
+        <dd x-show="edit.field==='fakultas_ljk'" class="edrow">
+          <select id="ed_fakultas_ljk" x-model="edit.val" @keydown.escape="cancelEdit()">
+            <option value="">(kosong)</option>
+            <template x-for="f in fakultasOptions" :key="f"><option :value="f" x-text="f"></option></template>
+          </select>
+          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
+          <button class="btn xs" @click="cancelEdit()">Batal</button>
+        </dd>
+
+        <dt>Kode soal</dt>
+        <dd x-show="edit.field!=='kode_soal'" class="mono edd" :class="{bad: kodeBad(sel)}">
+          <span x-text="sel.kode_soal||'-'"></span>
+          <button class="ed" @click="startEdit('kode_soal')" title="Koreksi kode soal" aria-label="Koreksi kode soal">✎</button>
+        </dd>
+        <dd x-show="edit.field==='kode_soal'" class="edrow">
+          <input id="ed_kode_soal" class="mono" x-model="edit.val" inputmode="numeric" maxlength="3" placeholder="3 digit" @keydown.enter="saveEdit()" @keydown.escape="cancelEdit()">
+          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
+          <button class="btn xs" @click="cancelEdit()">Batal</button>
+        </dd>
+
         <dt>Jawaban terisi</dt><dd class="mono" :class="{bad: fillBad(sel)}" x-text="terisiText(sel)"></dd>
       </dl>
       <div style="display:flex;gap:8px;flex-wrap:wrap">

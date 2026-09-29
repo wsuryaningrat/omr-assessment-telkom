@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
-from scanner.service import classify_scan_status
+from scanner.service import classify_scan_status, load_default_template
 from server import refdata, admin, auth, config, services, worker
 from server.db import ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
@@ -181,10 +181,17 @@ def get_db():
 
 
 # --------------------------------------------------------------------------- meta & sesi
+def _fakultas_options():
+    """Daftar kode fakultas (mis. FIF, FTE, ...) langsung dari template LJK, bukan disalin manual."""
+    field = load_default_template().get("fields", {}).get("FAKULTAS", {})
+    items = field.get("items") or [{}]
+    return [str(b.get("option")) for b in items[0].get("bubbles", []) if b.get("option")]
+
+
 @app.get("/api/meta")
 def meta():
     return {"pengawas": [{"id": p["id"], "nama": p["nama"], "dosen": p["dosen"], "needs_hp": not p["hp"] and not p["dosen"]} for p in refdata.pengawas()],
-            "kelas": refdata.kelas(), "prodi": refdata.prodi_list(),
+            "kelas": refdata.kelas(), "prodi": refdata.prodi_list(), "fakultas": _fakultas_options(),
             "max_upload_mb": config.MAX_UPLOAD_MB, "extensions": sorted(config.ALLOWED_EXT)}
 
 
@@ -258,10 +265,12 @@ def _session_or_404(db, sid):
 
 
 def _sheet_view(sh: Sheet):
+    """Data lembar untuk dashboard pengawas. Nama mahasiswa SENGAJA tidak disertakan di sini — tetap tersimpan
+    di sh.record (rekap/ekspor admin) tapi tidak dikirim ke sisi pengawas sama sekali."""
     r = sh.record
     return {
         "id": sh.id, "seq": sh.seq, "file": r.get("File"),
-        "nama": r.get("Nama Mahasiswa"), "npm": r.get("NPM"), "kode_soal": r.get("Kode Soal"),
+        "npm": r.get("NPM"), "kode_soal": r.get("Kode Soal"),
         "fakultas_ljk": r.get("Fakultas (LJK)"), "fakultas": r.get("Fakultas"), "terisi": r.get("Jawaban Terisi"),
         "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
         "validated": sh.validated,
@@ -343,6 +352,44 @@ def _sheet_or_404(db, shid):
 def _guard_open(db, sh):
     if db.get(ScanSession, sh.session_id).submitted:
         raise HTTPException(409, "Sesi sudah disubmit")
+
+
+class SheetCorrectionIn(BaseModel):
+    npm: str | None = None
+    kode_soal: str | None = None
+    fakultas_ljk: str | None = None
+
+
+@app.patch("/api/sheets/{shid}")
+def correct_sheet(shid: str, body: SheetCorrectionIn, db=Depends(get_db)):
+    """Koreksi manual NPM/kode soal/fakultas dari dashboard pengawas saat validasi (silang di LJK sulit terbaca:
+    fotokopi, tinta samar, dsb). Hanya field yang dikirim (bukan None) yang diubah; nilai diselaraskan ulang
+    memakai kunci saat ini bila kode soal berubah."""
+    sh = _sheet_or_404(db, shid)
+    _guard_open(db, sh)
+    rec = dict(sh.record)
+    if body.npm is not None:
+        npm = re.sub(r"\D", "", body.npm)
+        if npm and len(npm) != 10:
+            raise HTTPException(422, "NPM harus 10 digit")
+        rec["NPM"] = npm
+    if body.kode_soal is not None:
+        kode = body.kode_soal.strip()
+        if kode and not re.fullmatch(r"\d{3}", kode):
+            raise HTTPException(422, "Kode soal harus 3 digit")
+        rec["Kode Soal"] = kode
+    if body.fakultas_ljk is not None:
+        fak = body.fakultas_ljk.strip().upper()
+        options = _fakultas_options()
+        if fak and fak not in options:
+            raise HTTPException(422, f"Fakultas harus salah satu dari: {', '.join(options)}")
+        rec["Fakultas (LJK)"] = fak
+        rec["Fakultas"] = fak
+    from core.evaluator import grade_student_record
+    k = services.kunci_int(db)
+    sh.record = grade_student_record(rec, k) if k else rec
+    db.commit()
+    return _sheet_view(sh)
 
 
 @app.post("/api/sheets/{shid}/validate")

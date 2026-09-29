@@ -126,7 +126,7 @@ function ljk() {
       return this.ask({
         title: one ? "Lembar ini memiliki peringatan" : `${list.length} lembar memiliki peringatan`,
         body: "Disarankan periksa ulang lembar fisiknya atau ambil foto ulang sebelum divalidasi. Tetap validasi?",
-        list: one ? this.reasons(list[0]) : list.slice(0, 5).map(s => `No. ${this.numOf(s)} ${this.nameOf(s)} — ${this.reasonsShort(s)}`).concat(list.length > 5 ? [`…dan ${list.length - 5} lainnya`] : []),
+        list: one ? this.reasons(list[0]) : list.slice(0, 5).map(s => `No. ${this.numOf(s)} (${s.file}) — ${this.reasonsShort(s)}`).concat(list.length > 5 ? [`…dan ${list.length - 5} lainnya`] : []),
         ok: "Tetap validasi", cancel: "Cek ulang", danger: true,
       });
     },
@@ -136,12 +136,12 @@ function ljk() {
     get canSubmit() { return this.allValid && !this.session.scanning; },
     abbr(v) { const t = String(v || "").trim(); const m = /\(([A-Za-z]{2,5})\)/.exec(t); return (m ? m[1] : t.split(" - ")[0]).toUpperCase(); },
     fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
-    nameOf(s) { return s.nama && s.nama !== "-" ? s.nama : "(nama tidak terbaca)"; },
+    // Nama mahasiswa sengaja tidak ditampilkan/dicari di sisi pengawas (tetap tersimpan di rekap admin).
     get filtered() {
       let l = this.session?.sheets || [];
       if (this.filter !== "all") l = l.filter(s => this.status(s) === this.filter);
       const q = this.q.toLowerCase();
-      return q ? l.filter(s => `${s.nama} ${s.npm} ${s.file}`.toLowerCase().includes(q)) : l;
+      return q ? l.filter(s => `${s.npm} ${s.file}`.toLowerCase().includes(q)) : l;
     },
     numOf(s) { return (this.session?.sheets || []).findIndex(x => x.id === s.id) + 1; },
     get pageCount() { return Math.max(1, Math.ceil(this.filtered.length / this.pageSize)); },
@@ -286,8 +286,31 @@ function ljk() {
       catch (e) { this.toast(e.message, true); }
       this.busy = false;
     },
-    open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; document.body.style.overflow = "hidden"; },
-    close() { this.sel = null; document.body.style.overflow = ""; },
+    open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; this.edit = { field: null, val: "" }; document.body.style.overflow = "hidden"; },
+    close() { this.sel = null; this.edit = { field: null, val: "" }; document.body.style.overflow = ""; },
+    // ---- koreksi manual NPM / fakultas / kode soal (silang di LJK kadang sulit terbaca mesin: fotokopi, tinta samar)
+    startEdit(field) {
+      const s = this.sel; if (!s) return;
+      const cur = field === "npm" ? (s.npm || "") : field === "kode_soal" ? (s.kode_soal || "") : (this.abbr(s.fakultas_ljk) || "");
+      this.edit = { field, val: cur === "-" ? "" : cur };
+      this.$nextTick(() => document.getElementById("ed_" + field)?.focus());
+    },
+    cancelEdit() { this.edit = { field: null, val: "" }; },
+    get fakultasOptions() { return this.meta.fakultas || []; },
+    async saveEdit() {
+      const f = this.edit.field; if (!f || !this.sel) return;
+      const body = {}; body[f] = this.edit.val.trim();
+      this.busy = true;
+      try {
+        await this.api(`/api/sheets/${this.sel.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const id = this.sel.id;
+        await this.refresh();
+        this.sel = this.session.sheets.find(x => x.id === id) || null;
+        this.edit = { field: null, val: "" };
+        this.toast("Data diperbarui");
+      } catch (e) { this.toast(e.message, true); }
+      this.busy = false;
+    },
     // ---- navigasi antar lembar di panel detail (mengikuti urutan & filter daftar yang sedang tampil)
     get selIndex() { return this.sel ? this.filtered.findIndex(x => x.id === this.sel.id) : -1; },
     get hasPrev() { return this.selIndex > 0; },
@@ -315,7 +338,7 @@ function ljk() {
       clientLog("preview_fail", { id: this.sel?.id });
     },
     async remove(s) {
-      if (!(await this.ask({ title: `Hapus lembar No. ${this.numOf(s)}?`, body: `${this.nameOf(s)} (${s.file}). Gunakan ini bila foto terunggah dobel.`, ok: "Hapus", cancel: "Batal", danger: true }))) return;
+      if (!(await this.ask({ title: `Hapus lembar No. ${this.numOf(s)}?`, body: `${s.file}. Gunakan ini bila foto terunggah dobel.`, ok: "Hapus", cancel: "Batal", danger: true }))) return;
       try { await this.api(`/api/sheets/${s.id}`, { method: "DELETE" }); this.close(); await this.refresh(); this.toast("Lembar dihapus"); }
       catch (e) { this.toast(e.message, true); }
     },
