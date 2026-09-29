@@ -6,8 +6,13 @@ Pipeline:
     3. Rough-warp only for corner-anchor detection.
     4. Detect ArUco only in the four corner ROIs.
     5. Use RegMark INNER corners when the sheet uses registration marks.
-    6. Fall back to the printed green frame, then an inward physical-paper estimate.
+    6. Fall back to an inward physical-paper estimate.
     7. Perform the final perspective warp from the original image.
+
+    Note: this LJK is printed black & white (no printed color frame), so ArUco corner
+    markers (inner_corner) are the primary crop boundary; a printed-green-frame detector
+    was removed (2026) after real photos showed it false-triggering on shadows/paper tint
+    and overriding a correct ArUco crop with a wrong one.
 
 The public function signatures are kept compatible with the previous module.
 """
@@ -757,8 +762,8 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
 def enhance_scan_bgr(image, strength=1.0, bg_downscale=1):
     """Scanner-like enhancement while preserving color information.
 
-    Used before geometric corner detection so the green printed frame remains
-    available as a strong, design-specific boundary cue.
+    Used before geometric corner detection to normalize lighting/contrast prior to
+    ArUco marker detection.
     """
     if image is None or image.size == 0:
         return image
@@ -771,146 +776,6 @@ def enhance_scan_bgr(image, strength=1.0, bg_downscale=1):
     out = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
     return out
 
-
-def _fit_robust_line(pts, is_horizontal=True):
-    pts = np.asarray(pts, dtype=np.float32)
-    if len(pts) < 15:
-        return None
-    coord = pts[:, 1] if is_horizontal else pts[:, 0]
-    med = np.median(coord)
-    mad = np.median(np.abs(coord - med)) + 1.0
-    keep = np.abs(coord - med) <= max(10.0, 3.0 * mad)
-    pts = pts[keep]
-    if len(pts) < 15:
-        return None
-    if is_horizontal:
-        A = np.column_stack([pts[:, 0], np.ones(len(pts))])
-        a, b = np.linalg.lstsq(A, pts[:, 1], rcond=None)[0]
-        return ('H', float(a), float(b))
-    else:
-        A = np.column_stack([pts[:, 1], np.ones(len(pts))])
-        a, b = np.linalg.lstsq(A, pts[:, 0], rcond=None)[0]
-        return ('V', float(a), float(b))
-
-
-def _intersect_lines(lh, lv):
-    _, ah, bh = lh
-    _, av, bv = lv
-    denom = 1.0 - ah * av
-    if abs(denom) < 1e-6:
-        return None
-    y = (ah * bv + bh) / denom
-    x = av * y + bv
-    return np.array([x, y], dtype=np.float32)
-
-
-def find_green_frame_corners(image):
-    """Robustly detect the printed green frame boundary using line fitting and edge constraints.
-
-    Architecture & Invariants:
-    1. The green frame defines the outer crop boundary for the canonical LJK canvas.
-    2. Uses directional morphology (horizontal and vertical line kernels) to isolate straight border edges.
-    3. Fits lines to the 4 borders (Top, Bottom, Left, Right) with median/MAD outlier rejection.
-    4. Computes 4 corners as exact line intersections: TL, TR, BR, BL.
-    5. Falls back to convex hull contour analysis if lighting or occlusion breaks line continuity.
-    6. Returns points ordered strictly TL -> TR -> BR -> BL.
-    """
-    if image is None or image.size == 0 or image.ndim != 3:
-        return None
-    h, w = image.shape[:2]
-
-    # 1. Dual-space green mask (HSV + RGB differential) to survive phone glare and lighting shifts
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    lower = np.array([28, 18, 16], dtype=np.uint8)
-    upper = np.array([100, 255, 255], dtype=np.uint8)
-    mask_hsv = cv2.inRange(hsv, lower, upper)
-
-    b, g, r = cv2.split(image.astype(np.int16))
-    mask_rgb = ((g - r > 10) & (g - b > 6) & (g > 35) & (hsv[:, :, 1] >= 18)).astype(np.uint8) * 255
-    mask = cv2.bitwise_or(mask_hsv, mask_rgb)
-
-    # 2. Extract horizontal and vertical line segments
-    kw = max(15, int(w * 0.02))
-    kh = max(15, int(h * 0.02))
-    lines_h = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (kw, 2)))
-    lines_v = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (2, kh)))
-
-    # 3. Outer border scan
-    x_steps = range(int(0.12 * w), int(0.88 * w), 2)
-    top_pts = []
-    bot_pts = []
-    for x in x_steps:
-        nz_top = np.where(lines_h[int(0.02 * h):int(0.28 * h), x] > 0)[0]
-        if len(nz_top) > 0:
-            top_pts.append((x, int(0.02 * h) + nz_top[0]))
-        nz_bot = np.where(lines_h[int(0.72 * h):int(0.98 * h), x] > 0)[0]
-        if len(nz_bot) > 0:
-            bot_pts.append((x, int(0.72 * h) + nz_bot[-1]))
-
-    y_steps = range(int(0.12 * h), int(0.88 * h), 2)
-    left_pts = []
-    right_pts = []
-    for y in y_steps:
-        nz_left = np.where(lines_v[y, int(0.02 * w):int(0.28 * w)] > 0)[0]
-        if len(nz_left) > 0:
-            left_pts.append((int(0.02 * w) + nz_left[0], y))
-        nz_right = np.where(lines_v[y, int(0.72 * w):int(0.98 * w)] > 0)[0]
-        if len(nz_right) > 0:
-            right_pts.append((int(0.72 * w) + nz_right[-1], y))
-
-    # 4. Robust line fitting
-    lt = _fit_robust_line(top_pts, True)
-    lb = _fit_robust_line(bot_pts, True)
-    ll = _fit_robust_line(left_pts, False)
-    lr = _fit_robust_line(right_pts, False)
-
-    quad = None
-    if not any(p is None for p in (lt, lb, ll, lr)):
-        tl = _intersect_lines(lt, ll)
-        tr = _intersect_lines(lt, lr)
-        br = _intersect_lines(lb, lr)
-        bl = _intersect_lines(lb, ll)
-        if not any(p is None for p in (tl, tr, br, bl)):
-            cand = order_points([tl, tr, br, bl], target_w=w, target_h=h)
-            top_w = np.linalg.norm(cand[1] - cand[0])
-            bot_w = np.linalg.norm(cand[2] - cand[3])
-            left_h = np.linalg.norm(cand[3] - cand[0])
-            right_h = np.linalg.norm(cand[2] - cand[1])
-            avg_w = (top_w + bot_w) / 2.0
-            avg_h = (left_h + right_h) / 2.0
-            if avg_w > 0 and 1.20 <= (avg_h / avg_w) <= 1.70:
-                quad = cand
-
-    # 5. Robust fallback: contour analysis if line fitting fails
-    if quad is None:
-        mask_close = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_CLOSE,
-            cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11)),
-            iterations=2
-        )
-        contours, _ = cv2.findContours(mask_close, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        img_area = float(max(1, w * h))
-        best_score = -1.0
-        for cnt in sorted(contours, key=cv2.contourArea, reverse=True)[:10]:
-            area = cv2.contourArea(cnt)
-            ratio = area / img_area
-            if ratio < 0.18:
-                continue
-            peri = cv2.arcLength(cnt, True)
-            if peri <= 0:
-                continue
-            approx = cv2.approxPolyDP(cnt, 0.015 * peri, True)
-            if len(approx) == 4 and cv2.isContourConvex(approx):
-                c_cand = order_points(approx.reshape(4, 2).astype(np.float32), target_w=w, target_h=h)
-                q = _quad_quality(c_cand, image.shape)
-                if q >= 0.50:
-                    score = ratio * (0.7 + 0.3 * q)
-                    if score > best_score:
-                        best_score = score
-                        quad = c_cand
-
-    return quad
 
 
 def inset_quad(points, ratio=0.028):
@@ -1301,23 +1166,22 @@ def detect_corners_and_crop(
     apply_standardization=True,
     scan_enhance=True
 ):
-    """Alignment pipeline: Green Frame crop + ArUco registration.
+    """Alignment pipeline: ArUco corner-marker crop + registration.
 
     Architecture
     ------------
-    CROP BOUNDARY  — determined exclusively by the **green printed frame**.
-                     ArUco markers do NOT influence crop position or size.
-    REGISTRATION   — ArUco markers are detected in parallel and returned as
-                     metadata in the normalized LJK coordinate system for downstream
-                     deterministic JSON.
+    CROP BOUNDARY  — the ArUco corner markers' INNER corners (this LJK is printed
+                     black & white, so there is no printed color frame to detect).
+    REGISTRATION   — the same ArUco markers are also returned as metadata in the
+                     normalized LJK coordinate system for downstream deterministic JSON.
 
     Pipeline:
-        Image → preprocess → Green Frame Detection → 4 Green Frame Corners
+        Image → preprocess → ArUco Corner Detection → 4 Marker Inner Corners
               → Perspective Crop → Normalized LJK Coordinate System
-              → (parallel) ArUco Registration metadata in normalized space
+              → ArUco Registration metadata in normalized space
 
     Fallback hierarchy (crop only):
-        1. Green Frame (PRIMARY)
+        1. Corner ArUco markers, inner point (PRIMARY)
         2. RegMark (SECONDARY)
         3. Inset document boundary (LAST RESORT)
 
@@ -1359,7 +1223,7 @@ def detect_corners_and_crop(
 
     for angle_index, ang in enumerate(candidate_angles):
         # Stop early when authoritative crop found.
-        if best_crop is not None and best_crop[1] in ("inner_corner", "green_frame", "regmark"):
+        if best_crop is not None and best_crop[1] in ("inner_corner", "regmark"):
             break
         if angle_index >= 2 and best_crop is not None:
             break
@@ -1367,7 +1231,8 @@ def detect_corners_and_crop(
         rot_img = _rotate_candidate(preprocessed_bgr, ang)
         rot_raw = _rotate_candidate(processing_img, ang)
 
-        # Build a rough-warped image for deskewed green frame detection.
+        # Rough-warp: only used as an alternate detection surface for ArUco/RegMark below,
+        # and as the inset last-resort boundary if nothing else is found.
         doc_corners, _ = find_document_corners(
             rot_img, target_w=canvas_w, target_h=canvas_h
         )
@@ -1376,33 +1241,6 @@ def detect_corners_and_crop(
         rough_w = min(1800, max(1400, canvas_w))
         rough_h = min(2500, max(2000, canvas_h))
         rough_img, _, inv_rough_M = _rough_warp(rot_img, doc_corners, rough_w, rough_h)
-
-        # ===================================================================
-        # PRIMARY CROP: Printed Green Frame
-        # The green frame is the SOLE source of crop boundary.
-        # ===================================================================
-        green_corners = find_green_frame_corners(rot_img)
-        # If green frame was not detected directly on rot_img (e.g. tilted document on desk),
-        # detect green frame on the deskewed rough_img canvas and map back.
-        if green_corners is None and rough_img is not None and inv_rough_M is not None:
-            green_rough = find_green_frame_corners(rough_img)
-            if green_rough is not None:
-                green_corners = _map_points_back(green_rough, inv_rough_M)
-        if green_corners is not None:
-            green_original = green_corners / np.array([sx, sy], dtype=np.float32)
-            if ang:
-                green_original = np.array(
-                    [unrotate_point(p, image_bgr.shape, ang) for p in green_original],
-                    dtype=np.float32,
-                )
-            score = _quad_quality(green_original, image_bgr.shape)
-            if score >= 0.20:
-                if best_crop is None or (best_crop[1] != "inner_corner" and score > _quad_quality(best_crop[0], image_bgr.shape)):
-                    best_crop = (
-                        green_original, "green_frame", None, None,
-                        "DETECTED (Green Frame — Crop Boundary)"
-                    )
-                    _log.info("Green Frame detected at angle=%d, score=%.2f", ang, score)
 
         # ===================================================================
         # PARALLEL: ArUco Registration (does NOT affect crop)
@@ -1471,18 +1309,12 @@ def detect_corners_and_crop(
 
                     # ===================================================================
                     # PRIMARY CROP: Corner Black Box (Inner Point closest to LJK)
-                    # Skip inner_corner crop when any marker was synthesized — the
-                    # copied box shape gives an unreliable inner corner for that
-                    # marker.  Green frame crop (already stored in best_crop if
-                    # detected) is more accurate in that case.
+                    # Used even when a marker was synthesized (recover_missing_corner already
+                    # prefers a template-matched real position over synthesis whenever possible —
+                    # see core/alignment.py recover_missing_corner); it remains the best crop
+                    # source available (RegMark/inset fallback below are less accurate).
                     # ===================================================================
-                    has_synthetic = best_aruco_reg["has_synthetic"]
-                    green_frame_already = (
-                        best_crop is not None and best_crop[1] == "green_frame"
-                    )
-                    if preferred_method in ("inner_corner", "aruco", "auto", "regmark") and not (
-                        has_synthetic and green_frame_already
-                    ):
+                    if preferred_method in ("inner_corner", "aruco", "auto", "regmark"):
                         marker_centers = [orig_centers[lbl] for lbl in ("TL", "TR", "BR", "BL")]
                         doc_center = np.mean(marker_centers, axis=0)
                         inner_corners = []
@@ -1514,15 +1346,9 @@ def detect_corners_and_crop(
                             )
                             _log.info("Inner corner crop detected at angle=%d, score=%.2f", ang, inner_score)
                             break
-                    elif has_synthetic and green_frame_already:
-                        _log.info(
-                            "Synthetic ArUco corner detected — keeping green_frame crop "
-                            "(more reliable than inner_corner with synthetic box)"
-                        )
-                        break
 
         # ===================================================================
-        # FALLBACK CROP: RegMark (when green frame not found)
+        # FALLBACK CROP: RegMark (when no 4/4 ArUco corner crop found)
         # ===================================================================
         if best_crop is None and preferred_method in ("aruco", "auto", "regmark"):
             pts_reg, status_reg = _find_regmarks_on_normalized_page(

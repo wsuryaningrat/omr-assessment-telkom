@@ -1,9 +1,11 @@
 """
-Automated Integration Tests for Green Frame Alignment, ArUco Registration, and Bubble Delta Validation.
+Automated Integration Tests for ArUco Corner-Marker Alignment, Registration, and Bubble Delta Validation.
+(This LJK is printed black & white — no printed color frame — so ArUco corner markers, not a green
+frame, are the primary crop boundary; see core/alignment.py.)
 Verifies:
 1. Mathematical exactness of geometric unrotate.
-2. Deterministic Green Frame crop & perspective normalization on baseline reference (IMG_9558.HEIC).
-3. Robust Green Frame recovery & alignment consistency on challenging scan (IMG_9557.HEIC).
+2. Deterministic inner-corner crop & perspective normalization on baseline reference (IMG_9558.HEIC).
+3. Robust inner-corner recovery & alignment consistency on challenging scan (IMG_9557.HEIC).
 4. ArUco serves strictly as registration/validation reference in normalized LJK space.
 5. Bubble delta evaluation demonstrates aligned coordinate spaces (std < 3.5 px).
 """
@@ -64,10 +66,10 @@ class TestAlignmentEngine(unittest.TestCase):
         self.assertIsNotNone(img, "IMG_9558.HEIC must exist in sample foto/")
 
         warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
-            img, preferred_method="green_frame", apply_standardization=True
+            img, preferred_method="aruco", apply_standardization=True
         )
         self.assertTrue(status.startswith("DETECTED"), f"Expected DETECTED, got {status}")
-        self.assertEqual(method, "green_frame")
+        self.assertEqual(method, "inner_corner")
         self.assertEqual(warped.shape, (2400, 1700, 3))
 
         gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
@@ -93,10 +95,10 @@ class TestAlignmentEngine(unittest.TestCase):
         self.assertIsNotNone(img, "IMG_9557.HEIC must exist in sample foto/")
 
         warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
-            img, preferred_method="green_frame", apply_standardization=True
+            img, preferred_method="aruco", apply_standardization=True
         )
         self.assertTrue(status.startswith("DETECTED"), f"Expected DETECTED, got {status}")
-        self.assertEqual(method, "green_frame")
+        self.assertEqual(method, "inner_corner")
         self.assertEqual(warped.shape, (2400, 1700, 3))
 
         gray_w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
@@ -123,7 +125,7 @@ class TestAlignmentEngine(unittest.TestCase):
         """Verify ArUco markers serve strictly as validation reference metadata."""
         img = load_image("sample foto/IMG_9558.HEIC")
         warped, pts, method, c_ids, d_name, status, reg = detect_corners_and_crop(
-            img, preferred_method="green_frame", apply_standardization=True
+            img, preferred_method="aruco", apply_standardization=True
         )
         self.assertIsNotNone(reg)
         self.assertIn("normalized_centers", reg)
