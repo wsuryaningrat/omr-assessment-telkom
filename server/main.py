@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
@@ -25,6 +26,9 @@ from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_
 _pool: ProcessPoolExecutor | None = None
 _pending = multiprocessing.Value("i", 0)   # pekerjaan pindai berjalan + mengantre; dibaca worker untuk menentukan jumlah thread
 _FUTURES = {}   # file_id -> Future, hanya utk yg masih 'queued'/'processing' (lihat cancel_pending_files)
+_RESCAN_FUTURES = {}    # sheet_id -> Future, khusus pindai-ulang massal (lihat _enqueue_rescan)
+_RESCAN_PENDING = {}    # session_id -> jumlah lembar yg masih diantre/diproses pindai-ulang massal (utk progres di UI)
+_rescan_lock = threading.Lock()
 
 
 def _submit_scan(*args):
@@ -132,6 +136,59 @@ def _on_done(file_id, fut):
         f.state = "failed" if err else "done"
         f.error = err
         db.commit()
+
+
+def _enqueue_rescan(sheet_id):
+    """Pindai ulang SATU lembar yg SUDAH punya hasil (bukan orphan -- bandingkan dgn _enqueue, yg utk berkas
+    BARU tanpa Sheet sama sekali & membuat baris Sheet baru). Dipakai pindai-ulang massal per sesi (lihat
+    admin.admin_rescan_all), mis. setelah perbaikan pipeline (deteksi pojok/kontras) supaya hasil lembar lama
+    ikut disegarkan tanpa pengawas foto ulang. UPDATE baris Sheet yg sudah ada di tempat -- tak pernah
+    menggandakan lembar. Kembalikan True bila berhasil diantre (False bila foto sumbernya sudah tak ada)."""
+    with SessionLocal() as db:
+        sh = db.get(Sheet, sheet_id)
+        if sh is None:
+            return False
+        s = db.get(ScanSession, sh.session_id)
+        up = db.get(UploadFile, sh.file_id)
+        if not up or not up.path or not os.path.exists(up.path):
+            return False
+        args = (up.path, up.name, _pengawas(s), _kunci(db), sh.page)
+        session_id = sh.session_id
+    with _rescan_lock:
+        _RESCAN_PENDING[session_id] = _RESCAN_PENDING.get(session_id, 0) + 1
+    fut = _submit_scan(*args)
+    _RESCAN_FUTURES[sheet_id] = fut
+    fut.add_done_callback(lambda fu, sid=sheet_id, ssid=session_id: _on_rescan_done(sid, ssid, fu))
+    return True
+
+
+def _on_rescan_done(sheet_id, session_id, fut):
+    # Hitungan `_RESCAN_PENDING` dipakai UI polling (field `rescanning`) sbg tanda "sudah selesai, muat
+    # ulang" -- jadi WAJIB diturunkan PALING TERAKHIR (finally), setelah baris Sheet benar2 ter-commit,
+    # supaya polling yg lihat rescanning==0 tak pernah dapat data lembar ini yg masih basi.
+    try:
+        _RESCAN_FUTURES.pop(sheet_id, None)
+        try:
+            results = fut.result()
+        except Exception:  # noqa: BLE001 -- satu lembar gagal tak boleh menghentikan sisanya; hasil lama dibiarkan apa adanya
+            return
+        if not results:
+            return
+        with SessionLocal() as db:
+            sh = db.get(Sheet, sheet_id)
+            if sh is None:  # lembar/sesi terhapus selagi diproses
+                return
+            s = db.get(ScanSession, sh.session_id)
+            r = results[0]
+            sh.doc_name, sh.scan_status, sh.record, sh.validated = r["doc_name"], r["status"], _apply_identity(r["record"], s), False
+            db.commit()
+    finally:
+        with _rescan_lock:
+            n = _RESCAN_PENDING.get(session_id, 1) - 1
+            if n <= 0:
+                _RESCAN_PENDING.pop(session_id, None)
+            else:
+                _RESCAN_PENDING[session_id] = n
 
 
 def cancel_pending_files(db, s: ScanSession) -> dict:

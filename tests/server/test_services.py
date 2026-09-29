@@ -546,6 +546,46 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post("/api/admin/files/tidak-ada/reprocess").status_code, 401)
         self.assertEqual(self.c.post("/api/admin/files/tidak-ada/reprocess", headers=ADM).status_code, 404)
 
+    def _wait_rescan_done(self, sid, q, timeout=120):
+        t = time.time()
+        while time.time() - t < timeout:
+            row = next((x for x in self.c.get("/api/admin/sessions", params={"q": q}, headers=ADM).json()["items"]
+                        if x["id"] == sid), None)
+            self.assertIsNotNone(row, "sesi tak ditemukan lewat pencarian q -- cek query di tes")
+            if not row["rescanning"]:
+                return
+            time.sleep(0.4)
+        self.fail("pindai-ulang massal tak selesai dlm waktu tunggu")
+
+    def test_rescan_all_updates_existing_sheets_without_duplicating(self):
+        # "Pindai ulang semua lembar" -- beda dgn reprocess-orphans (berkas TANPA sheet sama sekali):
+        # ini utk lembar yg SUDAH punya hasil, jadi harus UPDATE di tempat, bukan menggandakan baris Sheet.
+        sid = self.submitted_session("RESCANALL-01", n=2)
+        self.submit(sid)
+        self.c.post(f"/api/sessions/{sid}/validate-all", headers=ADM)
+        before = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(before), 2)
+        self.assertTrue(all(x["validated"] for x in before))
+        r = self.c.post(f"/api/admin/sessions/{sid}/rescan-all", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["diantre"], r.json()["dilewati"]), (2, 0))
+        self._wait_rescan_done(sid, "RESCANALL-01")
+        after = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(after), 2)                        # tak menggandakan lembar
+        self.assertEqual({x["id"] for x in before}, {x["id"] for x in after})   # baris yg sama, diupdate di tempat
+        self.assertFalse(any(x["validated"] for x in after))   # validasi per-lembar direset, spt rescan tunggal
+
+    def test_rescan_all_skips_sheets_whose_photo_was_cleared(self):
+        sid = self.submitted_session("RESCANALL-02")
+        self.c.post(f"/api/admin/sessions/{sid}/validate?value=true", headers=ADM)   # ikut men-submit & memvalidasi
+        self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
+        r = self.c.post(f"/api/admin/sessions/{sid}/rescan-all", headers=ADM)
+        self.assertEqual((r.json()["diantre"], r.json()["dilewati"]), (0, 1))
+
+    def test_rescan_all_requires_token_and_404s_unknown(self):
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all", headers=ADM).status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,6 +78,8 @@ function admin() {
     hariLabel(v) { if (!v) return "-"; const d = new Date(v + "T00:00:00"); return isNaN(d) ? v : d.toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" }); },
     stripKode(k) { const m = /^k[j]?(\d+)$/i.exec(k || ""); return m ? m[1] : (k || "-"); },
     sesStatusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
+    kirimLabel(i) { if (!i.submitted) return "Berjalan"; if (i.synced) return "Terkirim"; if (i.sync_error) return "Gagal ×" + i.sync_attempts; return "Antre"; },
+    kirimChip(i) { if (!i.submitted) return "pending"; if (i.synced) return "validated"; if (i.sync_error) return "warning"; return "pending"; },
     async validateSession(id, value) {
       if (value && !confirm("Tandai sesi ini validated? Semua lembar yang berhasil discan akan otomatis divalidasi & sesi dikunci (submit) supaya masuk ekspor/sinkron Sheet.")) return;
       try { const d = await this.json(`/api/admin/sessions/${id}/validate?value=${value}`, { method: "POST" }); this.toast(value ? "Sesi divalidasi & disubmit" : "Tanda validated dibatalkan"); await this.loadSessions(); }
@@ -99,7 +101,7 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async openDetail(i) {
-      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], orphans: [], loading: true, previewBusy: false };
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, items: [], orphans: [], loading: true, previewBusy: false };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
         this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
@@ -109,12 +111,22 @@ function admin() {
     // "Hilang senyap": berkas tercatat selesai tapi nol lembar (mis. terputus restart server di tengah
     // pemindaian lembar sulit). Foto sumbernya aman -- diproses ulang lewat antrean latar belakang biasa.
     async reprocessOneFile(o) {
-      try { await this.json(`/api/admin/files/${o.id}/reprocess`, { method: "POST" }); this.toast(`${o.name}: diantre utk dipindai ulang`); await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas }); }
+      try { await this.json(`/api/admin/files/${o.id}/reprocess`, { method: "POST" }); this.toast(`${o.name}: diantre utk dipindai ulang`); await this.openDetail(this.detail); }
       catch (e) { this.toast(e.message, true); }
     },
     async reprocessOrphans(i) {
       try { const d = await this.json(`/api/admin/sessions/${i.id}/reprocess-orphans`, { method: "POST" }); this.toast(`${d.diproses_ulang} berkas diantre utk dipindai ulang`); await this.loadSessions(); if (this.detail && this.detail.id === i.id) await this.openDetail(i); }
       catch (e) { this.toast(e.message, true); }
+    },
+    // Pindai ulang SEMUA lembar sesi (bukan cuma yg hilang senyap) -- mis. utk menyegarkan hasil lama
+    // setelah perbaikan deteksi. Latar belakang & bisa makan waktu utk sesi besar; progres muncul di kolom Proses.
+    async rescanAllSheets(i) {
+      if (!confirm(`Pindai ulang SEMUA ${i.lembar} lembar di sesi ini dgn foto sumber yg sama? Status "sudah dicek per-lembar" akan direset & nilai bisa berubah kalau hasil bacanya beda. Berjalan di latar belakang & bisa makan waktu -- sebaiknya di luar jam sibuk unggahan.`)) return;
+      try {
+        const d = await this.json(`/api/admin/sessions/${i.id}/rescan-all`, { method: "POST" });
+        this.toast(`${d.diantre} lembar diantre utk dipindai ulang` + (d.dilewati ? ` (${d.dilewati} dilewati, foto tak ada)` : ""));
+        await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url }; },
@@ -131,7 +143,7 @@ function admin() {
       try {
         const d = await this.json(`/api/admin/sheets/${x.id}/rescan`, { method: "POST" });
         this.toast("Dipindai ulang — status: " + d.label);
-        await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas });
+        await this.openDetail(this.detail);
       } catch (e) { this.toast(e.message, true); }
       x.busy = false;
     },
@@ -141,7 +153,7 @@ function admin() {
       try {
         const d = await this.json(`/api/admin/sheets/${x.id}/replace`, { method: "POST", body: fd });
         this.toast("Foto diganti & dipindai ulang — status: " + d.label);
-        await this.openDetail({ id: this.detail.id, nama: this.detail.nama, kelas: this.detail.kelas });
+        await this.openDetail(this.detail);
       } catch (e) { this.toast(e.message, true); }
       ev.target.value = "";
     },

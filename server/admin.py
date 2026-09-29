@@ -132,10 +132,12 @@ def _session_status(s: ScanSession) -> str:
 
 
 def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
+    from server import main as _main
     n_files = len(s.files)
     n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
     n_failed = sum(1 for f in s.files if f.state == "failed")
     n_orphans = len(_orphan_files(db, s))
+    n_rescanning = _main._RESCAN_PENDING.get(s.id, 0)
     # "dibersihkan" hanya berarti sesuatu bila sesi PERNAH punya berkas -- sesi baru yg belum punya berkas
     # sama sekali tidak dianggap "sudah dibersihkan". Foto kini dibagi per Fakultas/Prodi/Kelas (lihat
     # server/main.py _class_folder), jadi dicek per BERKAS milik sesi ini, bukan per folder.
@@ -150,6 +152,7 @@ def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
         "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         "synced": s.synced_at is not None, "sync_attempts": s.sync_attempts or 0, "sync_error": s.sync_error,
         "files": {"total": n_files, "pending": n_pending, "failed": n_failed, "orphans": n_orphans},
+        "rescanning": n_rescanning,
         "status": _session_status(s),
         "admin_validated": s.admin_validated,
         "admin_validated_at": s.admin_validated_at.isoformat() if s.admin_validated_at else None,
@@ -245,6 +248,21 @@ def admin_reprocess_orphans(sid: str, db=Depends(get_db)):
         if f.path and os.path.exists(f.path):
             _main._enqueue(f.id)
     return {"ok": True, "diproses_ulang": len(orphans)}
+
+
+@router.post("/sessions/{sid}/rescan-all")
+def admin_rescan_all(sid: str, db=Depends(get_db)):
+    """Pindai ulang SEMUA lembar sesi ini (bukan cuma yg 'hilang senyap' -- lihat reprocess-orphans di atas
+    utk itu), dgn foto sumber yg SAMA. Dipakai admin mis. setelah perbaikan deteksi pojok/kontras supaya
+    lembar yg sudah lama discan ikut disegarkan tanpa pengawas foto ulang. Berjalan di LATAR BELAKANG (lihat
+    _main._enqueue_rescan) krn bisa lama utk sesi berisi banyak lembar -- progresnya keluar lewat field
+    `rescanning` pada GET /sessions selagi berjalan. Lembar yg foto sumbernya sudah tak ada (mis. sudah
+    'Bersihkan foto') dilewati begitu saja, bukan dianggap gagal."""
+    from server import main as _main
+    s = _admin_session_or_404(db, sid)
+    all_sheets = list(s.sheets)
+    queued = sum(1 for sh in all_sheets if _main._enqueue_rescan(sh.id))
+    return {"ok": True, "diantre": queued, "dilewati": len(all_sheets) - queued}
 
 
 @router.post("/files/{fid}/reprocess")
