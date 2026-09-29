@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 
+import core.npm_locator as npm_locator
 from core.alignment import detect_corners_and_crop
 from core.cnn_reader import read_missing_npm_digits
 from core.decoder import decode_field
@@ -188,6 +189,36 @@ def _rescue_answers(gray, fields, decoded, soal_dict):
     return n
 
 
+def _npm_locator_rescue(gray, fields, decoded_all, doc_name):
+    """Upaya TERAKHIR utk NPM: dipanggil hanya bila masih kosong/tak lengkap setelah registrasi kisi +
+    _cnn_rescue_npm (biasanya krn potongan halaman itu sendiri meleset jauh — mis. cadangan regmark/doc_inset
+    saat 4 marker ArUco tak ketemu — sehingga posisi kotak template jauh dari kotak cetak sesungguhnya).
+    core.npm_locator mencari posisi blok NPM lewat CNN sendiri (geser+skala luas, bukan koordinat pasti),
+    lalu membaca digit di posisi itu dgn gerbang keyakinan yg sama. Lambat (~1-90 detik, jalur langka) —
+    jangan dipanggil di luar retry. Kembalikan npm baru (str)."""
+    field = fields.get("NPM")
+    npm = decoded_all.get("NPM", "")
+    if not field:
+        return npm
+    n = len(field["items"])
+    if _npm_complete(npm, fields):
+        return npm            # sudah lengkap (mestinya tak pernah sampai sini, tapi jangan sentuh bila iya)
+    try:
+        filled, pose, score = npm_locator.read(gray, field)
+    except Exception:         # noqa: BLE001 -- upaya terakhir; kegagalan di sini tak boleh menggagalkan scan
+        _log.exception("pencarian posisi NPM (npm_locator) gagal utk %s", doc_name)
+        return npm
+    if not filled:
+        return npm
+    chars = list(npm.ljust(n))[:n]
+    for col, digit in filled.items():
+        chars[col] = digit
+    new_npm = "".join(chars).rstrip()
+    _log.info("pencarian posisi NPM %s: geser=(%.0f,%.0f) skala=%.2f skor=%.2f | NPM %r -> %r",
+              doc_name, pose[0], pose[1], pose[2], score, npm, new_npm)
+    return new_npm
+
+
 def _cnn_rescue_npm(gray, fields, decoded_all, doc_name):
     """Lengkapi digit NPM yang masih kosong/'?' setelah pembaca utama + registrasi, pakai CNN mini
     (core.cnn_reader) — dilatih pada lembar ujian asli, jauh lebih tahan geser posisi daripada rasio-gelap.
@@ -208,6 +239,20 @@ def _cnn_rescue_npm(gray, fields, decoded_all, doc_name):
     return "".join(chars).rstrip(), filled
 
 
+def _npm_locator_enabled():
+    """Upaya terakhir utk NPM (core.npm_locator) LAMBAT (~10 dtk - 3 mnt tergantung sesulit apa lembarnya) --
+    jalur langka (hanya lembar yg registrasi biasa gagal total), tapi tes/CI yg memakai lembar sintetis/kosong
+    (NPM-nya memang selalu tak lengkap) bisa memicunya berulang kali & membuat suite lambat sekali. Dibaca
+    ulang tiap panggilan (BUKAN konstanta modul) supaya nilainya tak "kebeku" tergantung urutan impor tes.
+    Default menyala di produksi; set SCAN_NPM_LOCATOR=0 utk mematikan (dipakai oleh bootstrap tes)."""
+    return os.environ.get("SCAN_NPM_LOCATOR", "1") == "1"
+
+
+def _npm_complete(npm, fields):
+    field = fields.get("NPM")
+    return bool(field) and len(npm) == len(field["items"]) and npm.isdigit()
+
+
 def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name):
     fields2, info = register_fields(gray, fields_dict)
     decoded2, soal2 = _decode_fields(gray, fields2)
@@ -215,6 +260,10 @@ def _retry_with_registration(gray, fields_dict, decoded_all, soal_dict, doc_name
     rescued = _rescue_answers(gray, fields2, decoded2, soal2)
     before_npm = decoded2.get("NPM")
     decoded2["NPM"], cnn_filled = _cnn_rescue_npm(gray, fields2, decoded2, doc_name)
+    # Upaya terakhir (lambat, jalur langka): dipanggil hanya bila NPM MASIH tak lengkap -- biasanya krn
+    # registrasi kisi kecil di atas gagal total (posisi kotak template jauh dari kotak cetak sesungguhnya).
+    if _npm_locator_enabled() and not _npm_complete(decoded2.get("NPM", ""), fields2):
+        decoded2["NPM"] = _npm_locator_rescue(gray, fields2, decoded2, doc_name)
     moved = {k: (v["dx"], v["dy"]) for k, v in info.items() if v.get("applied")}
     _log.info("koreksi posisi kotak %s: %s | NPM %r -> %r -> %r (cnn: %s) | KODE %r -> %r | jawaban terselamatkan: %d",
               doc_name, moved, decoded_all.get("NPM"), before_npm, decoded2["NPM"], cnn_filled,

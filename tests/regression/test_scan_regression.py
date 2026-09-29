@@ -11,6 +11,10 @@ import unittest
 
 import cv2
 
+# Fixture di sini (PDF/foto sintetis) NPM-nya memang selalu tak lengkap -> tanpa ini tiap kasus memicu
+# pencarian posisi NPM yg lambat (~menit); jalur itu diuji sendiri di tests/test_npm_locator.py.
+os.environ.setdefault("SCAN_NPM_LOCATOR", "0")
+
 from core.pdf_utils import iter_images_from_file
 from scanner.service import SCAN_MAX_SIDE, load_default_template, scan_page
 from tests.regression.fixtures import KUNCI, build_cases

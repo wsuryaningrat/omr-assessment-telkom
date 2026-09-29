@@ -66,14 +66,13 @@ def _crop(gray, cx, cy):
 
 
 def _prep(crops):
+    """crops: (N, W, W) uint8. Vektor (bukan loop Python per potongan) -- penting utk pencarian posisi
+    di core.npm_locator, yg bisa memanggil ini dgn ratusan ribu potongan sekaligus."""
     o = (_W - _IN) // 2
-    out = []
-    for c in crops:
-        c = c.astype(np.float32)
-        bg = np.percentile(c, 90)
-        n = np.clip((bg - c) / 64.0, -1, 4)
-        out.append(n[o:o + _IN, o:o + _IN])
-    return np.stack(out)[:, None]
+    c = np.asarray(crops, dtype=np.float32)
+    bg = np.percentile(c, 90, axis=(1, 2), keepdims=True)
+    n = np.clip((bg - c) / 64.0, -1, 4)
+    return n[:, None, o:o + _IN, o:o + _IN]
 
 
 def available():
