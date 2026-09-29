@@ -135,6 +135,7 @@ class TestAPI(unittest.TestCase):
         d = self.wait(sid)
         self.assertEqual(d["summary"]["lembar"], 1)
         self.assertEqual(d["sheets"][0]["label"], "Perlu Validasi")
+        self.assertNotIn("nama", d["sheets"][0])  # nama mahasiswa: tersimpan di rekap, tak dikirim ke pengawas
 
         # submit sebelum validasi harus ditolak
         self.assertEqual(self.c.post(f"/api/sessions/{sid}/submit").status_code, 409)
@@ -157,6 +158,44 @@ class TestAPI(unittest.TestCase):
         row = next(csv.DictReader(io.StringIO(csv_text)))
         for k in ("Jawaban Terisi", "Nilai", "Jumlah Benar", "Jumlah Salah", "Jumlah Kosong", "NPM", "Kode Soal") + tuple(x for x in gold if x.startswith("soal_")):
             self.assertEqual(row[k], str(gold[k]), k)
+
+    def test_correct_sheet_npm_kode_fakultas(self):
+        # sesi A: hanya menguji PATCH (tidak pernah disubmit) -- jangan mengubah data lembar yang disubmit,
+        # supaya tidak ikut mengotori export.csv yang dipakai tes lain (mis. test_full_flow_matches_golden,
+        # yang mengambil baris PERTAMA dan mengasumsikan itu berasal dari LJK.pdf kosong tanpa koreksi manual).
+        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
+        d = self.wait(sid)
+        shid = d["sheets"][0]["id"]
+
+        opts = self.c.get("/api/meta").json()["fakultas"]
+        self.assertIn("FIF", opts)
+
+        r = self.c.patch(f"/api/sheets/{shid}", json={"npm": "10 32 60 01 23"})
+        self.assertEqual((r.status_code, r.json()["npm"]), (200, "1032600123"))
+        self.assertEqual(self.c.patch(f"/api/sheets/{shid}", json={"npm": "123"}).status_code, 422)  # bukan 10 digit
+
+        r = self.c.patch(f"/api/sheets/{shid}", json={"kode_soal": "273"})
+        self.assertEqual((r.status_code, r.json()["kode_soal"]), (200, "273"))
+        self.assertEqual(self.c.patch(f"/api/sheets/{shid}", json={"kode_soal": "27"}).status_code, 422)  # bukan 3 digit
+
+        r = self.c.patch(f"/api/sheets/{shid}", json={"fakultas_ljk": "fit"})
+        self.assertEqual((r.status_code, r.json()["fakultas_ljk"]), (200, "FIT"))
+        self.assertEqual(self.c.patch(f"/api/sheets/{shid}", json={"fakultas_ljk": "ZZZ"}).status_code, 422)
+
+        # nilai ikut terhitung ulang dgn kunci saat ini (273 belum ada kunci terpasang di kode itu)
+        r = self.c.patch(f"/api/sheets/{shid}", json={"kode_soal": "192"})
+        self.assertEqual(r.status_code, 200)
+
+        # sesi B: dibiarkan apa adanya lalu disubmit, khusus menguji bahwa koreksi ditolak setelah submit
+        sid2 = self.c.post("/api/sessions", json=VALID).json()["id"]
+        self.c.post(f"/api/sessions/{sid2}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
+        d2 = self.wait(sid2)
+        shid2 = d2["sheets"][0]["id"]
+        self.c.post(f"/api/sessions/{sid2}/validate-all")
+        self.c.post(f"/api/sessions/{sid2}/submit")
+        self.assertEqual(self.c.patch(f"/api/sheets/{shid2}", json={"npm": "1032600124"}).status_code, 409)
 
     def test_edit_identity_updates_sheets_and_export(self):
         sid = self.c.post("/api/sessions", json=VALID).json()["id"]
