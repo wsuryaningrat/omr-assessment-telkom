@@ -195,6 +195,25 @@ def _admin_session_or_404(db, sid: str) -> ScanSession:
     return s
 
 
+@router.get("/sessions/{sid}/sheets")
+def admin_session_sheets(sid: str, db=Depends(get_db)):
+    """Detail keterisian tiap lembar (mahasiswa) dlm satu sesi -- utk admin mengecek langsung tanpa perlu
+    membuka dashboard pengawas. Admin BOLEH lihat nama mahasiswa & nilai (beda dgn dashboard pengawas yg
+    sengaja menyembunyikannya, lihat _sheet_view di server/main.py)."""
+    s = _admin_session_or_404(db, sid)
+    items = []
+    for sh in s.sheets:
+        r = sh.record
+        items.append({
+            "id": sh.id, "seq": sh.seq, "file": r.get("File"), "nama": r.get("Nama Mahasiswa"),
+            "npm": r.get("NPM"), "kode_soal": r.get("Kode Soal"), "fakultas_ljk": r.get("Fakultas (LJK)"),
+            "terisi": r.get("Jawaban Terisi"), "nilai": r.get("Nilai"),
+            "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
+            "validated": sh.validated,
+        })
+    return {"items": items}
+
+
 @router.post("/sessions/{sid}/validate")
 def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db)):
     """Tandai (atau batalkan tanda) sesi sudah divalidasi admin. Sejak pemindaian dipindah ke latar belakang

@@ -59,16 +59,18 @@ class TestAPI(unittest.TestCase):
         self.assertGreater(len(m["kelas"]), 100)
         self.assertEqual(m["prodi"], sorted(set(k["prodi"] for k in m["kelas"]), key=str.lower))
         self.assertNotIn("fakultas_prodi", m)
-        # hari ujian & kode soal (baru): wajib diisi, kode soal harus salah satu kunci yg terdaftar (kelas ini
-        # sudah punya kunci "A" dari setUpClass). Hari ujian = tanggal TETAP (28 Sep - 2 Okt 2026), bukan
-        # hari-dalam-minggu berulang -- lihat HARI_UJIAN di server/main.py.
+        # hari ujian & kode soal (baru): wajib diisi. Hari ujian = tanggal TETAP (28 Sep - 2 Okt 2026), bukan
+        # hari-dalam-minggu berulang -- lihat HARI_UJIAN di server/main.py. Kode soal = isian singkat bebas
+        # (bukan dicocokkan ke daftar kunci -- lihat _resolve_identity).
         self.assertIn("A", m["kunci"])
         self.assertEqual([h["value"] for h in m["hari"]], ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02"])
         self.assertEqual(m["hari"][1]["label"], "Selasa, 29 September 2026")
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": ""}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-27"}).status_code, 422)   # di luar 28 Sep-2 Okt
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 422)
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA"}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "x" * 21}).status_code, 422)   # terlalu panjang
+        r = self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA-DI-KUNCI"})   # bebas, tak perlu cocok kunci
+        self.assertEqual(r.status_code, 201, r.text)
         r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-29"})
         self.assertEqual(r.status_code, 201, r.text)
         self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hari_ujian"], "2026-09-29")

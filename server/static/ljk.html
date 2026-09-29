@@ -117,14 +117,8 @@
           </div>
           <div>
             <label class="f" for="ks">Kode Soal</label>
-            <div class="selbox">
-              <span class="face" :class="{ph: !form.kodeSoal}" x-text="stripKode(form.kodeSoal) || 'Pilih kode soal'"></span>
-              <select autocomplete="off" id="ks" x-model="form.kodeSoal" aria-label="Kode soal">
-                <option value="">Pilih kode soal</option>
-                <template x-for="k in meta.kunci||[]" :key="k"><option :value="k" x-text="stripKode(k)"></option></template>
-              </select>
-            </div>
-            <p class="mute" style="font-size:12px;margin-top:4px" x-show="!(meta.kunci||[]).length">Belum ada kunci jawaban terdaftar — hubungi admin bila daftar ini kosong.</p>
+            <input autocomplete="off" id="ks" x-model.trim="form.kodeSoal" maxlength="20" list="kodeSoalList" placeholder="mis. 273" aria-label="Kode soal">
+            <datalist id="kodeSoalList"><template x-for="k in meta.kunci||[]" :key="k"><option :value="stripKode(k)"></option></template></datalist>
           </div>
         </div>
       </div>

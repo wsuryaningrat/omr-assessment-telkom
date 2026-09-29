@@ -154,7 +154,11 @@ def sync_kunci_once():
 
 # --------------------------------------------------------------------------- pembersihan
 def cleanup_once():
-    """Hapus berkas sumber sesi yang sudah lama (sudah disubmit: UPLOAD_RETENTION_HOURS; belum: UNSUBMITTED_RETENTION_HOURS)."""
+    """Hapus berkas sumber sesi yang sudah lama (sudah disubmit: UPLOAD_RETENTION_HOURS; belum: UNSUBMITTED_RETENTION_HOURS).
+    Dimatikan sepenuhnya bila CLEANUP_ENABLED=0 (lihat server/config.py) -- dipakai saat admin masih perlu
+    mengecek foto asli, tanpa risiko keburu terhapus otomatis."""
+    if not config.CLEANUP_ENABLED:
+        return {"folders_removed": 0, "disabled": True}
     now = _now()
     cut_sub = now - dt.timedelta(hours=config.UPLOAD_RETENTION_HOURS)
     cut_open = now - dt.timedelta(hours=config.UNSUBMITTED_RETENTION_HOURS)

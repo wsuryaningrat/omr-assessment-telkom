@@ -2,7 +2,7 @@ function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
     tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "ekspor", label: "Ekspor" }],
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" },
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null,
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
     async init() {
@@ -98,6 +98,13 @@ function admin() {
       try { await this.json(`/api/admin/sessions/${id}/clear-photos`, { method: "POST" }); this.toast("Foto dibersihkan"); await this.loadSessions(); }
       catch (e) { this.toast(e.message, true); }
     },
+    async openDetail(i) {
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, items: [], loading: true };
+      try { this.detail.items = (await this.json(`/api/admin/sessions/${i.id}/sheets`)).items; }
+      catch (e) { this.toast(e.message, true); this.detail = null; return; }
+      this.detail.loading = false;
+    },
+    closeDetail() { this.detail = null; },
     async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
     async act(path, okMsg) {
       this.busy = true;

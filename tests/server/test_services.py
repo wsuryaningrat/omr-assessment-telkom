@@ -385,6 +385,35 @@ class TestServices(unittest.TestCase):
         self.assertFalse(os.path.isdir(os.path.join(config.UPLOAD_DIR, old)))
         self.assertTrue(os.path.isdir(os.path.join(config.UPLOAD_DIR, fresh)))
 
+    def test_cleanup_disabled_removes_nothing(self):
+        old = self.submitted_session("DISABLEDCLEAN")
+        self.submit(old)
+        with SessionLocal() as db:
+            db.get(ScanSession, old).submitted_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=config.UPLOAD_RETENTION_HOURS + 2)
+            db.commit()
+        old_flag = config.CLEANUP_ENABLED
+        config.CLEANUP_ENABLED = False
+        try:
+            r = services.cleanup_once()
+            self.assertEqual(r, {"folders_removed": 0, "disabled": True})
+            self.assertTrue(os.path.isdir(os.path.join(config.UPLOAD_DIR, old)))
+        finally:
+            config.CLEANUP_ENABLED = old_flag
+
+    def test_admin_session_sheets_shows_student_fill_detail(self):
+        sid = self.submitted_session("ADMSHEETS-01")
+        r = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        items = r.json()["items"]
+        self.assertEqual(len(items), 1)
+        x = items[0]
+        for k in ("seq", "file", "nama", "npm", "kode_soal", "fakultas_ljk", "terisi", "nilai", "label", "validated"):
+            self.assertIn(k, x)
+        self.assertEqual(self.c.get(f"/api/admin/sessions/{sid}/sheets").status_code, 401)   # tanpa token
+
+    def test_admin_session_sheets_404_for_unknown_session(self):
+        self.assertEqual(self.c.get("/api/admin/sessions/tidak-ada/sheets", headers=ADM).status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

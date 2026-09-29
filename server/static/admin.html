@@ -215,6 +215,7 @@
                 <td><span class="chip" :class="i.submitted?'validated':'pending'" x-text="i.submitted?'Submit':'Berjalan'"></span></td>
                 <td><span class="chip" :class="!i.submitted?'':(i.synced?'validated':(i.sync_error?'warning':'pending'))" x-text="!i.submitted?'-':(i.synced?'Terkirim':(i.sync_error?'Gagal ×'+i.sync_attempts:'Antre'))" :title="i.sync_error||''"></span></td>
                 <td class="actrow">
+                  <button class="btn sm" @click="openDetail(i)">Detail</button>
                   <button class="btn sm" x-show="i.submitted" @click="download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">XLSX</button>
                   <button class="btn sm" x-show="i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
                   <button class="btn sm" x-show="i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
@@ -237,6 +238,35 @@
         </div>
       </div>
     </section>
+
+    <!-- detail sesi (keterisian tiap mahasiswa) -->
+    <div x-show="detail" x-cloak @keydown.escape.window="closeDetail()" style="position:fixed;inset:0;background:rgba(20,22,28,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px" @click.self="closeDetail()">
+      <div class="card" style="max-width:820px;width:100%;max-height:85vh;overflow:auto">
+        <div class="tools">
+          <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas].filter(Boolean).join(' · ')"></p></div>
+          <button class="btn sm" @click="closeDetail()">Tutup ✕</button>
+        </div>
+        <p class="sub" x-show="detail && detail.loading">Memuat…</p>
+        <div class="tbl" x-show="detail && !detail.loading"><table>
+          <thead><tr><th class="c" style="width:auto">No</th><th>Nama</th><th>NPM</th><th>Kode Soal</th><th>Fakultas</th><th>Terisi</th><th class="c" style="width:auto">Nilai</th><th>Status</th></tr></thead>
+          <tbody>
+            <template x-for="x in (detail?.items||[])" :key="x.id">
+              <tr>
+                <td class="c mono" style="width:auto" x-text="x.seq"></td>
+                <td x-text="x.nama||'-'"></td>
+                <td class="mono" x-text="x.npm||'-'"></td>
+                <td x-text="x.kode_soal||'-'"></td>
+                <td x-text="x.fakultas_ljk||'-'"></td>
+                <td x-text="x.terisi||'-'"></td>
+                <td class="c" style="width:auto" x-text="x.nilai ?? '-'"></td>
+                <td><span class="chip" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" x-text="x.label"></span></td>
+              </tr>
+            </template>
+          </tbody>
+        </table></div>
+        <p class="empty" x-show="detail && !detail.loading && !detail.items.length">Belum ada lembar di sesi ini.</p>
+      </div>
+    </div>
 
     <!-- kunci -->
     <section x-show="tab==='kunci'">

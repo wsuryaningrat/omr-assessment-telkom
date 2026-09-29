@@ -279,15 +279,14 @@ def _resolve_identity(body: SessionIn, db):
     hari_ujian = body.hari_ujian.strip()
     if hari_ujian not in HARI_UJIAN_VALUES:
         errors.append("Hari ujian wajib dipilih")
+    # Kode soal: isian singkat bebas (label bantu admin, mis. "273") -- TIDAK dicocokkan ke nama kunci
+    # jawaban terdaftar; kunci yg dipakai saat menilai tetap ditentukan otomatis dari Kode Soal hasil
+    # scan LJK per-mahasiswa (lihat core.evaluator.find_matching_kunci_sheet), bukan dari isian ini.
     kode_soal = body.kode_soal.strip()
     if not kode_soal:
-        errors.append("Kode soal wajib dipilih")
-    else:
-        known = _kunci_names(db)
-        # kunci blm tentu sudah diunggah admin saat sesi dibuat -- kalau daftar kunci masih kosong, terima
-        # apa adanya (tak boleh memblokir pengawas hanya krn admin belum sempat unggah kunci).
-        if known and kode_soal not in known:
-            errors.append(f"Kode soal harus salah satu dari: {', '.join(known)}")
+        errors.append("Kode soal wajib diisi")
+    elif len(kode_soal) > 20:
+        errors.append("Kode soal terlalu panjang (maks. 20 karakter)")
     if errors:
         raise HTTPException(422, errors)
     return nama, hp, kode_soal, hari_ujian

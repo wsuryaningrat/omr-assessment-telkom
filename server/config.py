@@ -8,6 +8,9 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "10"))
 ALLOWED_EXT = {"pdf", "jpg", "jpeg", "png", "heic", "heif", "webp"}
 # Berkas sumber dihapus setelah N jam (0 = hapus segera setelah sesi disubmit/dihapus tidak dilakukan otomatis).
 UPLOAD_RETENTION_HOURS = int(os.environ.get("UPLOAD_RETENTION_HOURS", "1"))
+# Saklar darurat: matikan pembersihan otomatis foto sepenuhnya (mis. sambil admin masih perlu mengecek foto
+# asli). Admin tetap bisa membersihkan manual per sesi lewat tombol "Bersihkan foto". Default menyala.
+CLEANUP_ENABLED = os.environ.get("CLEANUP_ENABLED", "1") == "1"
 
 # ---- Google Sheet (rekap + kunci jawaban). Tanpa GSHEET_URL fitur sinkron nonaktif; data tetap aman di database.
 GSHEET_URL = os.environ.get("GSHEET_URL", "")
