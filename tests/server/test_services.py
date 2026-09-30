@@ -737,6 +737,40 @@ class TestServices(unittest.TestCase):
         r = self.c.patch(f"/api/admin/sheets/{shid}", json={"kode_soal": "999"}, headers=ADM)
         self.assertEqual((r.status_code, r.json()["kode_soal"]), (200, "999"))
 
+    def test_admin_validate_single_sheet_works_even_after_submit(self):
+        sid = self.submitted_session("ADMSHVAL-01")
+        self.submit(sid)
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.post(f"/api/admin/sheets/{shid}/validate", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["validated"], r.json()["label"]), (200, True, "OK"))
+        r2 = self.c.post(f"/api/admin/sheets/{shid}/validate?value=false", headers=ADM)
+        self.assertEqual((r2.status_code, r2.json()["validated"]), (200, False))
+        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid}/validate").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sheets/tidak-ada/validate", headers=ADM).status_code, 404)
+
+    def test_admin_sync_session_now_sends_once_then_skips_without_duplicating(self):
+        sid = self.submitted_session("ADMSYNC-01")
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # men-submit & memvalidasi
+        self.assertEqual(len(self.fake.calls), 0)
+        r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["already"]), (200, False))
+        self.assertEqual(len(self.fake.calls), 1)
+        # dipanggil lagi -> dilewati aman, TAK mengirim baris lagi (append_records murni menambah, bukan upsert)
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        self.assertEqual((r2.status_code, r2.json()["already"]), (200, True))
+        self.assertEqual(len(self.fake.calls), 1)
+
+    def test_admin_sync_session_now_rejects_unsubmitted_and_reports_failure(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMSYNC-02"}).json()["id"]
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM).status_code, 409)
+
+        sid2 = self.submitted_session("ADMSYNC-03")
+        self.c.post(f"/api/admin/sessions/{sid2}/validate", headers=ADM)
+        self.fake.fail = 1
+        r = self.c.post(f"/api/admin/sessions/{sid2}/sync-now", headers=ADM)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("429", r.json()["detail"])
+
     def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):
         sid = self.submitted_session("ADMBULK-01", n=3)
         items_before = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]

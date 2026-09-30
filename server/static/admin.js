@@ -2,7 +2,7 @@ function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
     tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "ekspor", label: "Ekspor" }],
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false },
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {} },
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
@@ -94,6 +94,15 @@ function admin() {
       try { const d = await this.json(`/api/admin/sessions/${id}/stop`, { method: "POST" }); this.toast(`Dihentikan — ${d.dibatalkan} dibatalkan, ${d.masih_berjalan} masih berjalan`); await this.loadSessions(); }
       catch (e) { this.toast(e.message, true); }
     },
+    async syncSessionNow(i) {
+      i.syncing = true;
+      try {
+        const d = await this.json(`/api/admin/sessions/${i.id}/sync-now`, { method: "POST" });
+        this.toast(d.already ? "Sudah tersinkron sebelumnya" : "Terkirim ke Google Sheet ✓");
+        await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
+      i.syncing = false;
+    },
     async deleteSession(id) {
       if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;
       try { await this.api(`/api/admin/sessions/${id}`, { method: "DELETE" }); this.toast("Sesi dihapus"); await this.loadSessions(); }
@@ -115,6 +124,15 @@ function admin() {
       this.detail.loading = false;
       if (this.detail.items.length) this.selectDetailSheet(this.detail.items[0]);
       else this._setPreview("");
+    },
+    sheetStatusIcon(label) { return { OK: "✓", Gagal: "⚠" }[label] || "⏳"; },
+    async toggleSheetValidated(x) {
+      const want = !x.validated;
+      try {
+        const d = await this.json(`/api/admin/sheets/${x.id}/validate?value=${want}`, { method: "POST" });
+        x.validated = d.validated; x.label = d.label;
+        if (this.detail?.selectedItem?.id === x.id) { this.detail.selectedItem.validated = d.validated; this.detail.selectedItem.label = d.label; }
+      } catch (e) { this.toast(e.message, true); }
     },
     // Pilih satu lembar di kolom kiri: muat pratinjau foto asli + isi form edit (kolom kanan) dari record-nya.
     selectDetailSheet(x) {
@@ -163,7 +181,24 @@ function admin() {
       } catch (e) { this.toast(e.message, true); }
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
-    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false }; },
+    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
+    // Zoom/geser foto di kolom preview Detail sesi -- scroll utk zoom, seret utk geser saat diperbesar,
+    // klik-2x/tombol utk reset. panX/panY dlm piksel LAYAR (dibagi zoom sebelum masuk transform, lihat
+    // admin.html: transform CSS "scale() translate()" menerapkan translate DULU baru scale).
+    zoomPreview(delta) {
+      this.preview.zoom = Math.max(1, Math.min(4, +(this.preview.zoom + delta).toFixed(2)));
+      if (this.preview.zoom <= 1) { this.preview.zoom = 1; this.preview.panX = 0; this.preview.panY = 0; }
+    },
+    resetZoom() { this.preview.zoom = 1; this.preview.panX = 0; this.preview.panY = 0; },
+    startPan(ev) {
+      if (this.preview.zoom <= 1) return;
+      ev.preventDefault();
+      const startX = ev.clientX, startY = ev.clientY, origX = this.preview.panX, origY = this.preview.panY;
+      this.preview.panning = true;
+      const move = (e) => { this.preview.panX = origX + (e.clientX - startX); this.preview.panY = origY + (e.clientY - startY); };
+      const up = () => { this.preview.panning = false; window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+      window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+    },
     async showDetailPreview(mode) {
       const x = this.detail?.selectedItem; if (!x || !x.photo_exists) return;
       this.detail.previewMode = mode;

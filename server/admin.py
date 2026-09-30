@@ -422,6 +422,22 @@ def admin_bulk_edit(sid: str, body: _BulkEditIn, db=Depends(get_db)):
     return {"ok": True, "diubah": n}
 
 
+@router.post("/sheets/{shid}/validate")
+def admin_validate_sheet(shid: str, value: bool = True, db=Depends(get_db)):
+    """Tandai (atau batalkan tanda) SATU lembar sudah divalidasi -- spt endpoint pengawas (POST
+    /api/sheets/{shid}/validate|/unvalidate) tapi admin-only & TIDAK terhalang sesi sudah disubmit.
+    Dipakai tombol centang di daftar lembar (kolom kiri Detail sesi) utk validasi cepat per-lembar
+    tanpa perlu memvalidasi seisi sesi lewat "Tandai validated"."""
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    if value and classify_scan_status({"status": sh.scan_status}, False) == "Gagal":
+        raise HTTPException(409, "Lembar gagal terbaca -- tak bisa divalidasi, ganti foto atau pindai ulang dulu")
+    sh.validated = value
+    db.commit()
+    return {"ok": True, "validated": sh.validated, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
+
+
 @router.post("/sheets/{shid}/rescan")
 def admin_rescan_sheet(shid: str, db=Depends(get_db)):
     """Pindai ulang lembar ini dgn foto sumber yg SAMA (tak berubah) -- mis. utk membetulkan hasil baca
@@ -504,6 +520,18 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
     s.admin_validated_by = (admin.get("name") or admin.get("email") or "?") if value else None
     db.commit()
     return {"ok": True, "admin_validated": s.admin_validated, "admin_validated_by": s.admin_validated_by, "submitted": s.submitted}
+
+
+@router.post("/sessions/{sid}/sync-now")
+def admin_sync_session_now(sid: str, db=Depends(get_db)):
+    """Kirim sesi ini ke Google Sheet sekarang juga -- tombol manual (ikon kirim/upload) di tabel Sesi,
+    tak menunggu jadwal sinkron berkala. Lihat services.sync_session_now: sesi yg sudah tersinkron
+    dilewati aman (tak digandakan), sesi yg belum disubmit/Sheet belum dikonfigurasi ditolak jelas."""
+    s = _admin_session_or_404(db, sid)
+    res = services.sync_session_now(db, s)
+    if not res["ok"]:
+        raise HTTPException(409, res["error"])
+    return res
 
 
 @router.post("/sessions/{sid}/stop")

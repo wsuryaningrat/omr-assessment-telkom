@@ -125,22 +125,24 @@ input::placeholder{color:var(--ink3)}
    validasi cepat banyak lembar yg hasil bacanya meleset tanpa gonta-ganti modal. */
 .bulkbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;flex:0 0 auto}
 .bulkbar .f{margin:0;display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--ink2);font-weight:600}
-.detail3col{display:grid;grid-template-columns:220px minmax(0,1fr) minmax(300px,380px);gap:12px;flex:1 1 auto;min-height:0}
+.detail3col{display:grid;grid-template-columns:300px minmax(0,1fr) minmax(300px,380px);gap:12px;flex:1 1 auto;min-height:0}
 .sheetlist{overflow-y:auto;border:1px solid var(--line);border-radius:10px}
-.sheetrow{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s}
+.sheetrow{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s}
 .sheetrow:last-child{border-bottom:0}
 .sheetrow:hover{background:var(--soft)}
 .sheetrow.on{background:var(--soft);box-shadow:inset 3px 0 0 var(--ink)}
+.ib.xs{width:24px;height:24px;border-radius:6px;flex:none}
 .previewcol{display:flex;flex-direction:column;min-height:0}
 .previewbox{flex:1;min-height:200px;background:var(--soft);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
 .previewbox .skel{position:absolute;inset:0;margin:0;border-radius:10px;height:auto}
+.zoomctl{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:8px;padding:3px 5px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
 .editcol{overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:14px}
-.ansgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:6px;margin-top:8px}
+.ansgrid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin-top:8px}
 .anscell{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--ink2);border:1px solid var(--line);border-radius:8px;padding:4px 2px;background:var(--card)}
 .anscell.filled{background:var(--ok-bg);border-color:var(--ok-line)}
 .anscell input{width:100%;text-align:center;padding:2px 0;border:0;background:transparent;font:inherit;font-weight:700;text-transform:uppercase;color:inherit}
 .anscell input:focus{outline:2px solid var(--ink);outline-offset:1px;border-radius:4px}
-@media(max-width:900px){.detail3col{grid-template-columns:1fr}.sheetlist{max-height:160px}.previewbox{min-height:240px}.editcol{max-height:none}}
+@media(max-width:900px){.detail3col{grid-template-columns:1fr}.sheetlist{max-height:160px}.previewbox{min-height:240px}.editcol{max-height:none}.ansgrid{grid-template-columns:repeat(5,1fr)}}
 
 .ms{display:none}
 /* kartu baris (mobile) */

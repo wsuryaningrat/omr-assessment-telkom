@@ -218,12 +218,25 @@
                   <div x-show="i.admin_validated_by" class="mute" style="font-size:11px" x-text="'oleh '+i.admin_validated_by"></div></td>
                 <td><span class="chip" :class="kirimChip(i)" x-text="kirimLabel(i)" :title="i.sync_error||''"></span></td>
                 <td class="actrow" x-data="{menuOpen:false}">
-                  <button class="btn sm" @click="openDetail(i)">Detail</button>
-                  <button class="btn sm d" x-show="i.files.orphans" @click="reprocessOrphans(i)" x-text="'Proses ulang ('+i.files.orphans+')'"></button>
-                  <button class="btn sm" x-show="!i.files.orphans && i.status==='scanning'" @click="stopSession(i.id)">Hentikan</button>
-                  <button class="btn sm" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" x-text="i.admin_validated?'Batalkan validasi':'Tandai validated'"></button>
+                  <button class="ib" @click="openDetail(i)" title="Detail" aria-label="Detail">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                  <button class="ib d" x-show="i.files.orphans" @click="reprocessOrphans(i)" :title="'Proses ulang ('+i.files.orphans+' hilang senyap)'" aria-label="Proses ulang berkas hilang senyap">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+                  </button>
+                  <button class="ib" x-show="!i.files.orphans && i.status==='scanning'" @click="stopSession(i.id)" title="Hentikan pemindaian" aria-label="Hentikan">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </button>
+                  <button class="ib" :class="{on: i.admin_validated}" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" :title="i.admin_validated?'Batalkan validasi':'Tandai validated'" aria-label="Tandai validated">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                  </button>
+                  <button class="ib" x-show="i.submitted && !i.synced" :disabled="i.syncing" @click="syncSessionNow(i)" title="Kirim ke Google Sheet sekarang" aria-label="Kirim ke Google Sheet">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+                  </button>
                   <div class="rowmenu" @click.outside="menuOpen=false">
-                    <button class="btn sm ico" @click="menuOpen=!menuOpen" aria-label="Aksi lain" title="Aksi lain">⋮</button>
+                    <button class="ib" @click="menuOpen=!menuOpen" aria-label="Aksi lain" title="Aksi lain">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+                    </button>
                     <div class="rowmenu-pop" x-show="menuOpen" x-cloak x-transition.opacity>
                       <button x-show="i.lembar>0" @click="menuOpen=false; rescanAllSheets(i)">Pindai ulang semua lembar</button>
                       <button x-show="i.submitted" @click="menuOpen=false; download('/api/admin/export.xlsx?sid='+i.id,'rekap_'+i.id.slice(0,6)+'.xlsx')">Unduh XLSX</button>
@@ -296,10 +309,16 @@
               <div class="sheetrow" :class="{on: detail.selectedId===x.id}" @click="selectDetailSheet(x)">
                 <span class="mono mute" style="font-size:11px" x-text="'#'+x.seq"></span>
                 <div style="flex:1;min-width:0">
-                  <div class="mono" style="font-weight:700;font-size:13px" x-text="x.npm||'(NPM kosong)'"></div>
-                  <div class="mute" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="x.nama||'-'"></div>
+                  <div style="font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="x.nama||'-'" x-text="x.nama||'(nama kosong)'"></div>
+                  <div class="mono mute" style="font-size:11px" x-text="x.npm||'NPM kosong'"></div>
                 </div>
-                <span class="chip xs" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" x-text="x.label"></span>
+                <span class="chip xs" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" :title="x.label" x-text="sheetStatusIcon(x.label)"></span>
+                <button class="ib xs" :class="{on: x.validated}" :disabled="x.label==='Gagal'" @click.stop="toggleSheetValidated(x)" :title="x.validated?'Batalkan validasi':'Validasi lembar ini'" aria-label="Validasi">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                </button>
+                <button class="ib xs" :disabled="!x.photo_exists || x.busy" @click.stop="rescanSheet(x)" title="Pindai ulang lembar ini" aria-label="Pindai ulang">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+                </button>
               </div>
             </template>
           </div>
@@ -312,11 +331,18 @@
               <button class="btn xs" :disabled="!detail.selectedItem?.photo_exists || detail.selectedItem?.busy" @click="rescanSheet(detail.selectedItem)">Pindai ulang</button>
               <label class="btn xs" style="cursor:pointer">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" :disabled="!detail.selectedItem" @change="replaceSheetPhoto(detail.selectedItem, $event)"></label>
             </div>
-            <div class="previewbox">
+            <div class="previewbox" @wheel.prevent="zoomPreview($event.deltaY<0?0.4:-0.4)">
               <div class="skel" x-show="preview.loading"></div>
-              <img x-show="preview.url && !preview.loading" :src="preview.url" style="max-width:100%;max-height:100%;object-fit:contain">
+              <img x-show="preview.url && !preview.loading" :src="preview.url" @mousedown="startPan($event)" @dblclick="preview.zoom>1?resetZoom():zoomPreview(1)"
+                   :style="{transform:'scale('+preview.zoom+') translate('+(preview.panX/preview.zoom)+'px,'+(preview.panY/preview.zoom)+'px)', transition:preview.panning?'none':'transform .12s', cursor:preview.panning?'grabbing':(preview.zoom>1?'grab':'zoom-in'), maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}">
               <span class="mute" x-show="!preview.url && !preview.loading">Pilih lembar di kiri utk pratinjau</span>
               <span class="mute" x-show="detail.selectedItem && !detail.selectedItem.photo_exists">Foto sumber tak ada (sudah dibersihkan)</span>
+              <div class="zoomctl" x-show="preview.url && !preview.loading">
+                <button class="ib xs" @click="zoomPreview(-0.5)" title="Perkecil" aria-label="Perkecil">−</button>
+                <span class="mono mute" style="font-size:11px;min-width:34px;text-align:center" x-text="Math.round(preview.zoom*100)+'%'"></span>
+                <button class="ib xs" @click="zoomPreview(0.5)" title="Perbesar" aria-label="Perbesar">+</button>
+                <button class="ib xs" x-show="preview.zoom>1" @click="resetZoom()" title="Reset zoom" aria-label="Reset zoom">↺</button>
+              </div>
             </div>
           </div>
 

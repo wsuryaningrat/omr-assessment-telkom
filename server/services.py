@@ -124,6 +124,35 @@ def sync_pending_once(limit: int = 30):
         return {"configured": True, "synced": done, "failed": len(due) - done}
 
 
+def sync_session_now(db, s: ScanSession) -> dict:
+    """Kirim SATU sesi ke Google Sheet sekarang juga -- tombol manual di admin (tak menunggu jadwal
+    berkala sync_pending_once), mis. utk sesi yg gagal sinkron berulang & admin sudah membetulkan
+    penyebabnya. Sesi yg SUDAH tersinkron (synced_at terisi) DILEWATI apa adanya (bukan error) --
+    append_records murni MENAMBAH baris, mengirim ulang akan MENGGANDAKAN baris lama di Sheet; kalau
+    datanya baru saja dikoreksi (bulk-edit/edit lembar) setelah sempat tersinkron, admin perlu
+    membetulkan baris itu langsung di Sheet, bukan lewat tombol ini."""
+    client = sheets.get_client()
+    if client is None:
+        return {"ok": False, "error": "Google Sheet belum dikonfigurasi"}
+    if not s.submitted:
+        return {"ok": False, "error": "Sesi belum disubmit/divalidasi"}
+    if s.synced_at:
+        return {"ok": True, "already": True}
+    try:
+        recs = [dict(sh.record) for sh in s.sheets]
+        client.append_records(recs)
+        s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
+    except Exception as e:  # noqa: BLE001
+        s.sync_attempts = (s.sync_attempts or 0) + 1
+        s.sync_error = f"{type(e).__name__}: {e}"[:500]
+        s.sync_next = _now() + _backoff(s.sync_attempts)
+        db.commit()
+        return {"ok": False, "error": s.sync_error}
+    db.commit()
+    STATE["sync_last"] = _now().isoformat()
+    return {"ok": True, "already": False}
+
+
 # --------------------------------------------------------------------------- kunci jawaban
 def upsert_kunci(db, name: str, data: dict, source: str):
     norm = {str(int(q)): str(a).strip() for q, a in data.items()}
