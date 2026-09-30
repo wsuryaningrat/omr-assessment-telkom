@@ -181,6 +181,7 @@
           <a class="btn sm" x-show="sum.gsheet_url" :href="sum.gsheet_url" target="_blank" rel="noopener" style="text-decoration:none">Buka Google Sheet ↗</a>
           <button class="btn sm" @click="act('/api/admin/kunci/sync','Kunci ditarik dari Sheet')" :disabled="!sum.gsheet_configured || busy">Tarik kunci dari Sheet</button>
           <button class="btn sm" @click="act('/api/admin/cleanup','Pembersihan dijalankan')" :disabled="busy">Bersihkan berkas lama</button>
+          <button class="btn sm" @click="migrateStorage()" :disabled="busy">Rapikan folder foto lama</button>
           <span class="mute" x-show="sum.sync_failed" x-text="sum.sync_failed + ' sesi gagal sinkron berulang — tekan “Sinkron sekarang” untuk mencoba lagi'"></span>
         </div>
       </div>
@@ -213,7 +214,8 @@
                 <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>
                   <span class="mute" x-show="i.files.failed" style="font-size:11px" x-text="i.files.failed+' gagal'"></span>
                   <div x-show="i.files.orphans" class="mute" style="font-size:11px;color:var(--bad);font-weight:700" x-text="i.files.orphans+' hilang senyap'"></div>
-                  <div x-show="i.rescanning" class="mute" style="font-size:11px;color:var(--info);font-weight:700" x-text="'Memindai ulang… ('+i.rescanning+')'"></div></td>
+                  <div x-show="i.rescanning" class="mute" style="font-size:11px;color:var(--info);font-weight:700" x-text="'Memindai ulang… ('+i.rescanning+')'"></div>
+                  <div x-show="i.admin_validated_by" class="mute" style="font-size:11px" x-text="'oleh '+i.admin_validated_by"></div></td>
                 <td><span class="chip" :class="kirimChip(i)" x-text="kirimLabel(i)" :title="i.sync_error||''"></span></td>
                 <td class="actrow" x-data="{menuOpen:false}">
                   <button class="btn sm" @click="openDetail(i)">Detail</button>
@@ -247,40 +249,24 @@
       </div>
     </section>
 
-    <!-- detail sesi (keterisian tiap mahasiswa) -->
-    <div x-show="detail" x-cloak @keydown.escape.window="closeDetail()" style="position:fixed;inset:0;background:rgba(20,22,28,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px" @click.self="closeDetail()">
-      <div class="card" style="max-width:820px;width:100%;max-height:85vh;overflow:auto">
-        <div class="tools">
-          <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi].filter(Boolean).join(' · ')"></p></div>
-          <button class="btn sm" @click="closeDetail()">Tutup ✕</button>
+    <!-- detail sesi: 3 kolom (daftar lembar | preview asli/scan | edit NPM+kode+fakultas+jawaban).
+         x-if (bukan x-show) SENGAJA dipakai di sini -- bag. dalamnya banyak membaca detail.xxx tanpa
+         optional-chaining; x-show cuma menyembunyikan (efek reaktif tetap jalan & akan gagal saat
+         detail=null stlh closeDetail()), x-if benar2 melepas subtree ini dari DOM saat detail null. -->
+    <template x-if="detail">
+    <div @keydown.escape.window="closeDetail()" style="position:fixed;inset:0;background:rgba(20,22,28,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px" @click.self="closeDetail()">
+      <div class="card" style="max-width:1360px;width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column">
+        <div class="tools" style="flex:0 0 auto">
+          <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn sm d" x-show="detail && detail.items.length>0" @click="rescanAllSheets(detail)">Pindai ulang semua foto</button>
+            <button class="btn sm" @click="closeDetail()">Tutup ✕</button>
+          </div>
         </div>
+
         <p class="sub" x-show="detail && detail.loading">Memuat…</p>
-        <div class="tbl" x-show="detail && !detail.loading"><table>
-          <thead><tr><th class="c" style="width:auto">No</th><th>Nama</th><th>NPM</th><th>Kode Soal</th><th>Fakultas</th><th>Terisi</th><th class="c" style="width:auto">Nilai</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            <template x-for="x in (detail?.items||[])" :key="x.id">
-              <tr>
-                <td class="c mono" style="width:auto" x-text="x.seq"></td>
-                <td x-text="x.nama||'-'"></td>
-                <td class="mono" x-text="x.npm||'-'"></td>
-                <td x-text="x.kode_soal||'-'"></td>
-                <td x-text="x.fakultas_ljk||'-'"></td>
-                <td x-text="x.terisi||'-'"></td>
-                <td class="c" style="width:auto" x-text="x.nilai ?? '-'"></td>
-                <td><span class="chip" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" x-text="x.label"></span></td>
-                <td class="actrow">
-                  <button class="btn xs" x-show="x.photo_exists" :disabled="detail.previewBusy" @click="previewOriginal(x)">Foto asli</button>
-                  <button class="btn xs" x-show="x.photo_exists" @click="previewScan(x)">Hasil scan</button>
-                  <button class="btn xs" x-show="x.photo_exists" :disabled="x.busy" @click="rescanSheet(x)">Pindai ulang</button>
-                  <label class="btn xs" style="cursor:pointer">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" @change="replaceSheetPhoto(x, $event)"></label>
-                  <span class="mute" style="font-size:11px" x-show="!x.photo_exists">Foto tak ada</span>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table></div>
-        <p class="empty" x-show="detail && !detail.loading && !detail.items.length && !(detail?.orphans||[]).length">Belum ada lembar di sesi ini.</p>
-        <div class="card" x-show="detail && !detail.loading && (detail?.orphans||[]).length" style="margin-top:14px;background:var(--bad-bg);border-color:var(--bad-line)">
+
+        <div class="card" x-show="detail && !detail.loading && (detail?.orphans||[]).length" style="margin:0 0 10px;background:var(--bad-bg);border-color:var(--bad-line);flex:0 0 auto">
           <b style="color:var(--bad)">⚠ <span x-text="(detail?.orphans||[]).length"></span> berkas tercatat "selesai" tapi tak menghasilkan lembar sama sekali</b>
           <p class="sub" style="margin:4px 0 10px">Foto sudah diterima & tersimpan aman, tapi pemindaiannya terputus (mis. server sempat di-restart di tengah proses) sehingga tak pernah jadi data. Klik untuk memindai ulang -- foto asli tak perlu diunggah lagi.</p>
           <div class="actrow" style="margin-bottom:8px"><button class="btn sm d" @click="reprocessOrphans(detail)">Proses ulang semua</button></div>
@@ -288,12 +274,86 @@
             <div class="actrow" style="padding:4px 0"><span x-text="o.name"></span> <button class="btn xs" @click="reprocessOneFile(o)">Proses ulang</button></div>
           </template>
         </div>
-        <div x-show="preview.url" x-cloak style="margin-top:14px;text-align:center">
-          <img :src="preview.url" style="max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--line)">
-          <div style="margin-top:8px"><button class="btn sm" @click="preview.url=''">Tutup pratinjau</button></div>
+
+        <div class="bulkbar" x-show="detail && !detail.loading && detail.items.length>0">
+          <b style="font-size:12.5px">Terapkan ke SEMUA lembar sesi ini:</b>
+          <label class="f" style="margin:0">Kode Soal<input x-model.trim="detail.bulkKode" placeholder="mis. 042" style="width:110px"></label>
+          <label class="f" style="margin:0">Fakultas
+            <select x-model="detail.bulkFakultas" style="width:150px">
+              <option value="">(jangan ubah)</option>
+              <template x-for="f in fakultasOptions" :key="'bulk-'+f"><option :value="f" x-text="f"></option></template>
+            </select>
+          </label>
+          <button class="btn sm p" @click="applyBulkEdit()" :disabled="(!detail.bulkKode && !detail.bulkFakultas) || detail.bulkBusy">Terapkan</button>
+        </div>
+
+        <p class="empty" x-show="detail && !detail.loading && !detail.items.length && !(detail?.orphans||[]).length">Belum ada lembar di sesi ini.</p>
+
+        <div class="detail3col" x-show="detail && !detail.loading && detail.items.length>0">
+          <!-- kolom 1: daftar lembar -->
+          <div class="sheetlist">
+            <template x-for="x in (detail?.items||[])" :key="x.id">
+              <div class="sheetrow" :class="{on: detail.selectedId===x.id}" @click="selectDetailSheet(x)">
+                <span class="mono mute" style="font-size:11px" x-text="'#'+x.seq"></span>
+                <div style="flex:1;min-width:0">
+                  <div class="mono" style="font-weight:700;font-size:13px" x-text="x.npm||'(NPM kosong)'"></div>
+                  <div class="mute" style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" x-text="x.nama||'-'"></div>
+                </div>
+                <span class="chip xs" :class="x.label==='OK'?'validated':(x.label==='Gagal'?'warning':'check')" x-text="x.label"></span>
+              </div>
+            </template>
+          </div>
+
+          <!-- kolom 2: preview foto asli / hasil scan -->
+          <div class="previewcol">
+            <div class="actrow" style="margin-bottom:8px">
+              <button class="btn xs" :class="{p: detail.previewMode==='original'}" :disabled="!detail.selectedItem?.photo_exists" @click="showDetailPreview('original')">Foto asli</button>
+              <button class="btn xs" :class="{p: detail.previewMode==='scan'}" :disabled="!detail.selectedItem?.photo_exists" @click="showDetailPreview('scan')">Hasil scan</button>
+              <button class="btn xs" :disabled="!detail.selectedItem?.photo_exists || detail.selectedItem?.busy" @click="rescanSheet(detail.selectedItem)">Pindai ulang</button>
+              <label class="btn xs" style="cursor:pointer">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" :disabled="!detail.selectedItem" @change="replaceSheetPhoto(detail.selectedItem, $event)"></label>
+            </div>
+            <div class="previewbox">
+              <div class="skel" x-show="preview.loading"></div>
+              <img x-show="preview.url && !preview.loading" :src="preview.url" style="max-width:100%;max-height:100%;object-fit:contain">
+              <span class="mute" x-show="!preview.url && !preview.loading">Pilih lembar di kiri utk pratinjau</span>
+              <span class="mute" x-show="detail.selectedItem && !detail.selectedItem.photo_exists">Foto sumber tak ada (sudah dibersihkan)</span>
+            </div>
+          </div>
+
+          <!-- kolom 3: edit NPM / kode soal / fakultas / jawaban -->
+          <div class="editcol">
+            <div x-show="detail.selectedItem">
+                <div class="grid">
+                  <div class="full"><label class="f" for="edNpm">NPM</label><input id="edNpm" class="mono" x-model="editForm.npm" maxlength="10" inputmode="numeric" placeholder="10 digit"></div>
+                  <div class="full"><label class="f" for="edKode">Kode Soal</label><input id="edKode" class="mono" x-model.trim="editForm.kode_soal" maxlength="20"></div>
+                  <div class="full"><label class="f" for="edFak">Fakultas (LJK)</label>
+                    <select id="edFak" :value="editForm.fakultas_ljk" @change="editForm.fakultas_ljk=$event.target.value">
+                      <option value="">(kosong)</option>
+                      <template x-for="f in fakultasOptions" :key="'ed-'+f"><option :value="f" x-text="f"></option></template>
+                    </select>
+                    <p class="mute" style="font-size:11px;margin-top:4px" x-show="detail.selectedItem?.fakultas_ljk && !fakultasOptions.includes(detail.selectedItem?.fakultas_ljk)">Hasil baca asli: <b x-text="detail.selectedItem?.fakultas_ljk"></b> (tak dikenal -- pilih yg benar di atas)</p>
+                  </div>
+                </div>
+                <label class="f" style="margin-top:12px;display:block">Jawaban (<span x-text="detail.questionNums.length"></span> soal)</label>
+                <div class="ansgrid">
+                  <template x-for="q in detail.questionNums" :key="q">
+                    <label class="anscell" :class="{filled: editForm.jawaban[q] && editForm.jawaban[q]!=='BLANK'}">
+                      <span x-text="+q"></span>
+                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'">
+                    </label>
+                  </template>
+                </div>
+                <div class="row-act" style="margin-top:12px">
+                  <button class="btn p sm" @click="saveDetailEdit()" :disabled="detail.saving">Simpan perubahan</button>
+                  <span class="mute" x-show="detail.saving">Menyimpan…</span>
+                </div>
+            </div>
+            <p class="mute" x-show="!detail.selectedItem" style="padding:20px 0;text-align:center">Pilih lembar di kiri</p>
+          </div>
         </div>
       </div>
     </div>
+    </template>
 
     <!-- kunci -->
     <section x-show="tab==='kunci'">

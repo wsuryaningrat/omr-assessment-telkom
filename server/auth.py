@@ -34,8 +34,26 @@ def sso_enabled() -> bool:
     return enabled() or google_enabled()
 
 
+def _admin_accounts() -> dict:
+    """{username: password_hash} -- ADMIN_USER/ADMIN_PASSWORD_HASH (akun asli, kompatibel mundur) digabung
+    dgn ADMIN_ACCOUNTS (akun tambahan, lihat server/config.py). Tiap akun masuk dgn identitasnya SENDIRI
+    (bukan disamarkan jadi satu nama) supaya "divalidasi oleh" di admin bisa menunjukkan siapa sebenarnya."""
+    out = {}
+    if config.ADMIN_USER and config.ADMIN_PASSWORD_HASH:
+        out[config.ADMIN_USER] = config.ADMIN_PASSWORD_HASH
+    for part in config.ADMIN_ACCOUNTS.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        user, h = part.split(":", 1)
+        user, h = user.strip(), h.strip()
+        if user and h:
+            out[user] = h
+    return out
+
+
 def password_enabled() -> bool:
-    return bool(config.ADMIN_USER and config.ADMIN_PASSWORD_HASH)
+    return bool(_admin_accounts())
 
 
 def hash_password(pw: str, iters: int = 240000) -> str:
@@ -204,15 +222,14 @@ async def password_login(request: Request):
     except Exception:  # noqa: BLE001
         body = {}
     user, pw = str(body.get("username", "")), str(body.get("password", ""))
-    ok_user = hmac.compare_digest(user.encode(), config.ADMIN_USER.encode())
-    ok_pw = _check_password(pw, config.ADMIN_PASSWORD_HASH)
-    if not (ok_user and ok_pw):
+    stored = _admin_accounts().get(user)
+    if not (stored and _check_password(pw, stored)):
         with _LOCK:
             _FAILS.setdefault(ip, []).append(now)
         raise HTTPException(401, "Username atau password salah")
     with _LOCK:
         _FAILS.pop(ip, None)
-    request.session["admin"] = {"email": config.ADMIN_USER, "name": config.ADMIN_USER, "iat": int(now), "via": "password"}
+    request.session["admin"] = {"email": user, "name": user, "iat": int(now), "via": "password"}
     return {"ok": True}
 
 

@@ -47,6 +47,10 @@ CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # 
 # ---- Login admin username+password (hash PBKDF2, format "iter:salt_hex:hash_hex"; buat dengan `python -m server.auth hash`)
 ADMIN_USER = os.environ.get("ADMIN_USER", "").strip()
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
+# Akun password TAMBAHAN (selain ADMIN_USER/ADMIN_PASSWORD_HASH di atas) -- format "user1:iter:salt:hash,user2:iter:salt:hash"
+# (maxsplit=1 di auth._admin_accounts, jadi ":" di dalam hash aman). Dipakai bila lebih dari satu orang perlu masuk admin
+# lewat username+password (lihat auth.py "divalidasi oleh" -- tiap akun tercatat namanya sendiri, bukan cuma "ADMIN_TOKEN").
+ADMIN_ACCOUNTS = os.environ.get("ADMIN_ACCOUNTS", "").strip()
 
 # ---- Monitoring: jadwal plotting pengawas (Google Sheet publik, diekspor sebagai CSV) & tautan tombol admin
 _PLOT_ID = "1epKgq4OBn2jagm7ioMMkvBBXNVDCR6hY"

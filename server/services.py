@@ -2,6 +2,8 @@
 import datetime as dt
 import logging
 import os
+import shutil
+import uuid
 
 from sqlalchemy import select
 
@@ -169,6 +171,56 @@ def remove_session_files(s) -> int:
 
 def session_has_photos(s) -> bool:
     return any(f.path and os.path.exists(f.path) for f in s.files)
+
+
+def migrate_old_storage(db) -> dict:
+    """Pindahkan berkas sesi LAMA (dari sebelum foto ditata per Fakultas/Prodi/Kelas -- folder waktu itu
+    cuma UPLOAD_DIR/{session_id}/..., lihat server/main.py _class_folder) ke struktur baru, & perbarui
+    UploadFile.path supaya cocok. Aman dipanggil berkali-kali (idempoten): berkas yg foldernya SUDAH
+    sesuai (mis. diunggah setelah migrasi ini ada) dilewati begitu saja, bukan dipindah ulang. Folder
+    lama yg jadi kosong ikut dihapus. Kembalikan ringkasan; tak pernah menghapus berkas tanpa memastikan
+    salinannya di lokasi baru berhasil dulu (shutil.move: gagal -> berkas lama TETAP di path asalnya,
+    UploadFile.path juga TAK diubah, jadi aman dicoba lagi lain waktu)."""
+    from server import main as _main
+    moved = ok = missing = failed = 0
+    errors = []
+    touched_dirs = set()
+    for up in db.scalars(select(UploadFile)):
+        if not up.path:
+            continue
+        s = db.get(ScanSession, up.session_id)
+        if s is None:
+            continue
+        expected_dir = _main._class_folder(s)
+        cur_dir = os.path.dirname(up.path)
+        if os.path.normpath(cur_dir) == os.path.normpath(expected_dir):
+            ok += 1
+            continue
+        if not os.path.exists(up.path):
+            missing += 1
+            continue
+        touched_dirs.add(cur_dir)
+        os.makedirs(expected_dir, exist_ok=True)
+        base = os.path.basename(up.path)
+        dest = os.path.join(expected_dir, base)
+        if os.path.exists(dest):   # tabrakan nama nyaris mustahil (nama diberi prefiks acak saat unggah) -- tetap dijaga
+            dest = os.path.join(expected_dir, f"{uuid.uuid4().hex[:8]}_{base}")
+        try:
+            shutil.move(up.path, dest)
+        except OSError as e:  # noqa: BLE001 — satu berkas gagal dipindah tak boleh menghentikan sisanya
+            failed += 1
+            errors.append(f"{up.id}: {e}")
+            continue
+        up.path = dest
+        moved += 1
+    db.commit()
+    for d in touched_dirs:   # bersihkan folder lama (per-session-id) yg sudah kosong
+        try:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
+        except OSError:
+            pass
+    return {"dipindah": moved, "sudah_benar": ok, "hilang": missing, "gagal": failed, "errors": errors[:20]}
 
 
 def cleanup_once():

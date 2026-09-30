@@ -4,6 +4,7 @@ import csv
 import datetime as dt
 import io
 import os
+import re
 import time
 import uuid
 
@@ -159,6 +160,7 @@ def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
         "status": _session_status(s),
         "admin_validated": s.admin_validated,
         "admin_validated_at": s.admin_validated_at.isoformat() if s.admin_validated_at else None,
+        "admin_validated_by": s.admin_validated_by,
         "photos_cleared": photos_cleared,
     }
 
@@ -218,6 +220,7 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
             "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
             "validated": sh.validated,
             "photo_exists": bool(up and up.path and os.path.exists(up.path)),
+            "record": r,   # dipakai form edit di menu Kalibrasi/Detail (NPM/kode soal/fakultas/tiap jawaban) -- lihat admin_edit_sheet
         })
     orphans = [{"id": f.id, "name": f.name, "size": f.size} for f in _orphan_files(db, s)]
     return {"items": items, "orphan_files": orphans}
@@ -324,6 +327,101 @@ def admin_sheet_photo(shid: str, db=Depends(get_db)):
     raise HTTPException(404, "Halaman tak ditemukan dalam berkas")
 
 
+class _AdminSheetEditIn(BaseModel):
+    npm: str | None = None
+    kode_soal: str | None = None
+    fakultas_ljk: str | None = None
+    jawaban: dict[str, str] | None = None   # {"1": "A", "02": "BLANK", ...} -- nomor soal boleh tanpa nol di depan
+
+
+def _apply_sheet_edits(rec: dict, body: "_AdminSheetEditIn") -> dict:
+    """Terapkan koreksi manual (dipakai admin_edit_sheet & admin_bulk_edit) ke SALINAN record `rec`.
+    Sama seperti koreksi pengawas (main.correct_sheet: NPM/kode soal/fakultas) DITAMBAH koreksi per
+    jawaban -- pengawas tak diberi ini krn nama mahasiswa & jawaban org lain sengaja disembunyikan dari
+    dashboard pengawas (lihat main._sheet_view)."""
+    from server import main as _main
+    rec = dict(rec)
+    if body.npm is not None:
+        npm = re.sub(r"\D", "", body.npm)
+        was = re.sub(r"\D", "", str(rec.get("NPM", "")))
+        if npm != was and npm and len(npm) != 10:   # hasil OCR lama boleh sudah tak 10 digit -- itu bukan
+            raise HTTPException(422, "NPM harus 10 digit")   # salah admin; tolak hanya kalau diganti ke nilai baru yg tak valid
+        rec["NPM"] = npm
+    if body.kode_soal is not None:
+        rec["Kode Soal"] = body.kode_soal.strip()
+    if body.fakultas_ljk is not None:
+        fak = body.fakultas_ljk.strip().upper()
+        was = str(rec.get("Fakultas (LJK)", "")).strip().upper()
+        if fak != was:   # hasil OCR lama boleh sudah tak valid (mis. "MULTIPLE") -- itu bukan salah admin,
+            # jadi jangan tolak kalau nilainya SAMA & tak diubah; tolak hanya kalau memang diganti ke nilai baru yg tak valid.
+            options = _main._fakultas_options()
+            if fak and fak not in options:
+                raise HTTPException(422, f"Fakultas harus salah satu dari: {', '.join(options)}")
+        rec["Fakultas (LJK)"] = fak
+        rec["Fakultas"] = fak
+    if body.jawaban:
+        for q, ans in body.jawaban.items():
+            m = re.fullmatch(r"0*(\d{1,2})", q.strip())
+            if not m:
+                continue
+            val = (ans or "").strip().upper()
+            rec[f"soal_{int(m.group(1)):02d}"] = val if val and val != "-" else "BLANK"
+    return rec
+
+
+def _regrade_record(db, rec: dict) -> dict:
+    from core.evaluator import grade_student_record
+    k = services.kunci_int(db)
+    return grade_student_record(rec, k) if k else rec
+
+
+@router.patch("/sheets/{shid}")
+def admin_edit_sheet(shid: str, body: _AdminSheetEditIn, db=Depends(get_db)):
+    """Koreksi manual NPM/kode soal/fakultas/JAWABAN per lembar dari admin -- spt endpoint pengawas (PATCH
+    /api/sheets/{shid}) tapi admin-only, boleh koreksi jawaban juga, & TIDAK terhalang sesi sudah disubmit
+    (sesi yg sudah divalidasi/disubmit tetap bisa dibetulkan kalau ternyata masih ada salah baca). Dipakai
+    panel edit 3-kolom di Detail sesi. Menilai ulang otomatis & MEMBATALKAN validasi lembar ini (data
+    berubah -> perlu dicek ulang, jangan biarkan status lama menyesatkan)."""
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    rec = _apply_sheet_edits(sh.record, body)
+    sh.record = _regrade_record(db, rec)
+    sh.validated = False
+    db.commit()
+    up = db.get(UploadFile, sh.file_id)
+    return {"id": sh.id, "seq": sh.seq, "file": rec.get("File"), "nama": rec.get("Nama Mahasiswa"),
+            "npm": rec.get("NPM"), "kode_soal": rec.get("Kode Soal"), "fakultas_ljk": rec.get("Fakultas (LJK)"),
+            "terisi": sh.record.get("Jawaban Terisi"), "nilai": sh.record.get("Nilai"),
+            "label": classify_scan_status({"status": sh.scan_status}, sh.validated), "validated": sh.validated,
+            "photo_exists": bool(up and up.path and os.path.exists(up.path)), "record": sh.record}
+
+
+class _BulkEditIn(BaseModel):
+    kode_soal: str | None = None
+    fakultas_ljk: str | None = None
+
+
+@router.post("/sessions/{sid}/bulk-edit")
+def admin_bulk_edit(sid: str, body: _BulkEditIn, db=Depends(get_db)):
+    """Terapkan koreksi Kode Soal dan/atau Fakultas ke SEMUA lembar sesi ini sekaligus -- dipakai saat
+    satu blok LJK terbaca konsisten salah utk seluruh kelas (mis. kolom kode soal ketutup gambar tercetak
+    miring, atau fakultas ketukar semua krn kelas gabungan). Tiap lembar dinilai ulang; TIDAK menyentuh
+    NPM/jawaban (beda per mahasiswa, tak masuk akal diseragamkan)."""
+    s = _admin_session_or_404(db, sid)
+    if body.kode_soal is None and body.fakultas_ljk is None:
+        raise HTTPException(422, "Isi kode_soal dan/atau fakultas_ljk")
+    edit = _AdminSheetEditIn(kode_soal=body.kode_soal, fakultas_ljk=body.fakultas_ljk)
+    n = 0
+    for sh in s.sheets:
+        rec = _apply_sheet_edits(sh.record, edit)
+        sh.record = _regrade_record(db, rec)
+        sh.validated = False
+        n += 1
+    db.commit()
+    return {"ok": True, "diubah": n}
+
+
 @router.post("/sheets/{shid}/rescan")
 def admin_rescan_sheet(shid: str, db=Depends(get_db)):
     """Pindai ulang lembar ini dgn foto sumber yg SAMA (tak berubah) -- mis. utk membetulkan hasil baca
@@ -378,7 +476,7 @@ async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db
 
 
 @router.post("/sessions/{sid}/validate")
-def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db)):
+def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), admin=Depends(auth.require_admin)):
     """Tandai (atau batalkan tanda) sesi sudah divalidasi admin. Sejak pemindaian dipindah ke latar belakang
     & pengawas cukup unggah foto (validasi per-lembar tak lagi jadi tugas pengawas), aksi ini JUGA
     memfinalisasi sesi -- dulu ini tugas tombol Submit pengawas: memvalidasi semua lembar yg berhasil
@@ -386,7 +484,8 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db)):
     Google Sheet & masuk ekspor. Lembar yg gagal (pojok LJK tak terdeteksi) TETAP gagal apa pun statusnya --
     tidak ikut divalidasi, tidak memblokir sisanya (beda dgn submit() lama yg menolak bila ADA yg gagal).
     Hanya bermakna bila pemindaian sudah selesai -- menandai sesi yg masih 'scanning' berisiko
-    menyembunyikan lembar yg belum sempat masuk daftar."""
+    menyembunyikan lembar yg belum sempat masuk daftar. Identitas admin yg menandai dicatat di
+    admin_validated_by (nama/username/email -- lihat auth.require_admin) supaya tampil di detail sesi."""
     s = _admin_session_or_404(db, sid)
     if value:
         if _session_status(s) == "scanning":
@@ -402,8 +501,9 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db)):
             s.synced_at, s.sync_attempts, s.sync_error, s.sync_next = None, 0, None, None
     s.admin_validated = value
     s.admin_validated_at = dt.datetime.now(dt.timezone.utc) if value else None
+    s.admin_validated_by = (admin.get("name") or admin.get("email") or "?") if value else None
     db.commit()
-    return {"ok": True, "admin_validated": s.admin_validated, "submitted": s.submitted}
+    return {"ok": True, "admin_validated": s.admin_validated, "admin_validated_by": s.admin_validated_by, "submitted": s.submitted}
 
 
 @router.post("/sessions/{sid}/stop")
@@ -538,6 +638,13 @@ def sync_run(retry_failed: bool = True, db=Depends(get_db)):
 @router.post("/cleanup")
 def cleanup_run():
     return services.cleanup_once()
+
+
+@router.post("/migrate-storage")
+def admin_migrate_storage(db=Depends(get_db)):
+    """Pindahkan berkas sesi LAMA (sebelum foto ditata per Fakultas/Prodi/Kelas) ke struktur folder baru --
+    aman dipanggil berkali-kali, cuma memindah yg belum sesuai (lihat services.migrate_old_storage)."""
+    return services.migrate_old_storage(db)
 
 
 # ---------------------------------------------------------------- ekspor

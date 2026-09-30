@@ -275,3 +275,23 @@ class TestPasswordLogin(unittest.TestCase):
     def test_disabled_when_unset(self):
         config.ADMIN_PASSWORD_HASH = ""
         self.assertEqual(self.c.post("/auth/password", json={"username": "adm", "password": "x"}).status_code, 404)
+
+    def test_admin_accounts_supports_multiple_named_logins(self):
+        saved_extra = config.ADMIN_ACCOUNTS
+        h1, h2 = auth.hash_password("satu123", iters=1000), auth.hash_password("dua456", iters=1000)
+        config.ADMIN_ACCOUNTS = f"admin:{h1},lain:{h2}"
+        try:
+            r1 = self.c.post("/auth/password", json={"username": "admin", "password": "satu123"})
+            self.assertEqual(r1.status_code, 200, r1.text)
+            self.assertEqual(self.c.get("/auth/me").json()["email"], "admin")   # identitas asli tercatat, bukan disamarkan
+            self.c.cookies.clear()
+            r2 = self.c.post("/auth/password", json={"username": "lain", "password": "dua456"})
+            self.assertEqual(r2.status_code, 200, r2.text)
+            self.assertEqual(self.c.get("/auth/me").json()["email"], "lain")
+            self.c.cookies.clear()
+            # akun asli (ADMIN_USER/ADMIN_PASSWORD_HASH) tetap jalan berdampingan dgn ADMIN_ACCOUNTS
+            r3 = self.c.post("/auth/password", json={"username": "adm", "password": "rahasia123"})
+            self.assertEqual(r3.status_code, 200, r3.text)
+            self.assertEqual(self.c.post("/auth/password", json={"username": "admin", "password": "salah"}).status_code, 401)
+        finally:
+            config.ADMIN_ACCOUNTS = saved_extra

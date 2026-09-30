@@ -227,6 +227,7 @@ class TestServices(unittest.TestCase):
         self.assertEqual(next(x for x in rows if x["id"] == sid)["status"], "perlu_cek")
         r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
         self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, True, True))
+        self.assertEqual(r.json()["admin_validated_by"], "ADMIN_TOKEN")   # identitas admin yg menandai (lihat auth.require_admin)
         # validasi admin JUGA memfinalisasi sesi (dulu tugas pengawas via submit()): lembar yg berhasil discan
         # otomatis tervalidasi & sesi terkunci (submitted) -- pengawas tak perlu apa2 lagi.
         d = self.c.get(f"/api/sessions/{sid}").json()
@@ -234,10 +235,13 @@ class TestServices(unittest.TestCase):
         self.assertTrue(all(x["validated"] for x in d["sheets"]))
         rows = self.c.get("/api/admin/sessions?status=validated", headers=ADM).json()["items"]
         self.assertIn(sid, [x["id"] for x in rows])
+        self.assertEqual(next(x for x in rows if x["id"] == sid)["admin_validated_by"], "ADMIN_TOKEN")
         self.assertNotIn(sid, [x["id"] for x in self.c.get("/api/admin/sessions?status=perlu_cek", headers=ADM).json()["items"]])
-        # batalkan tanda -- tak menyentuh submitted (sinkron mungkin sudah berjalan; lihat docstring)
+        # batalkan tanda -- tak menyentuh submitted (sinkron mungkin sudah berjalan; lihat docstring), tapi
+        # "divalidasi oleh" ikut dikosongkan (bukan validated lagi, jadi tak relevan menyebut siapa yg dulu menandai)
         r = self.c.post(f"/api/admin/sessions/{sid}/validate?value=false", headers=ADM)
         self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, False, True))
+        self.assertIsNone(r.json()["admin_validated_by"])
 
     def test_admin_validate_session_requires_at_least_one_sheet(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-EMPTY"}).json()["id"]
@@ -481,6 +485,46 @@ class TestServices(unittest.TestCase):
         parts = rel.split(os.sep)
         self.assertEqual(parts[:3], [VALID["fakultas"], VALID["prodi"], "ORGTEST-01"])
 
+    def test_migrate_storage_moves_old_per_session_folder_into_new_hierarchy(self):
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "MIGTEST-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
+        # Simulasikan berkas dari SEBELUM migrasi ke struktur Fakultas/Prodi/Kelas: dulu foldernya cuma
+        # UPLOAD_DIR/{session_id}/... -- pindahkan manual berkas yg baru saja dibuat itu ke sana & catat di DB,
+        # persis kondisi peninggalan sesi lama di produksi.
+        with SessionLocal() as db:
+            up = db.get(ScanSession, sid).files[0]
+            old_dir = os.path.join(config.UPLOAD_DIR, sid)
+            os.makedirs(old_dir, exist_ok=True)
+            old_path = os.path.join(old_dir, os.path.basename(up.path))
+            os.replace(up.path, old_path)
+            content_before = open(old_path, "rb").read()
+            up.path = old_path
+            db.commit()
+
+        r = self.c.post("/api/admin/migrate-storage", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        # Nilai global (dipindah/sudah_benar) merangkum SELURUH UploadFile di DB tes ini (dipakai bersama
+        # tes lain) -- jangan diasumsikan tepat 1; yg dicek presisi adalah berkas SESI INI sendiri, di bawah.
+        self.assertGreaterEqual(r.json()["dipindah"], 1)
+        self.assertEqual(r.json()["gagal"], 0)
+
+        with SessionLocal() as db:
+            new_path = db.get(ScanSession, sid).files[0].path
+        rel = os.path.relpath(new_path, config.UPLOAD_DIR)
+        self.assertEqual(rel.split(os.sep)[:3], [VALID["fakultas"], VALID["prodi"], "MIGTEST-01"])
+        self.assertTrue(os.path.exists(new_path))
+        self.assertEqual(open(new_path, "rb").read(), content_before)   # isi berkas tak berubah, cuma lokasinya
+        self.assertFalse(os.path.exists(old_dir))   # folder lama yg jadi kosong ikut dibersihkan
+
+        # dipanggil lagi -> idempoten, berkas sesi ini spesifik tak ikut "dipindah" lagi (sudah di lokasi benar)
+        r2 = self.c.post("/api/admin/migrate-storage", headers=ADM)
+        self.assertEqual(r2.json()["dipindah"], 0)
+        self.assertGreaterEqual(r2.json()["sudah_benar"], 1)
+        with SessionLocal() as db:
+            self.assertEqual(db.get(ScanSession, sid).files[0].path, new_path)   # tak berubah lagi
+
+        self.assertEqual(self.c.post("/api/admin/migrate-storage").status_code, 401)
+
     def test_kelas_check_reports_existing_session_then_excludes_self(self):
         sid1 = self.c.post("/api/sessions", json={**VALID, "kelas": "KCHECK-01"}).json()["id"]
         self.c.post(f"/api/sessions/{sid1}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
@@ -661,6 +705,55 @@ class TestServices(unittest.TestCase):
         finally:
             self.c.delete("/api/admin/calib/fields/NPM", headers=ADM)
         self.assertNotEqual(base_npm, shift_npm)
+
+    # ---------------------------------------------------------------- edit lembar & bulk-edit (admin)
+    def test_admin_edit_sheet_updates_fields_and_jawaban_then_regrades(self):
+        self.c.put("/api/admin/kunci/A", json={str(q): a for q, a in KUNCI["A"].items()}, headers=ADM)
+        sid = self.submitted_session("ADMEDIT-01")
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # tandai validated dulu -> edit harus membatalkannya lagi
+
+        r = self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "1234567890", "jawaban": {"1": "B", "02": "c"}}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertEqual(d["npm"], "1234567890")
+        self.assertFalse(d["validated"])   # data diedit -> validasi lembar ini dibatalkan
+        self.assertEqual(d["record"]["soal_01"], "B")   # KUNCI["A"][1] == "B" -> benar
+        self.assertEqual(d["record"]["soal_02"], "C")   # disimpan huruf besar
+        self.assertNotIn(d["nilai"], ("-", ""))
+
+        r2 = self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "123"}, headers=ADM)
+        self.assertEqual(r2.status_code, 422, r2.text)   # NPM harus 10 digit
+        r3 = self.c.patch(f"/api/admin/sheets/{shid}", json={"fakultas_ljk": "BUKAN FAKULTAS"}, headers=ADM)
+        self.assertEqual(r3.status_code, 422, r3.text)
+
+        self.assertEqual(self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "1234567890"}).status_code, 401)
+        self.assertEqual(self.c.patch("/api/admin/sheets/tidak-ada", json={"npm": "1234567890"}, headers=ADM).status_code, 404)
+
+    def test_admin_edit_sheet_works_even_after_submit(self):
+        sid = self.submitted_session("ADMEDIT-02")
+        self.submit(sid)
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.patch(f"/api/admin/sheets/{shid}", json={"kode_soal": "999"}, headers=ADM)
+        self.assertEqual((r.status_code, r.json()["kode_soal"]), (200, "999"))
+
+    def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):
+        sid = self.submitted_session("ADMBULK-01", n=3)
+        items_before = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(items_before), 3)
+        r = self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={"kode_soal": "042", "fakultas_ljk": "FIF"}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["diubah"], 3)
+        items_after = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertTrue(all(x["kode_soal"] == "042" for x in items_after))
+        self.assertTrue(all(x["fakultas_ljk"] == "FIF" for x in items_after))
+        self.assertTrue(all(not x["validated"] for x in items_after))   # diedit -> perlu dicek ulang
+
+    def test_admin_bulk_edit_requires_at_least_one_field_and_token(self):
+        sid = self.submitted_session("ADMBULK-02")
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={}, headers=ADM).status_code, 422)
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={"kode_soal": "1"}).status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/bulk-edit", json={"kode_soal": "1"}, headers=ADM).status_code, 404)
 
 
 if __name__ == "__main__":

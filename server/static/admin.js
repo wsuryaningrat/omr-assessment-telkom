@@ -2,7 +2,8 @@ function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
     tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "ekspor", label: "Ekspor" }],
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "" },
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false },
+    meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {} },
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -18,8 +19,10 @@ function admin() {
         try { this.token = sessionStorage.getItem("adm_tok") || ""; } catch {}
         if (this.token && this.me.token_allowed) await this.login(true);
       }
+      try { this.meta = await (await fetch("/api/meta")).json(); } catch {}
       this.ready = true;
     },
+    get fakultasOptions() { return this.meta.fakultas || []; },
     toast(text, bad = false) { this.msg = { text, bad, show: true }; clearTimeout(this._t); this._t = setTimeout(() => (this.msg.show = false), bad ? 3500 : 2200); },
     async api(path, opt = {}) {
       const h = { ...(opt.headers || {}) }; if (this.token) h["X-Admin-Token"] = this.token;
@@ -102,12 +105,41 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async openDetail(i) {
-      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, items: [], orphans: [], loading: true, previewBusy: false };
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by,
+        items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
+        questionNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
         this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
       } catch (e) { this.toast(e.message, true); this.detail = null; return; }
       this.detail.loading = false;
+      if (this.detail.items.length) this.selectDetailSheet(this.detail.items[0]);
+      else this._setPreview("");
+    },
+    // Pilih satu lembar di kolom kiri: muat pratinjau foto asli + isi form edit (kolom kanan) dari record-nya.
+    selectDetailSheet(x) {
+      this.detail.selectedId = x.id; this.detail.selectedItem = x;
+      this._loadEditForm(x);
+      this.detail.previewMode = "original";
+      if (x.photo_exists) this.showDetailPreview("original"); else this._setPreview("");
+    },
+    _loadEditForm(x) {
+      const rec = x.record || {};
+      const qs = Object.keys(rec).filter(k => /^soal_\d{2}$/.test(k)).sort();
+      this.detail.questionNums = qs.map(k => k.slice(5));
+      const jawaban = {}; qs.forEach(k => { jawaban[k.slice(5)] = rec[k] || "BLANK"; });
+      // Fakultas hasil OCR kadang bukan salah satu pilihan valid (mis. "MULTIPLE" -- beberapa kotak
+      // tercentang sekaligus): jangan taruh nilai itu di <select> (browser tak bisa mencocokkannya ke
+      // opsi mana pun), biarkan kosong supaya admin memilih yg benar -- nilai aslinya tetap terlihat
+      // sbg keterangan di bawah dropdown (lihat detail.selectedItem.fakultas_ljk di admin.html).
+      const fakRaw = rec["Fakultas (LJK)"] || "";
+      const fak = this.fakultasOptions.includes(fakRaw) ? fakRaw : "";
+      this.editForm = { npm: rec["NPM"] || "", kode_soal: rec["Kode Soal"] || "", fakultas_ljk: fak, jawaban };
+      // Alpine kadang gagal mensinkronkan <select :value> ke DOM saat elemen ini BARU dipasang di render
+      // yg sama (mis. lewat x-if) -- opsinya (x-for) belum tentu selesai dipasang saat :value dievaluasi
+      // pertama kali, jadi browser diam2 menolak nilai yg belum ada opsinya & Alpine tak pernah mencoba
+      // lagi. Paksa sinkron manual sekali lagi setelah DOM benar2 selesai dirender (nextTick).
+      this.$nextTick(() => { const el = document.getElementById("edFak"); if (el) el.value = fak; });
     },
     // "Hilang senyap": berkas tercatat selesai tapi nol lembar (mis. terputus restart server di tengah
     // pemindaian lembar sulit). Foto sumbernya aman -- diproses ulang lewat antrean latar belakang biasa.
@@ -122,7 +154,8 @@ function admin() {
     // Pindai ulang SEMUA lembar sesi (bukan cuma yg hilang senyap) -- mis. utk menyegarkan hasil lama
     // setelah perbaikan deteksi. Latar belakang & bisa makan waktu utk sesi besar; progres muncul di kolom Proses.
     async rescanAllSheets(i) {
-      if (!confirm(`Pindai ulang SEMUA ${i.lembar} lembar di sesi ini dgn foto sumber yg sama? Status "sudah dicek per-lembar" akan direset & nilai bisa berubah kalau hasil bacanya beda. Berjalan di latar belakang & bisa makan waktu -- sebaiknya di luar jam sibuk unggahan.`)) return;
+      const n = i.lembar ?? (i.items ? i.items.length : "semua");
+      if (!confirm(`Pindai ulang SEMUA ${n} lembar di sesi ini dgn foto sumber yg sama? Status "sudah dicek per-lembar" akan direset & nilai bisa berubah kalau hasil bacanya beda. Berjalan di latar belakang & bisa makan waktu -- sebaiknya di luar jam sibuk unggahan.`)) return;
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/rescan-all`, { method: "POST" });
         this.toast(`${d.diantre} lembar diantre utk dipindai ulang` + (d.dilewati ? ` (${d.dilewati} dilewati, foto tak ada)` : ""));
@@ -130,33 +163,68 @@ function admin() {
       } catch (e) { this.toast(e.message, true); }
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
-    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url }; },
-    async previewOriginal(x) {
-      // Foto ASLI (belum diproses) -- cepat, cuma decode gambar, tanpa pipeline OMR.
-      this.detail && (this.detail.previewBusy = true);
+    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false }; },
+    async showDetailPreview(mode) {
+      const x = this.detail?.selectedItem; if (!x || !x.photo_exists) return;
+      this.detail.previewMode = mode;
+      if (mode === "scan") { this._setPreview(`/api/sheets/${x.id}/preview?t=${Date.now()}`); return; }
+      this.preview.loading = true;   // Foto ASLI (belum diproses) -- cepat, cuma decode gambar, tanpa pipeline OMR.
       try { const r = await this.api(`/api/admin/sheets/${x.id}/photo`); this._setPreview(URL.createObjectURL(await r.blob())); }
-      catch (e) { this.toast(e.message, true); }
-      this.detail && (this.detail.previewBusy = false);
+      catch (e) { this.toast(e.message, true); this.preview.loading = false; }
     },
-    previewScan(x) { this._setPreview(`/api/sheets/${x.id}/preview?t=${Date.now()}`); },
     async rescanSheet(x) {
+      if (!x) return;
       x.busy = true;
+      const keepId = x.id;
       try {
         const d = await this.json(`/api/admin/sheets/${x.id}/rescan`, { method: "POST" });
         this.toast("Dipindai ulang — status: " + d.label);
         await this.openDetail(this.detail);
+        const again = this.detail?.items.find(it => it.id === keepId);
+        if (again) this.selectDetailSheet(again);
       } catch (e) { this.toast(e.message, true); }
-      x.busy = false;
     },
     async replaceSheetPhoto(x, ev) {
-      const f = ev.target.files && ev.target.files[0]; if (!f) return;
+      const f = ev.target.files && ev.target.files[0]; if (!f || !x) return;
       const fd = new FormData(); fd.append("file", f, f.name);
+      const keepId = x.id;
       try {
         const d = await this.json(`/api/admin/sheets/${x.id}/replace`, { method: "POST", body: fd });
         this.toast("Foto diganti & dipindai ulang — status: " + d.label);
         await this.openDetail(this.detail);
+        const again = this.detail?.items.find(it => it.id === keepId);
+        if (again) this.selectDetailSheet(again);
       } catch (e) { this.toast(e.message, true); }
       ev.target.value = "";
+    },
+    // Edit manual NPM/kode soal/fakultas/jawaban lembar yg sedang dipilih (kolom kanan Detail sesi).
+    async saveDetailEdit() {
+      const x = this.detail?.selectedItem; if (!x) return;
+      this.detail.saving = true;
+      try {
+        const body = { npm: this.editForm.npm, kode_soal: this.editForm.kode_soal, fakultas_ljk: this.editForm.fakultas_ljk, jawaban: this.editForm.jawaban };
+        const updated = await this.json(`/api/admin/sheets/${x.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const idx = this.detail.items.findIndex(it => it.id === x.id);
+        if (idx >= 0) this.detail.items[idx] = updated;
+        this.detail.selectedItem = updated;
+        this._loadEditForm(updated);
+        this.toast("Perubahan disimpan");
+      } catch (e) { this.toast(e.message, true); }
+      this.detail.saving = false;
+    },
+    // Terapkan Kode Soal dan/atau Fakultas ke SEMUA lembar sesi ini sekaligus (mis. satu blok terbaca
+    // konsisten salah utk seluruh kelas) -- tak menyentuh NPM/jawaban (beda per mahasiswa).
+    async applyBulkEdit() {
+      const d0 = this.detail; if (!d0 || (!d0.bulkKode && !d0.bulkFakultas)) return;
+      if (!confirm(`Terapkan ke SEMUA ${d0.items.length} lembar di sesi ini? Validasi per-lembar yg sudah ada akan direset.`)) return;
+      d0.bulkBusy = true;
+      try {
+        const body = {}; if (d0.bulkKode) body.kode_soal = d0.bulkKode; if (d0.bulkFakultas) body.fakultas_ljk = d0.bulkFakultas;
+        const d = await this.json(`/api/admin/sessions/${d0.id}/bulk-edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        this.toast(`${d.diubah} lembar diperbarui`);
+        await this.openDetail(d0);
+      } catch (e) { this.toast(e.message, true); }
+      if (this.detail) this.detail.bulkBusy = false;
     },
     async loadKunci() { try { this.kunci = await this.json("/api/admin/kunci"); } catch (e) { this.toast(e.message, true); } },
     // Kalibrasi posisi template: unggah 1 foto referensi (sekali, dicache di server), lalu geser tiap blok
@@ -247,6 +315,16 @@ function admin() {
       this.busy = true;
       try { const d = await this.json(path, { method: "POST" }); this.toast(okMsg + (d && d.synced !== undefined ? ` (${d.synced} sesi terkirim)` : "")); await this.loadSummary(); }
       catch (e) { this.toast(e.message, true); }
+      this.busy = false;
+    },
+    async migrateStorage() {
+      this.busy = true;
+      try {
+        const d = await this.json("/api/admin/migrate-storage", { method: "POST" });
+        this.toast(d.dipindah ? `${d.dipindah} berkas dipindah ke folder Fakultas/Prodi/Kelas (${d.sudah_benar} sudah benar)` : `Semua berkas sudah tertata (${d.sudah_benar} diperiksa)`,
+          d.gagal > 0);
+        if (d.gagal) this.toast(`${d.gagal} berkas gagal dipindah — cek log server`, true);
+      } catch (e) { this.toast(e.message, true); }
       this.busy = false;
     },
     async uploadKunci(ev) {

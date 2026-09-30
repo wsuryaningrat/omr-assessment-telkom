@@ -137,8 +137,6 @@ function ljk() {
     },
     get scanDone() { return this.session ? this.session.files.total - this.session.files.pending : 0; },
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
-    get allValid() { const s = this.session?.summary; return !!s && s.lembar > 0 && s.ok === s.lembar; },
-    get canSubmit() { return this.allValid && !this.session.scanning; },
     abbr(v) { const t = String(v || "").trim(); const m = /\(([A-Za-z]{2,5})\)/.exec(t); return (m ? m[1] : t.split(" - ")[0]).toUpperCase(); },
     fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
     // Nama mahasiswa sengaja tidak ditampilkan/dicari di sisi pengawas (tetap tersimpan di rekap admin).
@@ -294,20 +292,6 @@ function ljk() {
       const s = this.session.sheets.find(x => x.id === id); if (!s || s.validated === v) return;
       s.validated = v; s.label = v ? "OK" : "Perlu Validasi";
       const m = this.session.summary; m.ok += v ? 1 : -1; m.perlu_validasi += v ? -1 : 1;
-    },
-    async validateAll(value) {
-      if (value) {
-        const warn = (this.session?.sheets || []).filter(s => this.status(s) === "warning" && s.label !== "Gagal");
-        if (warn.length && !(await this.confirmForce(warn))) return;
-      }
-      try { await this.api(`/api/sessions/${this.sid}/validate-all?value=${value}`, { method: "POST" }); await this.refresh(); }
-      catch (e) { this.toast(e.message, true); }
-    },
-    async submit() {
-      this.busy = true;
-      try { await this.api(`/api/sessions/${this.sid}/submit`, { method: "POST" }); await this.refresh(); this.view = null; scrollTo({ top: 0 }); }
-      catch (e) { this.toast(e.message, true); }
-      this.busy = false;
     },
     open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; this.edit = { field: null, val: "" }; document.body.style.overflow = "hidden"; },
     close() { this.sel = null; this.edit = { field: null, val: "" }; document.body.style.overflow = ""; },
