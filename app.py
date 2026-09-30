@@ -37,11 +37,9 @@ from core.decoder import decode_field
 from core.pdf_utils import extract_images_from_file, iter_images_from_file
 from scanner.service import (
     SCAN_MAX_SIDE,
-    FAKULTAS_PRODI,
     get_default_template_path,
     load_default_template,
     classify_scan_status,
-    is_valid_phone,
     process_single_page,
 )
 
@@ -1314,53 +1312,10 @@ if mode == "Portal Evaluasi LJK":
     _current_step = 3 if _is_submitted else (2 if _has_results else 1)
     render_ljk_stepper(_current_step)
 
-    # 1. Identitas Pengawas & Fakultas / Program Studi Mahasiswa
-    with st.container(key="ljk_form_row_top"):
-        col_dos, col_hp, col_room = st.columns([3, 2, 2])
-        with col_dos:
-            nama_pengawas = st.text_input(
-                "Nama Lengkap Pengawas",
-                value="",
-                placeholder="Nama lengkap pengawas...",
-                help="Wajib diisi: Nama lengkap pengawas."
-            )
-        with col_hp:
-            hp_pengawas = st.text_input(
-                "Nomor HP Pengawas",
-                value="",
-                placeholder="08xxxxxxxxxx",
-                help="Wajib diisi: Nomor HP pengawas yang dapat dihubungi."
-            )
-        with col_room:
-            ruangan = st.text_input(
-                "Ruangan",
-                value="",
-                placeholder="Contoh: TULT 0603",
-                help="Wajib diisi: Ruangan pelaksanaan."
-            )
-        col_fak, col_prodi = st.columns([1, 1])
-        with col_fak:
-            fakultas_pilihan = st.selectbox(
-                "Fakultas Mahasiswa",
-                options=list(FAKULTAS_PRODI.keys()),
-                index=None,
-                placeholder="-- Pilih Fakultas --",
-                help="Wajib dipilih: Fakultas mahasiswa yang dievaluasi."
-            )
-        with col_prodi:
-            prodi_pilihan = st.selectbox(
-                "Program Studi Mahasiswa",
-                options=FAKULTAS_PRODI.get(fakultas_pilihan, []),
-                index=None,
-                placeholder="-- Pilih Program Studi --" if fakultas_pilihan else "-- Pilih Fakultas dulu --",
-                disabled=not fakultas_pilihan,
-                help="Wajib dipilih: Program studi mahasiswa (mengikuti fakultas)."
-            )
-    pengawas_info = {
-        "hp": hp_pengawas.strip(),
-        "ruangan": ruangan.strip(),
-        "prodi": prodi_pilihan or "-",
-    }
+    # Form identitas pengawas dinonaktifkan sementara -- branch ini fokus optimasi model OMR,
+    # bukan alur produksi. Isi ditetapkan placeholder supaya unggah+scan langsung jalan.
+    nama_pengawas, hp_pengawas, ruangan, fakultas_pilihan, prodi_pilihan = "-", "-", "-", "", "-"
+    pengawas_info = {"hp": hp_pengawas, "ruangan": ruangan, "prodi": prodi_pilihan}
     st.session_state["_fakultas_pilihan"] = fakultas_pilihan
     st.session_state["_nama_pengawas"] = nama_pengawas
     st.session_state["_pengawas_info"] = pengawas_info
@@ -1401,41 +1356,21 @@ if mode == "Portal Evaluasi LJK":
         st.session_state.pop("_inspect_idx", None)
         st.session_state.pop("_auto_scanned_key", None)
 
-    # Validasi Berkas & Form (Batas 10MB per berkas)
+    # Validasi Berkas (Batas 10MB per berkas)
     MAX_FILE_SIZE_MB = 10
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
     oversized_files = [uf.name for uf in (uploaded_files_dosen or []) if getattr(uf, "size", 0) > MAX_FILE_SIZE_BYTES]
 
-    _phone_ok = is_valid_phone(hp_pengawas)
-    is_form_complete = (
-        bool(nama_pengawas.strip()) and _phone_ok and bool(ruangan.strip())
-        and bool(fakultas_pilihan) and bool(prodi_pilihan)
-    )
     has_files = bool(uploaded_files_dosen) and len(oversized_files) == 0
 
-    # Pemindaian berjalan otomatis begitu berkas & form lengkap.
+    # Pemindaian berjalan otomatis begitu berkas terunggah (form pengawas dinonaktifkan sementara).
     already_scanned = has_files and st.session_state.get("_auto_scanned_key") == _upload_key
-    should_auto_scan = has_files and is_form_complete and not already_scanned
+    should_auto_scan = has_files and not already_scanned
 
     if oversized_files:
         st.error(f"⚠️ Berkas melebihi batas ukuran 10MB: **{', '.join(oversized_files)}**.")
-    elif bool(uploaded_files_dosen) and not is_form_complete:
-        missing_fields = []
-        if not nama_pengawas.strip():
-            missing_fields.append("Nama Lengkap Pengawas")
-        if not hp_pengawas.strip():
-            missing_fields.append("Nomor HP Pengawas")
-        elif not _phone_ok:
-            missing_fields.append("Nomor HP Pengawas (format tidak valid)")
-        if not ruangan.strip():
-            missing_fields.append("Ruangan")
-        if not fakultas_pilihan:
-            missing_fields.append("Fakultas Mahasiswa")
-        if not prodi_pilihan:
-            missing_fields.append("Program Studi Mahasiswa")
-        st.warning(f"⚠️ Wajib diisi: **{' & '.join(missing_fields)}** sebelum evaluasi.")
 
-    if uploaded_files_dosen and should_auto_scan and is_form_complete:
+    if uploaded_files_dosen and should_auto_scan:
         template = load_default_template()
         if not template:
             st.error("Template resmi tidak ditemukan di folder templates/ maupun direktori aplikasi.")

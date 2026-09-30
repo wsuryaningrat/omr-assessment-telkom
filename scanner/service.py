@@ -165,6 +165,29 @@ def _limit_soal(fields):
     return out
 
 
+# Batas jumlah pertanyaan Kuisioner yang dibaca (LJK cetak 15, tapi cuma 8 pertama yang dipakai).
+MAX_KUISIONER = int(os.environ.get("MAX_KUISIONER", "8"))
+
+
+def _limit_kuisioner(fields):
+    """Buang butir kuisioner bernomor > MAX_KUISIONER (spt _limit_soal, blok kuisioner yg habis ikut
+    dibuang). Efeknya: tidak dibaca, tidak digambar di preview, tidak masuk rekap."""
+    out = {}
+    for name, fdef in fields.items():
+        if "kuisioner" in name.lower():
+            items = []
+            for it in fdef.get("items", []):
+                m = re.search(r"(\d+)$", str(it.get("name", "")))
+                if m is None or int(m.group(1)) <= MAX_KUISIONER:
+                    items.append(it)
+            if not items:
+                continue
+            if len(items) != len(fdef["items"]):
+                fdef = dict(fdef, items=items)
+        out[name] = fdef
+    return out
+
+
 def _decode_fields(gray, fields_dict, only=None):
     """Baca semua blok (atau hanya yang namanya diawali salah satu `only`). Kembalikan (decoded_all, soal_dict)."""
     decoded_all, soal_dict = {}, {}
@@ -241,6 +264,7 @@ def scan_page(img_bgr, doc_name, template, fakultas_pilihan, nama_pengawas, k_ca
     canvas_w = template.get("canvas", {}).get("width", 1700)
     canvas_h = template.get("canvas", {}).get("height", 2400)
     fields_dict = _limit_soal(template.get("fields", {}))
+    fields_dict = _limit_kuisioner(fields_dict)
     fields_dict = apply_field_calib(fields_dict, calib)
     k_cache = {n: {q: a for q, a in d.items() if q <= MAX_SOAL} for n, d in (k_cache or {}).items()}
     aruco_dict = template.get("aruco_dict", "DICT_4X4_50")

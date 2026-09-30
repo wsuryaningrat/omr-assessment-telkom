@@ -58,10 +58,21 @@ def _pitch(cells):
     return med_step([b["cx"] for b in cells]), med_step([b["cy"] for b in cells])
 
 
+def _transform_points(pts, W):
+    """Petakan titik (N,2) lewat W: affine (2x3) atau perspektif (3x3, dari estimate_field_perspective).
+    Satu fungsi dipakai di mana pun koordinat template->citra perlu dihitung, supaya affine (lama) dan
+    perspektif (layer 2, baru) diperlakukan seragam oleh _cell_contrasts/apply_warp."""
+    pts = np.asarray(pts, dtype=np.float64)
+    if W.shape[0] == 3:
+        out = cv2.perspectiveTransform(pts.reshape(-1, 1, 2).astype(np.float32), W.astype(np.float32))
+        return out.reshape(-1, 2).astype(np.float64)
+    return pts @ W[:, :2].T + W[:, 2]
+
+
 def _cell_contrasts(img, cells, x0, y0, W=None):
     """Kontras tiap kotak = rata-rata abu-abu isi kotak - rata-rata abu-abu garis kotak (positif = garis
-    tercetak memang jatuh di garis kisi). W (koord. template->citra) opsional. Kembalikan array
-    (kontras, kolom, baris) per kotak."""
+    tercetak memang jatuh di garis kisi). W (koord. template->citra; affine 2x3 atau perspektif 3x3) opsional.
+    Kembalikan array (kontras, kolom, baris) per kotak."""
     h, w = img.shape[:2]
     out = []
     for b in cells:
@@ -69,9 +80,9 @@ def _cell_contrasts(img, cells, x0, y0, W=None):
         bw, bh = b["w"], b["h"]
         xs, ys = (bx, bx + bw), (by, by + bh)
         if W is not None:
-            pts = [(W[0, 0] * x + W[0, 1] * y + W[0, 2], W[1, 0] * x + W[1, 1] * y + W[1, 2]) for x in xs for y in ys]
-            xs = (min(p[0] for p in pts), max(p[0] for p in pts))
-            ys = (min(p[1] for p in pts), max(p[1] for p in pts))
+            pts = _transform_points([(x, y) for x in xs for y in ys], W)
+            xs = (pts[:, 0].min(), pts[:, 0].max())
+            ys = (pts[:, 1].min(), pts[:, 1].max())
         x1, x2, y1, y2 = int(round(xs[0])), int(round(xs[1])), int(round(ys[0])), int(round(ys[1]))
         if x1 < 2 or y1 < 2 or x2 > w - 2 or y2 > h - 2 or x2 - x1 < 14 or y2 - y1 < 14:
             out.append((0.0, b.get("col", 0), b.get("row", 0)))
@@ -177,25 +188,168 @@ def estimate_field_warp(gray, field, margin=_MARGIN, scale=_SCALE, min_final=_MI
 
 
 def apply_warp(field, W, origin):
-    """Salinan field dengan semua koordinat bubble dipetakan lewat W (koordinat template -> citra)."""
+    """Salinan field dengan semua koordinat bubble dipetakan lewat W (koordinat template -> citra).
+    W boleh affine (2x3, dari estimate_field_warp) atau perspektif (3x3, dari estimate_field_perspective)."""
     out = copy.deepcopy(field)
     x0, y0 = origin
-    for it in out["items"]:
-        for b in it["bubbles"]:
-            for kx, ky in (("cx", "cy"), ("x", "y")):
-                px, py = b[kx] - x0, b[ky] - y0
-                b[kx] = W[0, 0] * px + W[0, 1] * py + W[0, 2] + x0
-                b[ky] = W[1, 0] * px + W[1, 1] * py + W[1, 2] + y0
+    # Kumpulkan tiap (bubble, pasangan-koordinat) sbg satu entri supaya _transform_points dipanggil
+    # sekali (perspektif lewat cv2.perspectiveTransform lebih murah dipanggil batch daripada per titik).
+    entries = [(b, kx, ky) for it in out["items"] for b in it["bubbles"] for kx, ky in (("cx", "cy"), ("x", "y"))]
+    pts = [(b[kx] - x0, b[ky] - y0) for b, kx, ky in entries]
+    mapped = _transform_points(pts, W)
+    for (b, kx, ky), (nx, ny) in zip(entries, mapped):
+        b[kx], b[ky] = float(nx) + x0, float(ny) + y0
     return out
 
 
 _SNAP_RX, _SNAP_RY, _SNAP_MIN_CORR, _SNAP_MAX_SPREAD = 14, 18, 0.30, 6.0
+_CORNER_SEARCH_RADIUS = 48   # jendela pencarian tiap sudut blok (px kanvas) -- jauh lebih lebar dari snap_rows
+_CORNER_MIN_CORR = 0.30      # korelasi minimum agar satu sudut dianggap ditemukan
 
 
 def _outline(w, h, pad):
     t = np.full((h + 2 * pad, w + 2 * pad), 255, np.uint8)
     cv2.rectangle(t, (pad, pad), (pad + w, pad + h), 0, 2)
     return _highpass(t)
+
+
+def _corner_cells(field):
+    """4 sel bubble paling ujung suatu blok (kiri-atas/kanan-atas/kanan-bawah/kiri-bawah), dipakai sbg
+    'marker' pengganti ArUco utk homografi lokal blok itu -- layer 2. None bila blok terlalu sempit
+    (mis. FAKULTAS: 1 kolom saja) sehingga 4 sudut tak bisa berbeda posisi di kedua sumbu."""
+    cells = _cells(field)
+    if len(cells) < 4:
+        return None
+    tl = min(cells, key=lambda b: b["cx"] + b["cy"])
+    br = max(cells, key=lambda b: b["cx"] + b["cy"])
+    tr = max(cells, key=lambda b: b["cx"] - b["cy"])
+    bl = min(cells, key=lambda b: b["cx"] - b["cy"])
+    corners = {"TL": tl, "TR": tr, "BR": br, "BL": bl}
+    if len({id(c) for c in corners.values()}) < 4:
+        return None  # blok 1 baris/1 kolom -> sudut-sudut jatuh di sel yg sama, homografi tak terdefinisi
+    return corners
+
+
+def detect_block_corners(gray, corners, search_radius=_CORNER_SEARCH_RADIUS, min_corr=_CORNER_MIN_CORR):
+    """Cari posisi ASLI tiap dari 4 sel sudut `corners` (dict TL/TR/BR/BL -> bubble, dari _corner_cells)
+    di citra `gray` -- pola sama seperti snap_rows (garis kotak dicocokkan via matchTemplate pada citra
+    DoG-highpass) tapi jangkauan jauh lebih lebar, karena di sinilah blok itu "menemukan sudutnya sendiri"
+    alih-alih hanya micro-snap di sekitar posisi yang sudah hampir pas. `search_radius`: skalar (sama
+    utk x&y) ATAU (radius_x, radius_y) -- kisi rapat spt kolom pilihan A-D (celah horizontal cuma
+    2-4px) butuh radius_x jauh lebih sempit dari radius_y supaya jendela pencarian tak pernah menyentuh
+    kolom tetangga (lihat _safe_axis_radii). Kembalikan {label: (x, y)} citra -- cuma label yang
+    korelasinya cukup yakin (blok bisa dapat &lt;4 -> pemanggil menolak & jatuh ke fallback)."""
+    H, W = gray.shape
+    hp = _highpass(gray, 1.0, 8.0)
+    rx, ry = search_radius if isinstance(search_radius, tuple) else (search_radius, search_radius)
+    found = {}
+    for label, b in corners.items():
+        bw, bh = int(round(b["w"])), int(round(b["h"]))
+        x0 = int(round(b["x"])) - rx - 2
+        y0 = int(round(b["y"])) - ry - 2
+        x1, y1 = x0 + bw + 2 * (rx + 2), y0 + bh + 2 * (ry + 2)
+        if x0 < 0 or y0 < 0 or x1 > W or y1 > H:
+            continue
+        tmpl = _outline(bw, bh, 2)
+        res = cv2.matchTemplate(hp[y0:y1, x0:x1], tmpl, cv2.TM_CCOEFF_NORMED)
+        _, pk, _, loc = cv2.minMaxLoc(res)
+        if pk < min_corr:
+            continue
+        dx, dy = loc[0] - rx, loc[1] - ry
+        found[label] = (b["cx"] + dx, b["cy"] + dy)
+    return found
+
+
+_GAP_SAFETY_MARGIN = 3.0   # px disisakan dari tepi celah antar-kotak, jangan dihabiskan semua
+_MIN_AXIS_RADIUS = 3.0
+
+
+def _safe_axis_radii(cells, cap=_CORNER_SEARCH_RADIUS):
+    """Radius pencarian AMAN per sumbu = celah nyata antar-kotak (pitch - lebar/tinggi kotak) dikurangi
+    sedikit margin -- BUKAN pecahan tetap dari pitch. Kisi rapat spt LJK ini (kolom pilihan A-D nyaris
+    tanpa celah horizontal) membuat radius seragam (dulu 1 nilai utk x&y sekaligus) gampang "mengunci"
+    ke kolom tetangga; radius per-sumbu memastikan jendela x tak pernah melewati celah horizontal,
+    sementara y (celah antar-baris jauh lebih lega) tetap dapat jangkauan berarti utk koreksi. Radius
+    bisa jatuh ke _MIN_AXIS_RADIUS (px) kalau celahnya memang nyaris nol -- itu realitas fisik kisi
+    ini, bukan bug; pemanggil (estimate_field_perspective) tetap divalidasi penuh oleh
+    _grid_ok/_cell_contrasts spt biasa, jadi koreksi yang salah tetap ditolak."""
+    bw = float(np.median([b["w"] for b in cells]))
+    bh = float(np.median([b["h"] for b in cells]))
+    px, py = _pitch(cells)
+    rx = max(_MIN_AXIS_RADIUS, min(cap, (px - bw) - _GAP_SAFETY_MARGIN))
+    ry = max(_MIN_AXIS_RADIUS, min(cap, (py - bh) - _GAP_SAFETY_MARGIN))
+    return int(round(rx)), int(round(ry))
+
+
+def estimate_field_perspective(gray, field, search_radius=None, min_final=_MIN_FINAL_CONTRAST):
+    """Layer 2: deteksi 4 sudut MILIK BLOK INI SENDIRI (sel bubble paling ujung, dicari independen dg
+    jendela lebar -- analog 4 ArUco tapi utk satu kategori isian) lalu hitung transformasi PERSPEKTIF
+    penuh dari situ. Lebih kuat dari estimate_field_warp (korelasi kisi kecil, translasi/affine saja,
+    jendela ±32px): perspektif menangkap rotasi/skew/skala blok itu sekaligus -- tapi butuh blok cukup
+    lebar di 2 sumbu (lihat _corner_cells) dan tiap sudut harus benar-benar ketemu dg korelasi
+    meyakinkan. `search_radius=None` (default): dihitung otomatis per-sumbu dari celah antar-kotak
+    blok ini sendiri (_safe_axis_radii) -- radius tetap 48px seragam utk x&y TERBUKTI gagal total pd
+    kolom pilihan A-D yg celahnya cuma 2-4px (jendela pencarian melewati kolom tetangga, salah kunci
+    periode). Boleh dipaksa skalar/tuple eksplisit (dipakai tes). Gagal di salah satu syarat ->
+    (None, ...), pemanggil (register_fields) jatuh ke estimate_field_warp sbg jaring pengaman.
+    Kembalikan (H 3x3 di koordinat kanvas *lokal crop*, origin (x0,y0), info) atau (None, origin, info)."""
+    cells = _cells(field)
+    info = {"applied": False, "aligned": False, "method": "perspective"}
+    corners = _corner_cells(field)
+    if corners is None:
+        info["rejected"] = "blok_terlalu_sempit"
+        return None, (0, 0), info
+
+    xs = [b["x"] for b in cells]
+    ys = [b["y"] for b in cells]
+    xe = [b["x"] + b["w"] for b in cells]
+    ye = [b["y"] + b["h"] for b in cells]
+    x0, y0 = max(0, int(min(xs)) - _MARGIN), max(0, int(min(ys)) - _MARGIN)
+    x1, y1 = min(gray.shape[1], int(max(xe)) + _MARGIN), min(gray.shape[0], int(max(ye)) + _MARGIN)
+    if x1 - x0 < 40 or y1 - y0 < 40:
+        return None, (x0, y0), info
+
+    full_img = gray[y0:y1, x0:x1]
+    m0, min_col0, min_row0 = _grid_ok(_cell_contrasts(full_img, cells, x0, y0))
+    info.update(contrast0=round(m0, 1))
+    if m0 >= _ALIGNED_MEAN and min_col0 >= _MIN_LINE_CONTRAST and min_row0 >= _MIN_LINE_CONTRAST:
+        info["aligned"] = True     # garis tercetak sudah jatuh di kisi template: jangan diutak-atik
+        return None, (x0, y0), info
+
+    radii = search_radius if search_radius is not None else _safe_axis_radii(cells)
+    detected = detect_block_corners(gray, corners, search_radius=radii)
+    info["search_radii"] = radii
+    if len(detected) < 4:
+        info["rejected"] = "sudut_tak_lengkap"
+        info["sudut_ditemukan"] = sorted(detected.keys())
+        return None, (x0, y0), info
+
+    order = ("TL", "TR", "BR", "BL")
+    src = np.array([[corners[k]["cx"], corners[k]["cy"]] for k in order], dtype=np.float32)
+    dst = np.array([detected[k] for k in order], dtype=np.float32)
+    src_local = src - np.array([x0, y0], dtype=np.float32)
+    dst_local = dst - np.array([x0, y0], dtype=np.float32)
+    try:
+        Hm = cv2.getPerspectiveTransform(src_local, dst_local)
+    except cv2.error:
+        info["rejected"] = "homografi_gagal"
+        return None, (x0, y0), info
+
+    m1, min_col, min_row = _grid_ok(_cell_contrasts(full_img, cells, x0, y0, Hm))
+    info.update(contrast1=round(m1, 1), min_col=round(min_col, 1), min_row=round(min_row, 1))
+    shift = dst - src
+    dx, dy = float(np.mean(shift[:, 0])), float(np.mean(shift[:, 1]))
+    # Sama seperti estimate_field_warp: kisi berulang bisa "mendarat" satu periode meleset -- tolak
+    # kecuali SETIAP kolom & baris (bukan cuma 4 sudutnya) benar-benar jatuh di garis tercetak.
+    line_ok = min_col >= _MIN_LINE_CONTRAST and min_row >= _MIN_LINE_CONTRAST and m1 - m0 >= _MIN_CONTRAST_GAIN
+    if line_ok and m1 < min_final and m1 >= _WEAK_FINAL_CONTRAST:
+        info.update(weak=True, dx=round(dx, 1), dy=round(dy, 1))
+        return Hm, (x0, y0), info
+    if m1 < min_final or not line_ok:
+        info["rejected"] = "kontras"
+        return None, (x0, y0), info
+    info.update(applied=True, aligned=True, dx=round(dx, 1), dy=round(dy, 1))
+    return Hm, (x0, y0), info
 
 
 def snap_rows(gray, fields, only=("soal", "kuisioner")):
@@ -241,8 +395,15 @@ def register_fields(gray, fields):
     cand = {}
     infos = {}
     for name, fdef in fields.items():
+        min_final = _MIN_FINAL_ANSWER if name.lower().startswith("soal") else _MIN_FINAL_CONTRAST
         try:
-            W, origin, info = estimate_field_warp(gray, fdef, min_final=_MIN_FINAL_ANSWER if name.lower().startswith("soal") else _MIN_FINAL_CONTRAST)
+            # Layer 2 dulu: blok cari 4 sudutnya sendiri (independen dari blok lain) & hitung
+            # perspektif penuh. Cuma jatuh ke korelasi kisi lama (translasi/affine, jendela sempit)
+            # kalau blok terlalu sempit utk 4 sudut yg valid, atau sudutnya tak ketemu/tak lolos
+            # validasi kontras -- "aligned" (sudah pas, tak perlu koreksi) tak perlu dicoba dua kali.
+            W, origin, info = estimate_field_perspective(gray, fdef, min_final=min_final)
+            if W is None and not info.get("aligned"):
+                W, origin, info = estimate_field_warp(gray, fdef, min_final=min_final)
         except Exception:  # noqa: BLE001 — koreksi hanyalah bantuan; jangan pernah menjatuhkan pemindaian
             W, origin, info = None, (0, 0), {"applied": False, "aligned": False, "error": True}
         infos[name] = info

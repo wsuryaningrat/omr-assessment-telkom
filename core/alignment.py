@@ -237,6 +237,42 @@ def _predict_missing_center(marker_map, expected):
     return missing[0], pred
 
 
+def _predict_missing_centers_from_two(marker_map, expected):
+    """Prediksi 2 marker yang HILANG dari 2 marker yang diketahui, pakai transformasi similaritas
+    (skala+rotasi+translasi, 4 DOF -- cukup ditentukan dari 2 titik, lewat perkalian bilangan
+    kompleks) -- dipakai saat cuma 2/4 ArUco terdeteksi (affine di _predict_missing_center butuh 3
+    titik, tak berlaku di sini). Prediksi ini cuma titik AWAL pencarian, bukan jawaban akhir --
+    tiap marker yang diprediksi tetap diverifikasi lewat _local_marker_search/_template_marker_search
+    (recover_missing_corner) sebelum diterima, jadi kesalahan skala/rotasi kecil akibat perspektif
+    (bukan similaritas murni) masih aman selama posisi sebenarnya ada dlm radius pencarian.
+    Kembalikan {label_hilang: prediksi_titik (np.float32 shape (2,))} atau {} bila bukan tepat 2
+    diketahui, atau 2 titik itu berimpit (transformasi tak terdefinisi)."""
+    labels = ["TL", "TR", "BR", "BL"]
+    found = [lab for lab in labels if expected[lab] in marker_map]
+    missing = [lab for lab in labels if expected[lab] not in marker_map]
+    if len(found) != 2 or len(missing) != 2:
+        return {}
+
+    canonical = {
+        "TL": complex(0.0, 0.0), "TR": complex(1.0, 0.0),
+        "BR": complex(1.0, 1.0), "BL": complex(0.0, 1.0),
+    }
+    p1, p2 = canonical[found[0]], canonical[found[1]]
+    if abs(p2 - p1) < 1e-6:
+        return {}
+    c1 = np.mean(marker_map[expected[found[0]]], axis=0)
+    c2 = np.mean(marker_map[expected[found[1]]], axis=0)
+    q1, q2 = complex(float(c1[0]), float(c1[1])), complex(float(c2[0]), float(c2[1]))
+    a = (q2 - q1) / (p2 - p1)   # skala * rotasi, sbg satu bilangan kompleks
+    b = q1 - a * p1             # translasi
+
+    out = {}
+    for lab in missing:
+        q = a * canonical[lab] + b
+        out[lab] = np.array([q.real, q.imag], dtype=np.float32)
+    return out
+
+
 def _local_marker_search(gray, detector, marker_id, center, radius):
     h, w = gray.shape[:2]
     cx, cy = map(int, np.round(center))
@@ -314,51 +350,69 @@ def _template_marker_search(gray, dict_val, marker_id, center, radius, ref_side)
 
 def recover_missing_corner(marker_map, exp_c_ids, full_gray,
                            dict_val=cv2.aruco.DICT_4X4_50):
-    """Recover a missing fourth marker by affine prediction + local detection.
+    """Recover missing corner marker(s) by geometric prediction + targeted local search.
 
-    Synthesis is used only as a last resort and only when the three detected
-    markers have a coherent geometry. This preserves the old API while making
-    the normal path depend on a real marker whenever possible.
+    Berlaku utk 3/4 diketahui (1 hilang, prediksi affine dari 3 titik -- _predict_missing_center)
+    MAUPUN 2/4 diketahui (2 hilang, prediksi similaritas skala+rotasi dari 2 titik --
+    _predict_missing_centers_from_two; kasus ini muncul saat marker cetak terlalu kecil/buram utk
+    di-decode langsung di 2 sudut, mis. foto beresolusi rendah). Prediksi geometris di sini HANYA
+    titik AWAL pencarian -- tiap marker yang hilang tetap wajib diverifikasi via _local_marker_search
+    (harus benar2 decode ke ID yang diharapkan) atau _template_marker_search (korelasi >=0.45 thd pola
+    marker yang diharapkan, dibuat langsung dari kamus ArUco) sebelum diterima; TIDAK PERNAH menerima
+    marker ID lain/acak di posisi itu -- inilah yang membuat pemulihan 2-hilang tetap aman meski
+    similaritas tak menangkap distorsi perspektif seakurat affine (radius pencarian diperlebar utk
+    mengkompensasi ketidakpastian prediksi yang lebih besar). Sintesis (menebak tanpa verifikasi
+    citra) dipakai HANYA sbg upaya terakhir per marker yang gagal diverifikasi.
 
     Returns
     -------
     marker_map : dict
-        Updated with the recovered (or synthesized) corner.
+        Updated with the recovered (or synthesized) corner(s).
     was_synthesized : bool
-        True when synthesis was used (marker genuinely undetectable).
+        True when synthesis was used for at least one corner (genuinely undetectable).
     """
-    if len(marker_map) != 3:
+    if len(marker_map) == 3:
+        missing_lbl, predicted = _predict_missing_center(marker_map, exp_c_ids)
+        if predicted is None:
+            return marker_map, False
+        predictions = {missing_lbl: predicted}
+        radius_boost = 1.0
+    elif len(marker_map) == 2:
+        predictions = _predict_missing_centers_from_two(marker_map, exp_c_ids)
+        if not predictions:
+            return marker_map, False
+        radius_boost = 1.6   # similaritas kurang presisi drpd affine 3-titik -- perlebar pencarian
+    else:
         return marker_map, False
-
-    missing_lbl, predicted = _predict_missing_center(marker_map, exp_c_ids)
-    if predicted is None:
-        return marker_map, False
-    missing_id = exp_c_ids[missing_lbl]
 
     detector = make_fast_detector(dict_val, min_perimeter=0.003)
-    marker_sizes = []
-    for pts in marker_map.values():
-        marker_sizes.append(np.sqrt(abs(cv2.contourArea(pts.reshape(-1, 1, 2)))))
-    radius = int(np.clip(np.median(marker_sizes) * 5.0, 80, 500))
+    marker_sizes = [np.sqrt(abs(cv2.contourArea(pts.reshape(-1, 1, 2)))) for pts in marker_map.values()]
+    ref_side = float(np.median(marker_sizes))
+    radius = int(np.clip(ref_side * 5.0 * radius_boost, 80, 700))
 
-    found = _local_marker_search(full_gray, detector, missing_id, predicted, radius)
-    if found is not None:
-        marker_map[missing_id] = found
-        return marker_map, False
+    was_synthesized = False
+    for missing_lbl, predicted in predictions.items():
+        missing_id = exp_c_ids[missing_lbl]
 
-    # Decode gagal (buram/terkompres): cocokkan gambar marker yang diharapkan sebelum menyerah pada tebakan.
-    found = _template_marker_search(full_gray, dict_val, missing_id, predicted, max(radius, 160),
-                                    float(np.median(marker_sizes)))
-    if found is not None:
-        marker_map[missing_id] = found
-        return marker_map, False
+        found = _local_marker_search(full_gray, detector, missing_id, predicted, radius)
+        if found is not None:
+            marker_map[missing_id] = found
+            continue
 
-    # Last-resort synthetic corners. This is deliberately conservative.
-    ref = next(iter(marker_map.values()))
-    ref_center = ref.mean(axis=0)
-    synthetic = ref - ref_center + predicted
-    marker_map[missing_id] = synthetic.astype(np.float32)
-    return marker_map, True  # flagged as synthesized
+        # Decode gagal (buram/terkompres): cocokkan gambar marker yang diharapkan sebelum menyerah pada tebakan.
+        found = _template_marker_search(full_gray, dict_val, missing_id, predicted, max(radius, 160), ref_side)
+        if found is not None:
+            marker_map[missing_id] = found
+            continue
+
+        # Last-resort synthetic corner. This is deliberately conservative.
+        ref = next(iter(marker_map.values()))
+        ref_center = ref.mean(axis=0)
+        synthetic = ref - ref_center + predicted
+        marker_map[missing_id] = synthetic.astype(np.float32)
+        was_synthesized = True
+
+    return marker_map, was_synthesized
 
 
 def _iter_roi_variants(roi, skip_upscale=False):
@@ -713,14 +767,15 @@ def find_aruco_markers(image, dict_name=None, expected_ids=None, crop_mode=None)
                     if mid not in marker_map:
                         marker_map[mid] = pts
 
-    # Recovery: affine prediction + local search when exactly 3 found.
-    if len(marker_map) == 3:
+    # Recovery: geometric prediction + targeted local search when 3 (affine) or 2 (similarity) found --
+    # marker cetak yang terlalu kecil/buram utk di-decode langsung di >1 sudut (lihat recover_missing_corner).
+    if len(marker_map) in (2, 3):
         ids_before = set(marker_map.keys())
         marker_map, was_synthesized = recover_missing_corner(
             marker_map, expected, gray, dict_val=dict_val
         )
         if was_synthesized:
-            # The synthesized marker is the one that was added during recovery.
+            # Marker(s) yang disintesis (bukan diverifikasi citra) adalah yang baru ditambahkan di sini.
             newly_added = set(marker_map.keys()) - ids_before
             synthesized_ids.update(newly_added)
 
