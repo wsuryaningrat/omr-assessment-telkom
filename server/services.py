@@ -125,22 +125,20 @@ def sync_pending_once(limit: int = 30):
 
 
 def sync_session_now(db, s: ScanSession) -> dict:
-    """Kirim SATU sesi ke Google Sheet sekarang juga -- tombol manual di admin (tak menunggu jadwal
-    berkala sync_pending_once), mis. utk sesi yg gagal sinkron berulang & admin sudah membetulkan
-    penyebabnya. Sesi yg SUDAH tersinkron (synced_at terisi) DILEWATI apa adanya (bukan error) --
-    append_records murni MENAMBAH baris, mengirim ulang akan MENGGANDAKAN baris lama di Sheet; kalau
-    datanya baru saja dikoreksi (bulk-edit/edit lembar) setelah sempat tersinkron, admin perlu
-    membetulkan baris itu langsung di Sheet, bukan lewat tombol ini."""
+    """Kirim SATU sesi ke Google Sheet sekarang juga -- tombol "Kirim" manual di admin (tak menunggu
+    jadwal berkala sync_pending_once). UPSERT per NPM (GSheetsClient.upsert_records): baris yg NPM-nya
+    SUDAH ada di Sheet diperbarui di tempat, yg belum ada ditambahkan baru -- jadi AMAN dipanggil
+    berulang kali, termasuk utk sesi yg sudah PERNAH tersinkron sebelumnya (mis. stlh admin mengoreksi
+    data lewat bulk-edit/edit lembar & ingin Sheet ikut diperbarui), beda dgn sync_pending_once yg pakai
+    append_records polos (append pernah menggandakan baris kalau dipanggil 2x utk sesi yg sama)."""
     client = sheets.get_client()
     if client is None:
         return {"ok": False, "error": "Google Sheet belum dikonfigurasi"}
     if not s.submitted:
         return {"ok": False, "error": "Sesi belum disubmit/divalidasi"}
-    if s.synced_at:
-        return {"ok": True, "already": True}
     try:
         recs = [dict(sh.record) for sh in s.sheets]
-        client.append_records(recs)
+        res = client.upsert_records(recs, key_col="NPM")
         s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
     except Exception as e:  # noqa: BLE001
         s.sync_attempts = (s.sync_attempts or 0) + 1
@@ -150,7 +148,7 @@ def sync_session_now(db, s: ScanSession) -> dict:
         return {"ok": False, "error": s.sync_error}
     db.commit()
     STATE["sync_last"] = _now().isoformat()
-    return {"ok": True, "already": False}
+    return {"ok": True, "updated": res["updated"], "appended": res["appended"]}
 
 
 # --------------------------------------------------------------------------- kunci jawaban

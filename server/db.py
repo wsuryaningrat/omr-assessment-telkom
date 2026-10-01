@@ -122,6 +122,22 @@ class AdminUser(Base):
     last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AdminAccessLog(Base):
+    """Riwayat tiap kali SESEORANG mencoba masuk admin -- lintas SEMUA jalur login (Google, Microsoft,
+    username+password). Beda dgn AdminUser.last_login_at (cuma simpan yg PALING BARU, & cuma utk akun
+    password di DB): ini riwayat LENGKAP, termasuk akun SSO & akun password dari env, utk audit "siapa
+    akses kapan" (tab Akun -> Riwayat akses). Login via header X-Admin-Token TIDAK dicatat di sini --
+    itu dipakai per-permintaan API, bukan peristiwa "masuk" satu kali, jadi akan membanjiri tabel ini."""
+    __tablename__ = "admin_access_log"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    identity: Mapped[str] = mapped_column(String(200))
+    method: Mapped[str] = mapped_column(String(20))   # google | microsoft | password
+    success: Mapped[bool] = mapped_column(Boolean, default=True)
+    reason: Mapped[str | None] = mapped_column(String(100), nullable=True)   # alasan gagal, mis. "ditolak"/"salah password"
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate()

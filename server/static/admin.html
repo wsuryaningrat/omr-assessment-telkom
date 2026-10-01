@@ -70,8 +70,8 @@
       <template x-for="t in tabs" :key="t.id"><button :class="{on: tab===t.id}" @click="go(t.id)" x-text="t.label"></button></template>
     </nav>
 
-    <!-- monitoring -->
-    <section x-show="tab==='monitoring'">
+    <!-- sesi (gabung progres monitoring onsite + daftar sesi, krn keduanya nampilin status upload per kelas) -->
+    <section x-show="tab==='sesi'">
       <template x-if="mon">
       <div>
         <div class="mon-head">
@@ -187,8 +187,8 @@
       </div>
     </section>
 
-    <!-- sesi -->
-    <section x-show="tab==='sesi'">
+    <!-- sesi (lanjutan): daftar sesi pengawas -->
+    <section x-show="tab==='sesi'" style="margin-top:14px">
       <div class="card flush">
         <div class="tools">
           <div class="tt"><h2>Sesi pengawas</h2></div>
@@ -206,7 +206,12 @@
           <tbody>
             <template x-for="i in ses.items" :key="i.id">
               <tr>
-                <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div></td>
+                <td><div class="nm" x-text="i.nama"></div><div class="fl" x-text="i.hp"></div>
+                  <a x-show="i.hp" class="walink" :href="'https://wa.me/'+i.hp.replace(/\D/g,'')" target="_blank" rel="noopener" title="Chat WhatsApp pengawas">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2m0 1.67a8.23 8.23 0 018.24 8.24c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.4-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 01-1.26-4.37c0-4.54 3.7-8.24 8.24-8.24m-3.07 4.1c-.17 0-.46.06-.7.33-.24.26-.92.9-.92 2.2 0 1.3.94 2.56 1.07 2.73.13.18 1.83 2.8 4.48 3.9.63.26 1.12.42 1.5.53.63.2 1.2.17 1.66.1.5-.07 1.54-.63 1.76-1.24.22-.6.22-1.12.15-1.23-.07-.1-.24-.17-.5-.3-.26-.13-1.54-.76-1.78-.85-.24-.1-.4-.13-.58.13-.17.26-.66.85-.81 1.02-.15.18-.3.2-.56.07-.26-.13-1.09-.4-2.07-1.28-.77-.68-1.28-1.53-1.44-1.78-.15-.26-.02-.4.11-.52.12-.12.27-.3.4-.46.13-.15.17-.26.26-.43.09-.18.04-.33-.02-.46-.07-.13-.58-1.44-.8-1.97-.21-.5-.42-.44-.58-.44z"/></svg>
+                    Chat
+                  </a>
+                </td>
                 <td x-text="i.kelas||'-'"></td>
                 <td><span x-text="hariLabel(i.hari_ujian)"></span><div class="mute" style="font-size:11.5px" x-text="'#'+stripKode(i.kode_soal)"></div></td>
                 <td class="c mono" style="width:auto" x-text="i.validated+'/'+i.lembar"></td>
@@ -230,7 +235,7 @@
                   <button class="ib" :class="{on: i.admin_validated}" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" :title="i.admin_validated?'Batalkan validasi':'Tandai validated'" aria-label="Tandai validated">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                   </button>
-                  <button class="ib" x-show="i.submitted && !i.synced" :disabled="i.syncing" @click="syncSessionNow(i)" title="Kirim ke Google Sheet sekarang" aria-label="Kirim ke Google Sheet">
+                  <button class="ib" x-show="i.submitted" :disabled="i.syncing" @click="syncSessionNow(i)" title="Kirim ke Google Sheet sekarang (perbarui baris NPM yg sama, atau tambah baru)" aria-label="Kirim ke Google Sheet">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
                   </button>
                   <div class="rowmenu" @click.outside="menuOpen=false">
@@ -269,10 +274,12 @@
     <template x-if="detail">
     <div @keydown.escape.window="closeDetail()" style="position:fixed;inset:0;background:rgba(20,22,28,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px" @click.self="closeDetail()">
       <div class="card" style="max-width:1360px;width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column">
+        <div class="loadbar" x-show="preview.loading" x-cloak></div>
         <div class="tools" style="flex:0 0 auto">
           <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn sm d" x-show="detail && detail.items.length>0" @click="rescanAllSheets(detail)">Pindai ulang semua foto</button>
+            <button class="btn sm" x-show="detail && detail.items.length>0" @click="unvalidateAllSheets(detail)">Batalkan validasi semua</button>
             <button class="btn sm" @click="closeDetail()">Tutup ✕</button>
           </div>
         </div>
@@ -360,12 +367,21 @@
                     <p class="mute" style="font-size:11px;margin-top:4px" x-show="detail.selectedItem?.fakultas_ljk && !fakultasOptions.includes(detail.selectedItem?.fakultas_ljk)">Hasil baca asli: <b x-text="detail.selectedItem?.fakultas_ljk"></b> (tak dikenal -- pilih yg benar di atas)</p>
                   </div>
                 </div>
+                <label class="f" style="margin-top:12px;display:block" x-show="detail.kuisionerNums.length">Kuisioner (<span x-text="detail.kuisionerNums.length"></span> soal)</label>
+                <div class="ansgrid" x-show="detail.kuisionerNums.length">
+                  <template x-for="q in detail.kuisionerNums" :key="'kui-'+q">
+                    <label class="anscell" :class="{filled: editForm.kuisioner[q] && editForm.kuisioner[q]!=='BLANK'}">
+                      <span x-text="+q"></span>
+                      <input maxlength="1" :value="editForm.kuisioner[q]==='BLANK'?'':editForm.kuisioner[q]" @input="editForm.kuisioner[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event)">
+                    </label>
+                  </template>
+                </div>
                 <label class="f" style="margin-top:12px;display:block">Jawaban (<span x-text="detail.questionNums.length"></span> soal)</label>
                 <div class="ansgrid">
-                  <template x-for="q in detail.questionNums" :key="q">
+                  <template x-for="q in detail.questionNums" :key="'soal-'+q">
                     <label class="anscell" :class="{filled: editForm.jawaban[q] && editForm.jawaban[q]!=='BLANK'}">
                       <span x-text="+q"></span>
-                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'">
+                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event)">
                     </label>
                   </template>
                 </div>
@@ -535,6 +551,26 @@
           </tbody>
         </table></div>
         <p class="empty" x-show="!users.length">Belum ada akun tambahan -- login bawaan (SSO/username-password di deploy/.env) tetap berlaku.</p>
+      </div>
+
+      <div class="card">
+        <h2>Riwayat akses</h2>
+        <p class="sub">100 percobaan masuk admin terakhir -- lintas Google, Microsoft, & username+password (login lewat token API tak dicatat di sini).</p>
+        <div class="tbl"><table>
+          <thead><tr><th>Waktu</th><th>Identitas</th><th>Cara masuk</th><th>Hasil</th><th>IP</th></tr></thead>
+          <tbody>
+            <template x-for="a in accessLog" :key="a.id">
+              <tr>
+                <td x-text="fmt(a.at)"></td>
+                <td class="mono" x-text="a.identity"></td>
+                <td x-text="({google:'Google',microsoft:'Microsoft',password:'Password'})[a.method]||a.method"></td>
+                <td><span class="chip" :class="a.success?'validated':'warning'" :title="a.reason||''" x-text="a.success?'Berhasil':('Ditolak'+(a.reason?' — '+a.reason:''))"></span></td>
+                <td class="mono" x-text="a.ip||'-'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table></div>
+        <p class="empty" x-show="!accessLog.length">Belum ada riwayat akses.</p>
       </div>
     </section>
 

@@ -18,7 +18,7 @@ from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
 from scanner.service import CALIB_MAX_OFFSET, apply_field_calib, classify_scan_status, load_default_template
 from server import auth, config, plotting, services, sheets
-from server.db import AdminUser, Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
+from server.db import AdminAccessLog, AdminUser, Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
 
 
 def get_db():
@@ -332,6 +332,7 @@ class _AdminSheetEditIn(BaseModel):
     kode_soal: str | None = None
     fakultas_ljk: str | None = None
     jawaban: dict[str, str] | None = None   # {"1": "A", "02": "BLANK", ...} -- nomor soal boleh tanpa nol di depan
+    kuisioner: dict[str, str] | None = None   # {"1": "A", ...} -- kunci "qNN" di record, format sama spt jawaban
 
 
 def _apply_sheet_edits(rec: dict, body: "_AdminSheetEditIn") -> dict:
@@ -366,6 +367,13 @@ def _apply_sheet_edits(rec: dict, body: "_AdminSheetEditIn") -> dict:
                 continue
             val = (ans or "").strip().upper()
             rec[f"soal_{int(m.group(1)):02d}"] = val if val and val != "-" else "BLANK"
+    if body.kuisioner:
+        for q, ans in body.kuisioner.items():
+            m = re.fullmatch(r"0*(\d{1,2})", q.strip())
+            if not m:
+                continue
+            val = (ans or "").strip().upper()
+            rec[f"q{int(m.group(1)):02d}"] = val if val and val != "-" else "BLANK"
     return rec
 
 
@@ -420,6 +428,21 @@ def admin_bulk_edit(sid: str, body: _BulkEditIn, db=Depends(get_db)):
         n += 1
     db.commit()
     return {"ok": True, "diubah": n}
+
+
+@router.post("/sessions/{sid}/unvalidate-all-sheets")
+def admin_unvalidate_all_sheets(sid: str, db=Depends(get_db)):
+    """Batalkan validasi SEMUA lembar sesi ini sekaligus (Sheet.validated=False utk tiap lembar) --
+    BEDA dgn POST .../validate?value=false (admin_validate_session), yg cuma membatalkan tanda
+    admin_validated di level SESI & TAK menyentuh validated per lembar (lembar yg sudah ditandai valid
+    tetap valid di situ). Dipakai saat admin mau mengecek ulang semua lembar dari nol, mis. stlh
+    "Pindai ulang semua foto" supaya status lama tak menyesatkan."""
+    s = _admin_session_or_404(db, sid)
+    n = sum(1 for sh in s.sheets if sh.validated)
+    for sh in s.sheets:
+        sh.validated = False
+    db.commit()
+    return {"ok": True, "dibatalkan": n}
 
 
 @router.post("/sheets/{shid}/validate")
@@ -979,3 +1002,12 @@ def admin_delete_user(uid: str, db=Depends(get_db)):
         raise HTTPException(404, "Akun tidak ditemukan")
     db.delete(u)
     db.commit()
+
+
+@router.get("/access-log")
+def admin_access_log(limit: int = Query(100, ge=1, le=500), db=Depends(get_db)):
+    """Riwayat percobaan masuk admin terbaru (berhasil & ditolak), lintas SSO Google/Microsoft & password
+    -- lihat server.db.AdminAccessLog. Dipakai tab Akun bag. "Riwayat akses"."""
+    rows = db.scalars(select(AdminAccessLog).order_by(AdminAccessLog.at.desc()).limit(limit))
+    return [{"id": r.id, "identity": r.identity, "method": r.method, "success": r.success,
+             "reason": r.reason, "ip": r.ip, "at": r.at.isoformat() if r.at else None} for r in rows]

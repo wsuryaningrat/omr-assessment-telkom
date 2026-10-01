@@ -27,13 +27,34 @@ PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
 class FakeSheets:
     def __init__(self):
         self.calls, self.fail, self.kunci = [], 0, {}
+        self.rows_by_npm = {}   # simulasi isi Sheet (npm -> record terakhir) -- utk uji upsert_records
 
     def append_records(self, recs):
         if self.fail > 0:
             self.fail -= 1
             raise RuntimeError("429 quota exceeded")
         self.calls.append(list(recs))
+        for r in recs:
+            npm = str(r.get("NPM", "") or "")
+            if npm:
+                self.rows_by_npm[npm] = r
         return len(recs)
+
+    def upsert_records(self, recs, key_col="NPM"):
+        if self.fail > 0:
+            self.fail -= 1
+            raise RuntimeError("429 quota exceeded")
+        self.calls.append(list(recs))
+        updated = appended = 0
+        for r in recs:
+            key = str(r.get(key_col, "") or "")
+            if key and key in self.rows_by_npm:
+                updated += 1
+            else:
+                appended += 1
+            if key:
+                self.rows_by_npm[key] = r
+        return {"updated": updated, "appended": appended}
 
     def fetch_kunci(self):
         return self.kunci
@@ -730,6 +751,14 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "1234567890"}).status_code, 401)
         self.assertEqual(self.c.patch("/api/admin/sheets/tidak-ada", json={"npm": "1234567890"}, headers=ADM).status_code, 404)
 
+    def test_admin_edit_sheet_updates_kuisioner_independent_of_jawaban(self):
+        sid = self.submitted_session("ADMEDIT-KUI-01")
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        r = self.c.patch(f"/api/admin/sheets/{shid}", json={"kuisioner": {"1": "b", "02": "d"}}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["record"]["q01"], r.json()["record"]["q02"]), ("B", "D"))
+        self.assertFalse(r.json()["validated"])
+
     def test_admin_edit_sheet_works_even_after_submit(self):
         sid = self.submitted_session("ADMEDIT-02")
         self.submit(sid)
@@ -748,17 +777,24 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post(f"/api/admin/sheets/{shid}/validate").status_code, 401)
         self.assertEqual(self.c.post("/api/admin/sheets/tidak-ada/validate", headers=ADM).status_code, 404)
 
-    def test_admin_sync_session_now_sends_once_then_skips_without_duplicating(self):
+    def test_admin_sync_session_now_upserts_by_npm_without_duplicating(self):
         sid = self.submitted_session("ADMSYNC-01")
         self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # men-submit & memvalidasi
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "1234567890"}, headers=ADM)
         self.assertEqual(len(self.fake.calls), 0)
+
         r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
-        self.assertEqual((r.status_code, r.json()["already"]), (200, False))
-        self.assertEqual(len(self.fake.calls), 1)
-        # dipanggil lagi -> dilewati aman, TAK mengirim baris lagi (append_records murni menambah, bukan upsert)
+        self.assertEqual((r.status_code, r.json()["appended"], r.json()["updated"]), (200, 1, 0))
+        self.assertEqual(len(self.fake.rows_by_npm), 1)
+
+        # admin mengoreksi data lagi (mis. kode soal) lalu kirim ULANG -> baris NPM yg SAMA diPERBARUI,
+        # bukan ditambah lagi jadi baris baru (ini beda dari append_records polos yg dulu dipakai di sini).
+        self.c.patch(f"/api/admin/sheets/{shid}", json={"kode_soal": "999"}, headers=ADM)
         r2 = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
-        self.assertEqual((r2.status_code, r2.json()["already"]), (200, True))
-        self.assertEqual(len(self.fake.calls), 1)
+        self.assertEqual((r2.status_code, r2.json()["appended"], r2.json()["updated"]), (200, 0, 1))
+        self.assertEqual(len(self.fake.rows_by_npm), 1)   # tetap 1 baris, bukan 2
+        self.assertEqual(self.fake.rows_by_npm["1234567890"]["Kode Soal"], "999")
 
     def test_admin_sync_session_now_rejects_unsubmitted_and_reports_failure(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMSYNC-02"}).json()["id"]
@@ -839,6 +875,42 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={}, headers=ADM).status_code, 422)
         self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={"kode_soal": "1"}).status_code, 401)
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/bulk-edit", json={"kode_soal": "1"}, headers=ADM).status_code, 404)
+
+    def test_admin_unvalidate_all_sheets_clears_every_sheet_without_touching_session_submitted(self):
+        sid = self.submitted_session("ADMUNVAL-01", n=3)
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertTrue(all(x["validated"] for x in items))
+
+        r = self.c.post(f"/api/admin/sessions/{sid}/unvalidate-all-sheets", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["dibatalkan"]), (200, 3))
+        items2 = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertTrue(all(not x["validated"] for x in items2))
+        # beda dgn admin_validate_session(value=False): sesi TETAP submitted (bukan "batalkan validasi
+        # sesi", cuma per-lembar) -- bandingkan dgn docstring admin_unvalidate_all_sheets di server/admin.py
+        self.assertTrue(self.c.get(f"/api/sessions/{sid}").json()["submitted"])
+
+        # dipanggil lagi saat semua sudah tak tervalidasi -> tak ada yg "dibatalkan" lagi (bukan error)
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/unvalidate-all-sheets", headers=ADM)
+        self.assertEqual(r2.json()["dibatalkan"], 0)
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/unvalidate-all-sheets").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/unvalidate-all-sheets", headers=ADM).status_code, 404)
+
+    # ---------------------------------------------------------------- riwayat akses admin
+    def test_access_log_records_password_login_success_and_failure(self):
+        auth._FAILS.clear()   # lihat catatan di test_new_admin_user_can_log_in... -- _FAILS dibagi lintas tes
+        self.c.post("/api/admin/users", json={"username": "tes_akseslog1", "password": "rahasia123"}, headers=ADM)
+        before = len(self.c.get("/api/admin/access-log", headers=ADM).json())
+        self.c.post("/auth/password", json={"username": "tes_akseslog1", "password": "salah-sekali"})
+        r = self.c.post("/auth/password", json={"username": "tes_akseslog1", "password": "rahasia123"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.c.post("/auth/logout")
+        log = self.c.get("/api/admin/access-log", headers=ADM).json()
+        self.assertGreaterEqual(len(log), before + 2)   # 1 gagal + 1 berhasil tercatat
+        by_this_user = [x for x in log if x["identity"] == "tes_akseslog1"]
+        self.assertTrue(any(not x["success"] and x["method"] == "password" for x in by_this_user))
+        self.assertTrue(any(x["success"] and x["method"] == "password" for x in by_this_user))
+        self.assertEqual(self.c.get("/api/admin/access-log").status_code, 401)
 
 
 if __name__ == "__main__":

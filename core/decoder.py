@@ -88,10 +88,13 @@ def decode_field(gray_img, field_def, thresh=0.28, margin=0.08):
 
             if status == "OK" and idx >= 0 and idx < len(bubbles):
                 ans = bubbles[idx].get("option", chr(65 + idx))
-            elif status == "BLANK":
-                ans = "BLANK"
             else:
-                ans = status # MULTIPLE
+                # BLANK apa adanya, dan MULTIPLE (dobel-isi/silang di 2 kotak) JUGA dianggap BLANK --
+                # per jawaban soal/kuisioner, dobel-isi dinilai sama spt tak dijawab (bukan status
+                # tersendiri yg butuh tindakan admin), beda dgn field identitas (NPM/Kode Soal/Fakultas
+                # di decode_field field_type lain) yg TETAP pakai "?"/"MULTIPLE" krn admin perlu tahu
+                # ada yg meragukan di situ, bukan diam2 dianggap kosong.
+                ans = "BLANK"
 
             decoded_values[item_name] = ans
 

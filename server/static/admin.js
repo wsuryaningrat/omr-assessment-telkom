@@ -1,10 +1,10 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
+    tabs: [{ id: "sesi", label: "Sesi" }, { id: "ringkasan", label: "Ringkasan" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
-    meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {} },
-    users: [], newUser: { username: "", password: "", name: "" }, userBusy: false,
+    meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
+    users: [], newUser: { username: "", password: "", name: "" }, userBusy: false, accessLog: [],
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -44,14 +44,14 @@ function admin() {
     },
     async login(silent = false) {
       this.loginErr = "";
-      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await this.loadMonitor(); }
+      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await Promise.all([this.loadMonitor(), this.loadSessions()]); }
       catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
     },
     async logout() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "sesi") this.loadMonitor(); }, 30000); },
     async loadMonitor(refresh = false) {
       this.monBusy = true;
       try {
@@ -73,7 +73,7 @@ function admin() {
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
-    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
+    async go(t) { this.tab = t; if (t === "sesi") await Promise.all([this.loadMonitor(), this.loadSessions()]); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
@@ -99,7 +99,10 @@ function admin() {
       i.syncing = true;
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sync-now`, { method: "POST" });
-        this.toast(d.already ? "Sudah tersinkron sebelumnya" : "Terkirim ke Google Sheet ✓");
+        const parts = [];
+        if (d.appended) parts.push(`${d.appended} baris baru`);
+        if (d.updated) parts.push(`${d.updated} baris diperbarui`);
+        this.toast(parts.length ? `Terkirim — ${parts.join(", ")} ✓` : "Tak ada lembar utk dikirim");
         await this.loadSessions();
       } catch (e) { this.toast(e.message, true); }
       i.syncing = false;
@@ -117,7 +120,7 @@ function admin() {
     async openDetail(i) {
       this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by,
         items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
-        questionNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false };
+        questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
         this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
@@ -147,13 +150,16 @@ function admin() {
       const qs = Object.keys(rec).filter(k => /^soal_\d{2}$/.test(k)).sort();
       this.detail.questionNums = qs.map(k => k.slice(5));
       const jawaban = {}; qs.forEach(k => { jawaban[k.slice(5)] = rec[k] || "BLANK"; });
+      const ks = Object.keys(rec).filter(k => /^q\d{2}$/.test(k)).sort();
+      this.detail.kuisionerNums = ks.map(k => k.slice(1));
+      const kuisioner = {}; ks.forEach(k => { kuisioner[k.slice(1)] = rec[k] || "BLANK"; });
       // Fakultas hasil OCR kadang bukan salah satu pilihan valid (mis. "MULTIPLE" -- beberapa kotak
       // tercentang sekaligus): jangan taruh nilai itu di <select> (browser tak bisa mencocokkannya ke
       // opsi mana pun), biarkan kosong supaya admin memilih yg benar -- nilai aslinya tetap terlihat
       // sbg keterangan di bawah dropdown (lihat detail.selectedItem.fakultas_ljk di admin.html).
       const fakRaw = rec["Fakultas (LJK)"] || "";
       const fak = this.fakultasOptions.includes(fakRaw) ? fakRaw : "";
-      this.editForm = { npm: rec["NPM"] || "", kode_soal: rec["Kode Soal"] || "", fakultas_ljk: fak, jawaban };
+      this.editForm = { npm: rec["NPM"] || "", kode_soal: rec["Kode Soal"] || "", fakultas_ljk: fak, jawaban, kuisioner };
       // Alpine kadang gagal mensinkronkan <select :value> ke DOM saat elemen ini BARU dipasang di render
       // yg sama (mis. lewat x-if) -- opsinya (x-for) belum tentu selesai dipasang saat :value dievaluasi
       // pertama kali, jadi browser diam2 menolak nilai yg belum ada opsinya & Alpine tak pernah mencoba
@@ -181,6 +187,15 @@ function admin() {
         await this.loadSessions();
       } catch (e) { this.toast(e.message, true); }
     },
+    async unvalidateAllSheets(d) {
+      if (!d.items.length) return;
+      if (!confirm(`Batalkan validasi SEMUA ${d.items.length} lembar di sesi ini?`)) return;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/unvalidate-all-sheets`, { method: "POST" });
+        this.toast(`${r.dibatalkan} lembar dibatalkan validasinya`);
+        await this.openDetail(d);
+      } catch (e) { this.toast(e.message, true); }
+    },
     closeDetail() { this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
     // Zoom/geser foto di kolom preview Detail sesi -- scroll utk zoom, seret utk geser saat diperbesar,
@@ -203,10 +218,15 @@ function admin() {
     async showDetailPreview(mode) {
       const x = this.detail?.selectedItem; if (!x || !x.photo_exists) return;
       this.detail.previewMode = mode;
-      if (mode === "scan") { this._setPreview(`/api/sheets/${x.id}/preview?t=${Date.now()}`); return; }
-      this.preview.loading = true;   // Foto ASLI (belum diproses) -- cepat, cuma decode gambar, tanpa pipeline OMR.
-      try { const r = await this.api(`/api/admin/sheets/${x.id}/photo`); this._setPreview(URL.createObjectURL(await r.blob())); }
-      catch (e) { this.toast(e.message, true); this.preview.loading = false; }
+      // Kedua mode lewat fetch+blob (bukan <img :src> langsung) supaya ADA status loading yg bisa
+      // dikontrol (lihat .loadbar di atas popup) -- "Hasil scan" menjalankan pipeline OMR penuh & bisa
+      // makan beberapa detik, jauh lebih lama dari "Foto asli" yg cuma decode gambar.
+      this.preview.loading = true;
+      try {
+        const url = mode === "scan" ? `/api/sheets/${x.id}/preview?t=${Date.now()}` : `/api/admin/sheets/${x.id}/photo`;
+        const r = await this.api(url);
+        this._setPreview(URL.createObjectURL(await r.blob()));
+      } catch (e) { this.toast(e.message, true); this.preview.loading = false; }
     },
     async rescanSheet(x) {
       if (!x) return;
@@ -234,11 +254,19 @@ function admin() {
       ev.target.value = "";
     },
     // Edit manual NPM/kode soal/fakultas/jawaban lembar yg sedang dipilih (kolom kanan Detail sesi).
+    // Loncat ke kotak jawaban/kuisioner BERIKUTNYA begitu satu kotak terisi (spt input OTP) -- biar admin
+    // bisa ketik beruntun tanpa klik tiap kotak. Tak loncat kalau kotak baru dikosongkan (backspace/hapus),
+    // supaya koreksi satu huruf tak langsung terlempar ke kotak lain.
+    advanceFocus(ev) {
+      if (!ev.target.value) return;
+      const next = ev.target.closest(".anscell")?.nextElementSibling?.querySelector("input");
+      if (next) { next.focus(); next.select?.(); }
+    },
     async saveDetailEdit() {
       const x = this.detail?.selectedItem; if (!x) return;
       this.detail.saving = true;
       try {
-        const body = { npm: this.editForm.npm, kode_soal: this.editForm.kode_soal, fakultas_ljk: this.editForm.fakultas_ljk, jawaban: this.editForm.jawaban };
+        const body = { npm: this.editForm.npm, kode_soal: this.editForm.kode_soal, fakultas_ljk: this.editForm.fakultas_ljk, jawaban: this.editForm.jawaban, kuisioner: this.editForm.kuisioner };
         const updated = await this.json(`/api/admin/sheets/${x.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const idx = this.detail.items.findIndex(it => it.id === x.id);
         if (idx >= 0) this.detail.items[idx] = updated;
@@ -388,7 +416,10 @@ function admin() {
     },
     // Akun admin (tab Akun) -- akun yg dikelola di sini aktif seketika, beda dgn ADMIN_USER/ADMIN_ACCOUNTS
     // di deploy/.env yg butuh redeploy & sengaja tak ditampilkan/dikelola dari UI ini.
-    async loadUsers() { try { this.users = await this.json("/api/admin/users"); } catch (e) { this.toast(e.message, true); } },
+    async loadUsers() {
+      try { this.users = await this.json("/api/admin/users"); } catch (e) { this.toast(e.message, true); }
+      try { this.accessLog = await this.json("/api/admin/access-log"); } catch { /* riwayat akses opsional, jangan ganggu tab kalau gagal */ }
+    },
     async createUser() {
       const f = this.newUser;
       if (!f.username || !f.password) { this.toast("Isi username & password", true); return; }

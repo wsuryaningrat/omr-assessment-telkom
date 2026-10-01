@@ -210,8 +210,10 @@ def callback(request: Request):
         return _back("tenant")
     email = (claims.get("preferred_username") or claims.get("email") or "").strip().lower()
     if not is_allowed(email):
+        _log_access(email, "microsoft", False, request, reason="ditolak")
         return _back("ditolak")
     request.session["admin"] = {"email": email, "name": claims.get("name", ""), "iat": int(time.time()), "via": "microsoft"}
+    _log_access(email, "microsoft", True, request)
     return RedirectResponse("/admin", status_code=302)
 
 
@@ -237,11 +239,27 @@ async def password_login(request: Request):
     if not (stored and _check_password(pw, stored)):
         with _LOCK:
             _FAILS.setdefault(ip, []).append(now)
+        _log_access(user, "password", False, request, reason="salah password")
         raise HTTPException(401, "Username atau password salah")
     with _LOCK:
         _FAILS.pop(ip, None)
     request.session["admin"] = {"email": user, "name": _touch_login(user) or user, "iat": int(now), "via": "password"}
+    _log_access(user, "password", True, request)
     return {"ok": True}
+
+
+def _log_access(identity: str, method: str, success: bool, request: Request | None, reason: str | None = None):
+    """Catat satu peristiwa masuk (berhasil atau ditolak) ke admin_access_log -- lihat server.db.AdminAccessLog
+    utk cakupan & alasan tabel ini ada. Dipanggil dari tiap jalur login SSO/password; jangan sampai gagal
+    mencatat menghentikan proses login/penolakan yg sesungguhnya."""
+    try:
+        from server.db import AdminAccessLog, SessionLocal
+        ip = request.client.host if (request and request.client) else ""
+        with SessionLocal() as db:
+            db.add(AdminAccessLog(identity=identity or "?", method=method, success=success, reason=reason, ip=ip))
+            db.commit()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _touch_login(username: str) -> str | None:
@@ -347,10 +365,13 @@ def google_callback(request: Request):
         return _back("gagal")
     if not hmac.compare_digest(str(claims.get("nonce", "")), nonce):
         return _back("gagal")
+    email = claims.get("email", "").strip().lower()
     if not is_allowed_google(claims):
+        _log_access(email, "google", False, request, reason="ditolak")
         return _back("ditolak")
-    request.session["admin"] = {"email": claims["email"].strip().lower(), "name": claims.get("name", ""),
+    request.session["admin"] = {"email": email, "name": claims.get("name", ""),
                                 "iat": int(time.time()), "via": "google"}
+    _log_access(email, "google", True, request)
     return RedirectResponse("/admin", status_code=302)
 
 
