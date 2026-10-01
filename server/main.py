@@ -470,16 +470,30 @@ def monitor_sesi(db=Depends(get_db)):
     di tab Sesi tapi tanpa detail sensitif & tanpa aksi kelola."""
     rows = db.scalars(select(ScanSession).order_by(ScanSession.created_at.desc()))
     items = []
+    by_kelas_lembar = {}
     for s in rows:
         n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
         status = "scanning" if n_pending else ("validated" if s.admin_validated else "perlu_cek")
+        n_files = len(s.files)   # jumlah FOTO terupload, bukan jumlah lembar hasil scan -- lihat admin.monitor()
         items.append({
             "nama": s.nama_pengawas, "kelas": s.kelas, "prodi": s.prodi,
             "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
-            "lembar": len(s.sheets), "status": status,
+            "lembar": n_files, "status": status,
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
-    return {"items": items}
+        key = (s.kelas or "").strip().lower()
+        by_kelas_lembar[key] = by_kelas_lembar.get(key, 0) + n_files
+    # Persentase upload keseluruhan terhadap jadwal plotting (sama sumbernya dgn tab Monitoring admin) --
+    # diclamp per kelas spy sesi tes/dobel tak bikin lebih dari 100% kelas itu sendiri.
+    jml_mhs_map = admin._jml_mhs_by_kelas()
+    mhs_total = up_total = 0
+    for key, lembar in by_kelas_lembar.items():
+        jml = jml_mhs_map.get(key)
+        if jml:
+            mhs_total += jml
+            up_total += min(lembar, jml)
+    return {"items": items, "mhs_upload": up_total, "mhs_total": mhs_total,
+            "upload_pct": round(up_total / mhs_total * 100, 1) if mhs_total else 0}
 
 
 # --------------------------------------------------------------------------- upload

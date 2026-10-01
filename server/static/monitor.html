@@ -31,6 +31,7 @@
   <section class="card flush">
     <div class="tools">
       <div class="tt">
+        <div class="mute" style="font-size:13px;font-weight:700;margin-bottom:4px" x-show="mhs_total">Persentase upload: <b x-text="upload_pct+'%'"></b> <span class="mute" style="font-weight:400" x-text="'('+mhs_upload.toLocaleString('id-ID')+' / '+mhs_total.toLocaleString('id-ID')+' lembar)'"></span></div>
         <h2>Status sesi</h2>
         <p class="sub">Pemindaian berjalan di latar belakang — halaman ini bisa ditinggal &amp; akan otomatis diperbarui. Validasi akhir dilakukan admin.</p>
       </div>
@@ -38,21 +39,21 @@
         <input type="search" placeholder="Cari pengawas / kelas / prodi / kode soal…" x-model.trim="q">
         <select x-model="status">
           <option value="all">Semua status</option>
-          <option value="scanning">Memindai</option>
-          <option value="perlu_cek">Perlu dicek</option>
+          <option value="scanning">Scanning</option>
+          <option value="perlu_cek">Checking</option>
           <option value="validated">Validated</option>
         </select>
       </div>
     </div>
     <div class="tbl"><table>
-      <thead><tr><th>Pengawas</th><th>Kelas</th><th>Prodi</th><th>Ujian</th><th class="c" style="width:auto">Lembar</th><th>Status</th></tr></thead>
+      <thead><tr><th>Pengawas</th><th>Ujian</th><th>Upload at</th><th>Kelas</th><th class="c" style="width:auto">Lembar</th><th>Status</th></tr></thead>
       <tbody>
         <template x-for="i in filtered" :key="i.nama + i.kelas + i.created_at">
           <tr>
             <td><div class="nm" x-text="i.nama"></div></td>
-            <td x-text="i.kelas||'-'"></td>
-            <td><span class="trunc" :title="i.prodi" x-text="i.prodi||'-'"></span></td>
             <td><span x-text="hariLabel(i.hari_ujian)"></span><div class="mute" style="font-size:11.5px" x-text="'#'+stripKode(i.kode_soal)"></div></td>
+            <td class="mono" x-text="whenLabel(i.created_at)"></td>
+            <td x-text="i.kelas||'-'"></td>
             <td class="c mono" style="width:auto" x-text="i.lembar"></td>
             <td><span class="chip" :class="statusChip(i.status)" x-text="statusLabel(i.status)"></span></td>
           </tr>

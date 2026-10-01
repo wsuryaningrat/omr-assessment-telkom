@@ -101,13 +101,20 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
         d = days[name]; sl = sorted(d["slots"], key=lambda x: (x["jam_mulai"], x["gedung"], x["kelas"]))
         tot = len(sl); selesai = sum(x["status"] == "selesai" for x in sl); jalan = sum(x["status"] == "berjalan" for x in sl)
         mhs = sum(x["jml_mhs"] for x in sl)
-        up = sum(min(x["lembar"], x["jml_mhs"]) for x in sl if x["status"] == "selesai")
-        prog = sum(min(x["lembar"], x["jml_mhs"]) for x in sl if x["status"] == "berjalan")
+        # Upload = TOTAL lembar terunggah lepas dari status validasi (dulu cuma dihitung kalau kelasnya
+        # "selesai"/divalidasi, jadi kelas yg masih "Checking" tak ikut kehitung sama sekali walau
+        # pengawasnya sudah unggah banyak). Validated = subset yg kelasnya SUDAH divalidasi admin --
+        # dua angka ini SENGAJA dipisah supaya progres unggah & progres pengecekan admin kelihatan beda.
+        up = sum(min(x["lembar"], x["jml_mhs"]) for x in sl)
+        up_validated = sum(min(x["lembar"], x["jml_mhs"]) for x in sl if x["status"] == "selesai")
         out_days.append({"hari": name, "total": tot, "selesai": selesai, "berjalan": jalan, "belum": tot - selesai - jalan,
-                         "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs, "mhs_upload": up, "mhs_proses": prog,
-                         "pct_mhs": round(up / mhs * 100, 1) if mhs else 0, "slots": sl})
+                         "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs,
+                         "mhs_upload": up, "pct_mhs": round(up / mhs * 100, 1) if mhs else 0,
+                         "mhs_validated": up_validated, "pct_validated": round(up_validated / mhs * 100, 1) if mhs else 0,
+                         "slots": sl})
     tot = sum(d["total"] for d in out_days); selesai = sum(d["selesai"] for d in out_days)
     mhs = sum(d["mhs_total"] for d in out_days); up = sum(d["mhs_upload"] for d in out_days)
+    up_validated = sum(d["mhs_validated"] for d in out_days)
     extra = [{"kelas": x["kelas"], "pengawas": x["pengawas"], "lembar": x["lembar"], "submitted": x["submitted"],
               "submitted_at": x["submitted_at"].isoformat() if x["submitted_at"] else None}
              for k, xs in by_kelas.items() if k not in seen for x in xs][:60]
@@ -116,8 +123,9 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
             "plotting_at": dt.datetime.fromtimestamp(fetched, dt.timezone.utc).isoformat() if fetched else None, "plotting_error": perr,
             "plot_url": config.PLOTTING_SHEET_URL,
             "overall": {"total": tot, "selesai": selesai, "berjalan": sum(d["berjalan"] for d in out_days),
-                        "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs, "mhs_upload": up,
-                        "pct_mhs": round(up / mhs * 100, 1) if mhs else 0},
+                        "pct_kelas": round(selesai / tot * 100, 1) if tot else 0, "mhs_total": mhs,
+                        "mhs_upload": up, "pct_mhs": round(up / mhs * 100, 1) if mhs else 0,
+                        "mhs_validated": up_validated, "pct_validated": round(up_validated / mhs * 100, 1) if mhs else 0},
             "days": out_days, "di_luar_jadwal": extra}
 
 
@@ -181,7 +189,7 @@ _DERIVED_STATUSES = ("scanning", "perlu_cek", "validated")
 
 
 @router.get("/sessions")
-def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q: str = "", status: str = "all", db=Depends(get_db)):
+def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q: str = "", status: str = "all", hari: str = "", db=Depends(get_db)):
     cond = []
     if status == "submitted":
         cond.append(ScanSession.submitted.is_(True))
@@ -189,6 +197,8 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
         cond.append(ScanSession.submitted.is_(False))
     elif status == "unsynced":
         cond += [ScanSession.submitted.is_(True), ScanSession.synced_at.is_(None)]
+    if hari.strip():
+        cond.append(ScanSession.hari_ujian == hari.strip())
     if q.strip():
         like = f"%{q.strip()}%"
         cond.append(ScanSession.nama_pengawas.ilike(like) | ScanSession.kelas.ilike(like) | ScanSession.prodi.ilike(like))

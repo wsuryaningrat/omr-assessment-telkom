@@ -121,17 +121,30 @@ class TestServices(unittest.TestCase):
             self.submit(sid)
             self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate?value=true", headers=ADM).status_code, 200)
             self.c.post("/api/sessions", json={**VALID, "kelas": "MON-B"})
+            # MON-C: submit TAPI sengaja TAK divalidasi admin -- masih "berjalan"/Checking. Dipakai utk
+            # membuktikan mhs_upload (total unggahan, lepas status) & mhs_validated (cuma yg divalidasi)
+            # benar2 kehitung terpisah: upload-nya harus ikut kehitung di sini walau belum divalidasi.
+            sid_c = self.submitted_session("MON-C", n=1)
+            self.submit(sid_c)
             extra = self.submitted_session("LUAR-JADWAL", n=1)
             self.submit(extra)
             d = self.c.get("/api/admin/monitor?refresh=true", headers=ADM).json()
             self.assertEqual(d["overall"]["total"], 3)                      # baris Online tidak dihitung
             self.assertEqual(d["overall"]["selesai"], 1)                    # MON-A: submit + DIVALIDASI admin
-            self.assertEqual(d["overall"]["berjalan"], 1)                   # MON-B: sesi dibuat tapi belum submit
+            self.assertEqual(d["overall"]["berjalan"], 2)                   # MON-B (blm submit), MON-C (submit tp blm divalidasi)
             senin = next(x for x in d["days"] if x["hari"] == "SENIN")
             a = next(x for x in senin["slots"] if x["kelas"] == "MON-A")
             self.assertEqual((a["status"], a["lembar"], a["jml_mhs"]), ("selesai", 2, 3))
             self.assertEqual(senin["mhs_upload"], 2)
+            self.assertEqual(senin["mhs_validated"], 2)                     # SENIN cuma ada MON-A yg divalidasi
             self.assertEqual(senin["pct_mhs"], round(2 / 5 * 100, 1))
+            selasa = next(x for x in d["days"] if x["hari"] == "SELASA")
+            c = next(x for x in selasa["slots"] if x["kelas"] == "MON-C")
+            self.assertEqual((c["status"], c["lembar"], c["jml_mhs"]), ("berjalan", 1, 4))
+            self.assertEqual(selasa["mhs_upload"], 1)        # MON-C ikut kehitung di total upload...
+            self.assertEqual(selasa["mhs_validated"], 0)     # ...tapi TIDAK di validated (blm divalidasi admin)
+            self.assertEqual(d["overall"]["mhs_upload"], 3)      # MON-A(2) + MON-C(1)
+            self.assertEqual(d["overall"]["mhs_validated"], 2)   # cuma MON-A
             self.assertTrue(any(e["kelas"] == "LUAR-JADWAL" for e in d["di_luar_jadwal"]))
             self.assertEqual(self.c.get("/api/admin/monitor?mode=online&refresh=true", headers=ADM).json()["overall"]["total"], 1)
             self.assertEqual(self.c.get("/api/admin/monitor").status_code, 401)
@@ -266,6 +279,24 @@ class TestServices(unittest.TestCase):
         self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, False, True))
         self.assertIsNone(r.json()["admin_validated_by"])
 
+    def test_admin_sessions_filters_by_hari_ujian(self):
+        a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-A", "hari_ujian": "2026-09-29"}).json()["id"]
+        b = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-B", "hari_ujian": "2026-09-30"}).json()["id"]
+        rows = self.c.get("/api/admin/sessions?hari=2026-09-29", headers=ADM).json()["items"]
+        ids = {x["id"] for x in rows}
+        self.assertIn(a, ids)
+        self.assertNotIn(b, ids)
+        rows_all = self.c.get("/api/admin/sessions", headers=ADM).json()["items"]
+        self.assertTrue({a, b}.issubset({x["id"] for x in rows_all}))   # tanpa filter: semua hari tampil
+
+    def test_admin_sessions_lembar_counts_uploaded_files_not_scanned_sheets(self):
+        # "Lembar" di tabel Sesi = jumlah FOTO terupload (UploadFile), bukan jumlah lembar hasil scan
+        # (Sheet) -- 1 PDF rusak/gagal tetap kehitung sbg 1 foto terupload walau nol Sheet dihasilkan.
+        sid = self.submitted_session("ADMLEMBAR-01", n=2)
+        row = next(x for x in self.c.get("/api/admin/sessions?q=ADMLEMBAR-01", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertEqual(row["files"]["total"], 2)
+        self.assertEqual(row["lembar"], 2)   # backend tetap simpan jumlah lembar hasil scan (dipakai internal)
+
     def test_admin_validate_session_requires_at_least_one_sheet(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-EMPTY"}).json()["id"]
         r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
@@ -284,6 +315,25 @@ class TestServices(unittest.TestCase):
             time.sleep(0.4)
         row = next(x for x in self.c.get("/api/monitor-sesi").json()["items"] if x["kelas"] == "ADMMON-01")
         self.assertEqual(row["status"], "perlu_cek")
+
+    def test_public_monitor_sesi_upload_pct_clamped_per_kelas_against_jadwal(self):
+        from server import plotting
+        csv_text = ("No,Hari,Jam Mulai,Jam Selesai,Gedung,Ruangan,Kelas,Prodi,Jml Mahasiswa,Nama Pengawas,Cek Bentrok,Mode,\n"
+                    "1,SENIN,08:30,09:30,KU1,R1,PUBMON-A,S1 X,1,Budi,OK,Onsite,\n")
+        old_download = plotting._download
+        plotting._download = lambda: csv_text
+        plotting._cache.update(rows=None, at=0.0, error=None)
+        try:
+            # 2 foto terupload utk kelas yg jml mahasiswanya cuma 1 -> harus DICLAMP ke 1, bukan 2
+            sid = self.c.post("/api/sessions", json={**VALID, "kelas": "PUBMON-A"}).json()["id"]
+            self.c.post(f"/api/sessions/{sid}/files", files=[("files", (f"l{i}.pdf", PDF, "application/pdf")) for i in range(2)])
+            d = self.c.get("/api/monitor-sesi").json()
+            self.assertEqual(d["mhs_total"], 1)
+            self.assertEqual(d["mhs_upload"], 1)
+            self.assertEqual(d["upload_pct"], 100.0)
+        finally:
+            plotting._download = old_download
+            plotting._cache.update(rows=None, at=0.0, error=None)
 
     def test_admin_validate_requires_token(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-02"}).json()["id"]

@@ -2,7 +2,7 @@ function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
     tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all", hari: "" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
     users: [], newUser: { username: "", password: "", name: "", hp: "" }, userBusy: false, accessLog: [],
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
@@ -77,12 +77,10 @@ function admin() {
     async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
-      const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
+      const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status, hari: s.hari });
       try { const d = await this.json("/api/admin/sessions?" + p); Object.assign(this.ses, { items: d.items, total: d.total }); } catch (e) { this.toast(e.message, true); }
     },
     sesStatusLabel(st) { return { scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
-    hariLabel(v) { if (!v) return "-"; const d = new Date(v + "T00:00:00"); return isNaN(d) ? v : d.toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" }); },
-    stripKode(k) { const m = /^k[j]?(\d+)$/i.exec(k || ""); return m ? m[1] : (k || "-"); },
     sesStatusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
     kirimLabel(i) { if (!i.submitted) return "Berjalan"; if (i.synced) return "Sent"; if (i.sync_error) return "Gagal ×" + i.sync_attempts; return "Antre"; },
     kirimChip(i) { if (!i.submitted) return "pending"; if (i.synced) return "validated"; if (i.sync_error) return "warning"; return "pending"; },
