@@ -71,7 +71,7 @@ function admin() {
       return d.slots.filter(x => (this.monFilter === "all" || x.status === this.monFilter) && (!q || (x.kelas + " " + x.pengawas + " " + x.prodi + " " + x.ruangan + " " + x.gedung).toLowerCase().includes(q)));
     },
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
-    monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
+    monLabel(st) { return { selesai: "Selesai", berjalan: "Checking", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
     async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
     async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
@@ -121,7 +121,7 @@ function admin() {
     async openDetail(i) {
       this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by,
         items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
-        questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false };
+        questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false, checkedIds: [] };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
         this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
@@ -196,6 +196,39 @@ function admin() {
         this.toast(`${r.dibatalkan} lembar dibatalkan validasinya`);
         await this.openDetail(d);
       } catch (e) { this.toast(e.message, true); }
+    },
+    toggleChecked(id) {
+      const ids = this.detail.checkedIds;
+      const i = ids.indexOf(id);
+      if (i === -1) ids.push(id); else ids.splice(i, 1);
+    },
+    async rescanSelectedSheets(d) {
+      const ids = d.checkedIds;
+      if (!ids.length) return;
+      if (!confirm(`Pindai ulang ${ids.length} lembar terpilih dgn foto sumber yg sama?`)) return;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/rescan-selected`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sheet_ids: ids }) });
+        this.toast(`${r.diantre} lembar diantre utk dipindai ulang` + (r.dilewati ? ` (${r.dilewati} dilewati, foto tak ada)` : ""));
+        d.checkedIds = [];
+        await this.openDetail(d);
+      } catch (e) { this.toast(e.message, true); }
+    },
+    // Ringkasan keterisian satu lembar utk ditampilkan di daftar lembar (kolom kiri popup Detail) --
+    // dipakai jg utk tanda peringatan NPM ganjil/jawaban byk kosong, supaya admin tak perlu buka tiap
+    // lembar satu2 utk tahu mana yg patut dicek lebih dulu.
+    sheetFillInfo(x) {
+      const rec = x.record || {};
+      const npm = (rec["NPM"] || "").toString();
+      const kui = Object.keys(rec).filter(k => /^q\d{2}$/.test(k));
+      const soal = Object.keys(rec).filter(k => /^soal_\d{2}$/.test(k));
+      const kuiFilled = kui.filter(k => rec[k] && rec[k] !== "BLANK").length;
+      const soalFilled = soal.filter(k => rec[k] && rec[k] !== "BLANK").length;
+      const total = kui.length + soal.length;
+      const filled = kuiFilled + soalFilled;
+      const rate = total ? filled / total : 1;
+      const npmWarn = npm.length > 0 && npm.length !== 10;
+      const warn = npmWarn || rate <= 0.5;
+      return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn };
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },

@@ -118,12 +118,13 @@ class TestServices(unittest.TestCase):
         try:
             sid = self.submitted_session("MON-A", n=2)
             self.submit(sid)
+            self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate?value=true", headers=ADM).status_code, 200)
             self.c.post("/api/sessions", json={**VALID, "kelas": "MON-B"})
             extra = self.submitted_session("LUAR-JADWAL", n=1)
             self.submit(extra)
             d = self.c.get("/api/admin/monitor?refresh=true", headers=ADM).json()
             self.assertEqual(d["overall"]["total"], 3)                      # baris Online tidak dihitung
-            self.assertEqual(d["overall"]["selesai"], 1)
+            self.assertEqual(d["overall"]["selesai"], 1)                    # MON-A: submit + DIVALIDASI admin
             self.assertEqual(d["overall"]["berjalan"], 1)                   # MON-B: sesi dibuat tapi belum submit
             senin = next(x for x in d["days"] if x["hari"] == "SENIN")
             a = next(x for x in senin["slots"] if x["kelas"] == "MON-A")
@@ -651,6 +652,27 @@ class TestServices(unittest.TestCase):
     def test_rescan_all_requires_token_and_404s_unknown(self):
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all").status_code, 401)
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-all", headers=ADM).status_code, 404)
+
+    def test_rescan_selected_only_queues_checked_sheets(self):
+        # "Pindai ulang terpilih" di popup Detail lembar -- beda dari rescan-all (SEMUA lembar), ini cuma
+        # yg dicentang admin. Kirim SATU dari dua id lembar, pastikan cuma itu yg diantre & diupdate.
+        sid = self.submitted_session("RESCANSEL-01", n=2)
+        self.submit(sid)
+        self.c.post(f"/api/sessions/{sid}/validate-all", headers=ADM)
+        items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(items), 2)
+        target = items[0]
+        r = self.c.post(f"/api/admin/sessions/{sid}/rescan-selected", json={"sheet_ids": [target["id"]]}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["diantre"], r.json()["dilewati"]), (1, 0))
+        self._wait_rescan_done(sid, "RESCANSEL-01")
+        after = {x["id"]: x for x in self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]}
+        self.assertFalse(after[target["id"]]["validated"])          # yg diantre: validasi per-lembar direset
+        self.assertTrue(after[items[1]["id"]]["validated"])         # yg TAK dicentang: tak tersentuh sama sekali
+
+    def test_rescan_selected_requires_token_and_404s_unknown(self):
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-selected", json={"sheet_ids": []}).status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/rescan-selected", json={"sheet_ids": []}, headers=ADM).status_code, 404)
 
     # ---------------------------------------------------------------- kalibrasi template
     def test_apply_field_calib_shifts_bubbles_and_roi_without_mutating_input(self):

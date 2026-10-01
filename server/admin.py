@@ -57,21 +57,24 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
     cond = []
     if config.MONITOR_SINCE:
         cond.append(ScanSession.created_at >= dt.datetime.fromisoformat(config.MONITOR_SINCE.replace("Z", "+00:00")))
-    q = (select(ScanSession.id, ScanSession.kelas, ScanSession.submitted, ScanSession.submitted_at, ScanSession.created_at,
+    q = (select(ScanSession.id, ScanSession.kelas, ScanSession.submitted, ScanSession.admin_validated, ScanSession.submitted_at, ScanSession.created_at,
                 ScanSession.nama_pengawas, func.count(Sheet.id), func.coalesce(func.sum(func.cast(Sheet.validated, Integer)), 0))
          .outerjoin(Sheet, Sheet.session_id == ScanSession.id).where(*cond).group_by(ScanSession.id))
     by_kelas = {}
-    for sid, kelas, sub, sub_at, cr_at, nama, n_sheet, n_val in db.execute(q):
+    for sid, kelas, sub, adm_val, sub_at, cr_at, nama, n_sheet, n_val in db.execute(q):
         by_kelas.setdefault((kelas or "").strip().lower(), []).append(
-            {"id": sid, "kelas": kelas, "submitted": bool(sub), "submitted_at": sub_at, "created_at": cr_at,
+            {"id": sid, "kelas": kelas, "submitted": bool(sub), "admin_validated": bool(adm_val), "submitted_at": sub_at, "created_at": cr_at,
              "pengawas": nama, "lembar": int(n_sheet or 0), "validated": int(n_val or 0)})
 
     days, seen = {}, set()
     for r in slots_src:
         key = r["kelas"].strip().lower(); seen.add(key)
         ss = by_kelas.get(key, [])
-        done = [x for x in ss if x["submitted"]]
-        openx = [x for x in ss if not x["submitted"]]
+        # "selesai" (done) BUKAN cuma krn pengawas sudah submit -- harus sudah DIVALIDASI admin (lihat
+        # ScanSession.admin_validated / tombol "Tandai validated" di tab Sesi). Submit-tapi-belum-divalidasi
+        # tetap dianggap "berjalan"/Checking, krn masih perlu dicek admin sebelum benar2 dianggap beres.
+        done = [x for x in ss if x["admin_validated"]]
+        openx = [x for x in ss if not x["admin_validated"]]
         if done:
             status, lembar = "selesai", sum(x["lembar"] for x in done)
             at = max((x["submitted_at"] for x in done if x["submitted_at"]), default=None)
@@ -269,6 +272,23 @@ def admin_rescan_all(sid: str, db=Depends(get_db)):
     all_sheets = list(s.sheets)
     queued = sum(1 for sh in all_sheets if _main._enqueue_rescan(sh.id))
     return {"ok": True, "diantre": queued, "dilewati": len(all_sheets) - queued}
+
+
+class _RescanSelectedIn(BaseModel):
+    sheet_ids: list[str]
+
+
+@router.post("/sessions/{sid}/rescan-selected")
+def admin_rescan_selected(sid: str, body: _RescanSelectedIn, db=Depends(get_db)):
+    """Sama spt rescan-all, tapi cuma utk lembar yg dicentang admin di popup Detail lembar (checkbox per
+    baris) -- berguna kalau cuma sebagian lembar yg perlu disegarkan (mis. yg kelihatan salah baca),
+    tanpa perlu menunggu SEMUA lembar sesi ikut dipindai ulang."""
+    from server import main as _main
+    s = _admin_session_or_404(db, sid)
+    ids = set(body.sheet_ids)
+    sheets_to_rescan = [sh for sh in s.sheets if sh.id in ids]
+    queued = sum(1 for sh in sheets_to_rescan if _main._enqueue_rescan(sh.id))
+    return {"ok": True, "diantre": queued, "dilewati": len(sheets_to_rescan) - queued}
 
 
 @router.post("/files/{fid}/reprocess")
