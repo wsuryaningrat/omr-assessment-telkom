@@ -73,6 +73,15 @@ function admin() {
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Checking", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
+    // Format ringkas satu baris utk kolom "Upload at" tabel Sesi, mis. "10-01: 20.00" (MM-DD: HH.MM).
+    sesWhen(iso) {
+      if (!iso) return "-";
+      try { const d = new Date(iso), p = n => String(n).padStart(2, "0"); return `${p(d.getMonth() + 1)}-${p(d.getDate())}: ${p(d.getHours())}.${p(d.getMinutes())}`; }
+      catch { return "-"; }
+    },
+    // Ringkas nama pengawas jadi 2 kata pertama di tabel Sesi (nama lengkap tetap ada di title/tooltip)
+    // -- nama panjang (mis. gelar dosen) bikin baris melebar & bikin kolom lain tak sejajar.
+    shortName(nama) { return (nama || "").trim().split(/\s+/).slice(0, 2).join(" "); },
     async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
     async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },

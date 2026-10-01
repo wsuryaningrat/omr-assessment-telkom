@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
 from scanner.service import classify_scan_status, load_default_template
-from server import refdata, admin, auth, config, services, worker
+from server import refdata, admin, auth, config, plotting, services, worker
 from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -350,6 +350,30 @@ class SessionIn(BaseModel):
     hari_ujian: str = ""
 
 
+def _sync_pengawas_contact(ref_id: str, nama: str, hp: str):
+    """Simpan nama+hp pengawas balik ke tabel `pengawas` (server/db.py Pengawas) setelah sesi dibuat/diubah
+    -- DUA kasus: (1) pengawas TERDAFTAR yg blm py HP di tabel & baru mengisinya sendiri (needs_hp di FE)
+    -- simpan HP itu spy lain kali tak perlu isi ulang; (2) pengawas pilih "Lainnya -- isi sendiri"
+    (ref kosong) -- daftarkan sbg baris baru spy muncul di dropdown lain kali, tanpa admin perlu psql
+    manual. Dicocokkan by nama PERSIS utk hindari dobel kalau orang yg sama isi manual berkali-kali.
+    Gagal diam2 (noqa BLE001) -- ini kenyamanan sampingan, bukan bagian kritis alur submit sesi."""
+    from server.db import Pengawas, SessionLocal
+    if not nama:
+        return
+    try:
+        with SessionLocal() as db2:
+            if ref_id:
+                p = db2.get(Pengawas, ref_id)
+                if p and hp and not p.hp:
+                    p.hp = hp
+                    db2.commit()
+            elif not db2.query(Pengawas).filter(Pengawas.nama == nama).first():
+                db2.add(Pengawas(nama=nama, nim="", hp=hp or ""))
+                db2.commit()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _resolve_identity(body: SessionIn, db):
     """Validasi isian dan kembalikan (nama, hp) pengawas: dari daftar terdaftar bila dipilih, atau isian sendiri."""
     errors = []
@@ -391,6 +415,7 @@ def _resolve_identity(body: SessionIn, db):
         errors.append("Kode soal terlalu panjang (maks. 20 karakter)")
     if errors:
         raise HTTPException(422, errors)
+    _sync_pengawas_contact(body.pengawas_ref, nama, hp)
     return nama, hp, body.fakultas.strip(), kode_soal, hari_ujian
 
 
@@ -483,17 +508,18 @@ def monitor_sesi(db=Depends(get_db)):
         })
         key = (s.kelas or "").strip().lower()
         by_kelas_lembar[key] = by_kelas_lembar.get(key, 0) + n_files
-    # Persentase upload keseluruhan terhadap jadwal plotting (sama sumbernya dgn tab Monitoring admin) --
-    # diclamp per kelas spy sesi tes/dobel tak bikin lebih dari 100% kelas itu sendiri.
-    jml_mhs_map = admin._jml_mhs_by_kelas()
-    mhs_total = up_total = 0
-    for key, lembar in by_kelas_lembar.items():
-        jml = jml_mhs_map.get(key)
-        if jml:
-            mhs_total += jml
-            up_total += min(lembar, jml)
-    return {"items": items, "mhs_upload": up_total, "mhs_total": mhs_total,
-            "upload_pct": round(up_total / mhs_total * 100, 1) if mhs_total else 0}
+    # Persentase upload BERBASIS JUMLAH KELAS (bukan lembar/mahasiswa) -- seragam dgn tab Monitoring admin:
+    # dari kelas onsite di jadwal plotting, berapa yg SUDAH ada unggahan sama sekali (lepas status validasi).
+    try:
+        rows_sched, _fetched, _perr = plotting.schedule()
+    except Exception:  # noqa: BLE001
+        rows_sched = []
+    onsite_kelas = {(r["kelas"] or "").strip().lower() for r in rows_sched
+                     if (r.get("mode") or "").lower() == "onsite" and r.get("kelas")}
+    kelas_total = len(onsite_kelas)
+    kelas_upload = sum(1 for k in onsite_kelas if by_kelas_lembar.get(k, 0) > 0)
+    return {"items": items, "kelas_upload": kelas_upload, "kelas_total": kelas_total,
+            "upload_pct": round(kelas_upload / kelas_total * 100, 1) if kelas_total else 0}
 
 
 # --------------------------------------------------------------------------- upload

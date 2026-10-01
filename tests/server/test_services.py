@@ -316,21 +316,23 @@ class TestServices(unittest.TestCase):
         row = next(x for x in self.c.get("/api/monitor-sesi").json()["items"] if x["kelas"] == "ADMMON-01")
         self.assertEqual(row["status"], "perlu_cek")
 
-    def test_public_monitor_sesi_upload_pct_clamped_per_kelas_against_jadwal(self):
+    def test_public_monitor_sesi_upload_pct_is_kelas_based(self):
         from server import plotting
         csv_text = ("No,Hari,Jam Mulai,Jam Selesai,Gedung,Ruangan,Kelas,Prodi,Jml Mahasiswa,Nama Pengawas,Cek Bentrok,Mode,\n"
-                    "1,SENIN,08:30,09:30,KU1,R1,PUBMON-A,S1 X,1,Budi,OK,Onsite,\n")
+                    "1,SENIN,08:30,09:30,KU1,R1,PUBMON-A,S1 X,1,Budi,OK,Onsite,\n"
+                    "2,SENIN,09:30,10:30,KU1,R2,PUBMON-B,S1 X,2,Ani,OK,Onsite,\n")
         old_download = plotting._download
         plotting._download = lambda: csv_text
         plotting._cache.update(rows=None, at=0.0, error=None)
         try:
-            # 2 foto terupload utk kelas yg jml mahasiswanya cuma 1 -> harus DICLAMP ke 1, bukan 2
+            # PUBMON-A sudah ada unggahan (berapa pun lembarnya, tetap kehitung SATU kelas) -- PUBMON-B
+            # belum sama sekali. Persentase harus berbasis JUMLAH KELAS (1 dari 2 = 50%), bukan lembar/mhs.
             sid = self.c.post("/api/sessions", json={**VALID, "kelas": "PUBMON-A"}).json()["id"]
             self.c.post(f"/api/sessions/{sid}/files", files=[("files", (f"l{i}.pdf", PDF, "application/pdf")) for i in range(2)])
             d = self.c.get("/api/monitor-sesi").json()
-            self.assertEqual(d["mhs_total"], 1)
-            self.assertEqual(d["mhs_upload"], 1)
-            self.assertEqual(d["upload_pct"], 100.0)
+            self.assertEqual(d["kelas_total"], 2)
+            self.assertEqual(d["kelas_upload"], 1)
+            self.assertEqual(d["upload_pct"], 50.0)
         finally:
             plotting._download = old_download
             plotting._cache.update(rows=None, at=0.0, error=None)

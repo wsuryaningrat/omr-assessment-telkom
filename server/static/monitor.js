@@ -1,7 +1,7 @@
 function monitor() {
   return {
     items: [], q: "", status: "all", loading: true, lastLoad: "", _poll: null,
-    mhs_upload: 0, mhs_total: 0, upload_pct: 0,
+    kelas_upload: 0, kelas_total: 0, upload_pct: 0,
 
     async init() {
       await this.load();
@@ -12,7 +12,7 @@ function monitor() {
         const r = await fetch("/api/monitor-sesi");
         const d = await r.json();
         this.items = d.items || [];
-        this.mhs_upload = d.mhs_upload || 0; this.mhs_total = d.mhs_total || 0; this.upload_pct = d.upload_pct || 0;
+        this.kelas_upload = d.kelas_upload || 0; this.kelas_total = d.kelas_total || 0; this.upload_pct = d.upload_pct || 0;
         this.lastLoad = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       } catch {}
       this.loading = false;

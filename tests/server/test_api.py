@@ -127,6 +127,48 @@ class TestAPI(unittest.TestCase):
                 db.query(Pengawas).filter(Pengawas.id.in_(ids)).delete(synchronize_session=False)
                 db.commit()
 
+    def test_session_submit_syncs_contact_back_into_pengawas_table(self):
+        """Buat/ubah sesi ikut menyimpan nama+hp pengawas balik ke tabel pengawas (server/main.py
+        _sync_pengawas_contact) -- supaya hp yg baru diisi sendiri (needs_hp) & pengawas manual
+        ("Lainnya -- isi sendiri") ikut terdaftar tanpa admin perlu psql manual."""
+        from server.db import Pengawas, SessionLocal
+        base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
+        no_hp_id, has_hp_id = "tes_sync_nohp", "tes_sync_hashp"
+        with SessionLocal() as db:
+            db.add_all([
+                Pengawas(id=no_hp_id, nama="Tes Sync Kosong", nim="900101", hp=""),
+                Pengawas(id=has_hp_id, nama="Tes Sync Terisi", nim="900102", hp="+6281111111111"),
+            ])
+            db.commit()
+        try:
+            # (1) pengawas terdaftar BELUM py hp, isi sendiri saat submit -> tersimpan ke tabel pengawas
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": no_hp_id, "hp": "0812340000001"})
+            self.assertEqual(r.status_code, 201, r.text)
+            with SessionLocal() as db:
+                self.assertEqual(db.get(Pengawas, no_hp_id).hp, "+62812340000001")
+            # (2) pengawas yg SUDAH py hp -- hp baru dari klien TAK menimpa yg sudah tersimpan
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": has_hp_id, "hp": "0899999999999"})
+            self.assertEqual(r.status_code, 201, r.text)
+            with SessionLocal() as db:
+                self.assertEqual(db.get(Pengawas, has_hp_id).hp, "+6281111111111")
+            # (3) "Lainnya -- isi sendiri" (pengawas_ref kosong) -> jadi baris BARU di tabel pengawas
+            manual_nama = "Tes Sync Manual Baru"
+            r = self.c.post("/api/sessions", json={**base, "nama_pengawas": manual_nama, "hp": "0812340000002"})
+            self.assertEqual(r.status_code, 201, r.text)
+            with SessionLocal() as db:
+                row = db.query(Pengawas).filter_by(nama=manual_nama).one()
+                self.assertEqual(row.hp, "+62812340000002")
+            # (4) submit manual dgn nama SAMA lagi -> TAK menggandakan baris
+            r = self.c.post("/api/sessions", json={**base, "nama_pengawas": manual_nama, "hp": "0812340000002"})
+            self.assertEqual(r.status_code, 201, r.text)
+            with SessionLocal() as db:
+                self.assertEqual(db.query(Pengawas).filter_by(nama=manual_nama).count(), 1)
+        finally:
+            with SessionLocal() as db:
+                db.query(Pengawas).filter(Pengawas.id.in_([no_hp_id, has_hp_id])).delete(synchronize_session=False)
+                db.query(Pengawas).filter_by(nama=manual_nama).delete(synchronize_session=False)
+                db.commit()
+
     def test_ui_is_served(self):
         r = self.c.get("/")
         self.assertEqual(r.status_code, 200)
