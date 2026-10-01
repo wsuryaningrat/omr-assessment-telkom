@@ -74,6 +74,15 @@ def hash_password(pw: str, iters: int = 240000) -> str:
 
 
 def _check_password(pw: str, stored: str) -> bool:
+    if stored.startswith("$2"):
+        # bcrypt (mis. diisi langsung lewat psql pakai pgcrypto: crypt(pw, gen_salt('bf')) --
+        # lihat docstring AdminUser di server/db.py) -- beda format dari hash_password() di atas,
+        # yg dipakai akun yg dibuat lewat tab Akun. Keduanya didukung sekaligus di sini.
+        try:
+            import bcrypt
+            return bcrypt.checkpw(pw.encode(), stored.encode())
+        except Exception:  # noqa: BLE001
+            return False
     try:
         iters, salt, dk = stored.split(":")
         got = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(iters))

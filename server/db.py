@@ -110,12 +110,21 @@ class AdminUser(Base):
     """Akun admin password yg dikelola lewat menu admin sendiri (tab Akun) -- beda dgn ADMIN_USER/
     ADMIN_ACCOUNTS di env (server/config.py): akun di sini bisa ditambah/dinonaktifkan/reset password
     tanpa ubah deploy/.env & redeploy. auth._admin_accounts() menggabungkan KEDUANYA; lihat juga
-    server/admin.py bag. "akun admin" utk endpoint CRUD-nya."""
+    server/admin.py bag. "akun admin" utk endpoint CRUD-nya.
+
+    Bisa juga ditambah langsung lewat psql (tanpa lewat UI), karena auth._check_password menerima DUA
+    format password_hash: PBKDF2 "iters:salt_hex:hash_hex" (buatan auth.hash_password, dipakai tab Akun)
+    ATAU hash bcrypt "$2..." (pgcrypto, extension-nya sudah diaktifkan otomatis di _migrate()). Contoh:
+        INSERT INTO admin_user (id, username, password_hash, name, hp, active, created_at, created_by)
+        VALUES (gen_random_uuid()::text, 'budi', crypt('passwordnya', gen_salt('bf')), 'Budi',
+                '6281234567890', true, now(), 'psql');
+    """
     __tablename__ = "admin_user"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     name: Mapped[str] = mapped_column(String(200), default="")
+    hp: Mapped[str] = mapped_column(String(40), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -155,7 +164,18 @@ def _migrate():
             "kode_soal": "VARCHAR(100) DEFAULT ''", "hari_ujian": "VARCHAR(20) DEFAULT ''",
         },
         "kunci": {"source": "VARCHAR(20) DEFAULT 'manual'", "updated_at": "TIMESTAMP"},
+        "admin_user": {"hp": "VARCHAR(40) DEFAULT ''"},
     }
+    if not _is_sqlite:
+        # pgcrypto: supaya admin_user.password_hash bisa diisi langsung lewat psql pakai crypt()/
+        # gen_salt('bf') (lihat docstring AdminUser) -- tanpa ini fungsi itu tak tersedia di Postgres.
+        # Transaksi & try/except TERPISAH dari migrasi kolom di bawah: kalau role DB-nya tak punya izin
+        # bikin extension, transaksi ini gagal sendiri tanpa ikut membatalkan ALTER TABLE lainnya.
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+        except Exception:  # noqa: BLE001
+            pass
     insp = inspect(engine)
     with engine.begin() as conn:
         for table, cols in wanted.items():

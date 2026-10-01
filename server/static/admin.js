@@ -1,10 +1,10 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    tabs: [{ id: "sesi", label: "Sesi" }, { id: "ringkasan", label: "Ringkasan" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
+    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
-    users: [], newUser: { username: "", password: "", name: "" }, userBusy: false, accessLog: [],
+    users: [], newUser: { username: "", password: "", name: "", hp: "" }, userBusy: false, accessLog: [],
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -44,14 +44,14 @@ function admin() {
     },
     async login(silent = false) {
       this.loginErr = "";
-      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await Promise.all([this.loadMonitor(), this.loadSessions()]); }
+      try { this.sum = await this.json("/api/admin/summary"); this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await this.loadMonitor(); }
       catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
     },
     async logout() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "sesi") this.loadMonitor(); }, 30000); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
     async loadMonitor(refresh = false) {
       this.monBusy = true;
       try {
@@ -73,7 +73,8 @@ function admin() {
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
-    async go(t) { this.tab = t; if (t === "sesi") await Promise.all([this.loadMonitor(), this.loadSessions()]); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
+    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
+    async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
@@ -428,7 +429,7 @@ function admin() {
       try {
         await this.json("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
         this.toast(`Akun "${f.username}" dibuat`);
-        this.newUser = { username: "", password: "", name: "" };
+        this.newUser = { username: "", password: "", name: "", hp: "" };
         await this.loadUsers();
       } catch (e) { this.toast(e.message, true); }
       this.userBusy = false;

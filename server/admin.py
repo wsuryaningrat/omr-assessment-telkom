@@ -931,7 +931,7 @@ def calib_preview(token: str, field: str = "", dx: float = 0.0, dy: float = 0.0,
 
 # ---------------------------------------------------------------- akun admin (tab Akun)
 def _user_view(u: AdminUser) -> dict:
-    return {"id": u.id, "username": u.username, "name": u.name, "active": u.active,
+    return {"id": u.id, "username": u.username, "name": u.name, "hp": u.hp, "active": u.active,
             "created_at": u.created_at.isoformat() if u.created_at else None, "created_by": u.created_by,
             "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
 
@@ -948,6 +948,7 @@ class _AdminUserIn(BaseModel):
     username: str
     password: str
     name: str = ""
+    hp: str = ""
 
 
 @router.post("/users")
@@ -961,7 +962,7 @@ def admin_create_user(body: _AdminUserIn, db=Depends(get_db), admin=Depends(auth
     if username in auth._admin_accounts():
         raise HTTPException(409, "Username sudah dipakai")
     u = AdminUser(username=username, password_hash=auth.hash_password(body.password), name=body.name.strip(),
-                  created_by=admin.get("name") or admin.get("email") or "?")
+                  hp=body.hp.strip(), created_by=admin.get("name") or admin.get("email") or "?")
     db.add(u)
     try:
         db.commit()
@@ -974,6 +975,7 @@ def admin_create_user(body: _AdminUserIn, db=Depends(get_db), admin=Depends(auth
 class _AdminUserPatchIn(BaseModel):
     password: str | None = None
     name: str | None = None
+    hp: str | None = None
     active: bool | None = None
 
 
@@ -989,6 +991,8 @@ def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
         u.password_hash = auth.hash_password(body.password)
     if body.name is not None:
         u.name = body.name.strip()
+    if body.hp is not None:
+        u.hp = body.hp.strip()
     if body.active is not None:
         u.active = body.active
     db.commit()

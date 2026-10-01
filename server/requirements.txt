@@ -16,3 +16,4 @@ google-auth>=2.20
 openpyxl>=3.1
 msal>=1.28
 itsdangerous>=2.1
+bcrypt>=4.0

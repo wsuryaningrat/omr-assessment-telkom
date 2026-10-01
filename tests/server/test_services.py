@@ -13,7 +13,7 @@ import zipfile
 from fastapi.testclient import TestClient
 
 from server import auth, config, services, sheets
-from server.db import ScanSession, Sheet, SessionLocal, TemplateCalib
+from server.db import AdminUser, ScanSession, Sheet, SessionLocal, TemplateCalib
 from server.main import app
 from tests.regression.fixtures import KUNCI
 
@@ -809,22 +809,40 @@ class TestServices(unittest.TestCase):
 
     # ---------------------------------------------------------------- akun admin (tab Akun)
     def test_admin_user_crud_lifecycle(self):
-        r = self.c.post("/api/admin/users", json={"username": "tes_akun1", "password": "rahasia123", "name": "Tes Satu"}, headers=ADM)
+        r = self.c.post("/api/admin/users", json={"username": "tes_akun1", "password": "rahasia123", "name": "Tes Satu", "hp": "081111111111"}, headers=ADM)
         self.assertEqual(r.status_code, 200, r.text)
         uid = r.json()["id"]
         self.assertTrue(r.json()["active"])
 
         rows = self.c.get("/api/admin/users", headers=ADM).json()
         row = next(x for x in rows if x["id"] == uid)
-        self.assertEqual((row["username"], row["name"], row["created_by"]), ("tes_akun1", "Tes Satu", "ADMIN_TOKEN"))
+        self.assertEqual((row["username"], row["name"], row["hp"], row["created_by"]), ("tes_akun1", "Tes Satu", "081111111111", "ADMIN_TOKEN"))
         self.assertNotIn("password_hash", row)   # password tak pernah ikut terkirim balik
 
-        r2 = self.c.patch(f"/api/admin/users/{uid}", json={"name": "Tes Diganti", "active": False}, headers=ADM)
-        self.assertEqual((r2.status_code, r2.json()["name"], r2.json()["active"]), (200, "Tes Diganti", False))
+        r2 = self.c.patch(f"/api/admin/users/{uid}", json={"name": "Tes Diganti", "hp": "082222222222", "active": False}, headers=ADM)
+        self.assertEqual((r2.status_code, r2.json()["name"], r2.json()["hp"], r2.json()["active"]), (200, "Tes Diganti", "082222222222", False))
 
         self.assertEqual(self.c.delete(f"/api/admin/users/{uid}", headers=ADM).status_code, 204)
         self.assertNotIn(uid, [x["id"] for x in self.c.get("/api/admin/users", headers=ADM).json()])
         self.assertEqual(self.c.patch(f"/api/admin/users/{uid}", json={"name": "x"}, headers=ADM).status_code, 404)
+
+    def test_admin_user_inserted_via_raw_sql_with_bcrypt_hash_can_log_in(self):
+        """Simulasi admin yg ditambah langsung lewat psql (bukan lewat tab Akun/endpoint POST /users) pakai
+        pgcrypto: crypt(pw, gen_salt('bf')) -- hash-nya berformat bcrypt ("$2..."), BEDA dari format PBKDF2
+        yg dihasilkan auth.hash_password(). auth._check_password harus bisa verifikasi keduanya."""
+        auth._FAILS.clear()
+        import bcrypt
+        bcrypt_hash = bcrypt.hashpw("rahasiaBcrypt1".encode(), bcrypt.gensalt()).decode()
+        with SessionLocal() as db:
+            db.add(AdminUser(username="tes_bcrypt1", password_hash=bcrypt_hash, name="Tes Bcrypt", hp="083333333333",
+                              active=True, created_by="psql"))
+            db.commit()
+        r = self.c.post("/auth/password", json={"username": "tes_bcrypt1", "password": "rahasiaBcrypt1"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.c.post("/auth/logout")   # lepas cookie sesi -- self.c dipakai BERSAMA semua tes di kelas ini (setUpClass)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "tes_bcrypt1", "password": "salah"}).status_code, 401)
+        row = next(x for x in self.c.get("/api/admin/users", headers=ADM).json() if x["username"] == "tes_bcrypt1")
+        self.assertEqual(row["hp"], "083333333333")
 
     def test_admin_create_user_rejects_weak_password_duplicate_and_bad_username(self):
         self.assertEqual(self.c.post("/api/admin/users", json={"username": "ab", "password": "rahasia123"}, headers=ADM).status_code, 422)

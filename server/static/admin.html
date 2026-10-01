@@ -70,8 +70,8 @@
       <template x-for="t in tabs" :key="t.id"><button :class="{on: tab===t.id}" @click="go(t.id)" x-text="t.label"></button></template>
     </nav>
 
-    <!-- sesi (gabung progres monitoring onsite + daftar sesi, krn keduanya nampilin status upload per kelas) -->
-    <section x-show="tab==='sesi'">
+    <!-- monitoring -->
+    <section x-show="tab==='monitoring'">
       <template x-if="mon">
       <div>
         <div class="mon-head">
@@ -128,7 +128,7 @@
             <thead><tr><th>Jam</th><th>Ruangan</th><th>Kelas</th><th>Pengawas</th><th style="min-width:130px">Lembar</th><th>Status</th></tr></thead>
             <tbody>
               <template x-for="x in monSlots" :key="x.no + x.kelas">
-                <tr>
+                <tr @click="goToSesi(x.kelas)" title="Lihat sesi kelas ini">
                   <td class="mono" x-text="x.jam"></td>
                   <td><div x-text="x.gedung"></div><div class="fl" x-text="x.ruangan"></div></td>
                   <td><div class="nm mono" x-text="x.kelas"></div><div class="fl" x-text="x.prodi"></div></td>
@@ -187,8 +187,8 @@
       </div>
     </section>
 
-    <!-- sesi (lanjutan): daftar sesi pengawas -->
-    <section x-show="tab==='sesi'" style="margin-top:14px">
+    <!-- sesi -->
+    <section x-show="tab==='sesi'">
       <div class="card flush">
         <div class="tools">
           <div class="tt"><h2>Sesi pengawas</h2></div>
@@ -522,7 +522,8 @@
         <div class="grid" style="max-width:520px">
           <div><label class="f" for="nuUser">Username</label><input id="nuUser" x-model.trim="newUser.username" autocomplete="off" placeholder="mis. budi"></div>
           <div><label class="f" for="nuPw">Password</label><input id="nuPw" type="password" x-model="newUser.password" autocomplete="new-password" placeholder="minimal 8 karakter"></div>
-          <div class="full"><label class="f" for="nuName">Nama (opsional)</label><input id="nuName" x-model.trim="newUser.name" placeholder="Nama tampilan, mis. Budi Santoso"></div>
+          <div><label class="f" for="nuName">Nama (opsional)</label><input id="nuName" x-model.trim="newUser.name" placeholder="Nama tampilan, mis. Budi Santoso"></div>
+          <div><label class="f" for="nuHp">No HP (opsional)</label><input id="nuHp" x-model.trim="newUser.hp" placeholder="mis. 081234567890"></div>
         </div>
         <div class="row-act">
           <button class="btn p sm" @click="createUser()" :disabled="userBusy || !newUser.username || !newUser.password">Buat akun</button>
@@ -532,12 +533,13 @@
       <div class="card">
         <h2>Akun terdaftar</h2>
         <div class="tbl"><table>
-          <thead><tr><th>Username</th><th>Nama</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
+          <thead><tr><th>Username</th><th>Nama</th><th>No HP</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
           <tbody>
             <template x-for="u in users" :key="u.id">
               <tr>
                 <td class="nm mono" x-text="u.username"></td>
                 <td x-text="u.name||'-'"></td>
+                <td class="mono" x-text="u.hp||'-'"></td>
                 <td><span class="chip" :class="u.active?'validated':'warning'" x-text="u.active?'Aktif':'Nonaktif'"></span></td>
                 <td x-text="u.created_by||'-'"></td>
                 <td x-text="fmt(u.last_login_at)"></td>
