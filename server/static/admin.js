@@ -231,6 +231,7 @@ function admin() {
         this.toast(`${r.dihapus} lembar dihapus`);
         d.checkedIds = [];
         await this.openDetail(d);
+        await this.loadSessions();   // kolom "Lembar" di tabel Sesi ikut diperbarui
       } catch (e) { this.toast(e.message, true); }
     },
     // Ringkasan keterisian satu lembar utk ditampilkan di daftar lembar (kolom kiri popup Detail) --
@@ -246,9 +247,17 @@ function admin() {
       const total = kui.length + soal.length;
       const filled = kuiFilled + soalFilled;
       const rate = total ? filled / total : 1;
-      const npmWarn = npm.length !== 10;   // termasuk NPM kosong (blank) -- bukan cuma yg salah panjang
-      const warn = npmWarn || rate <= 0.5;
-      return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn };
+      // Bukan cuma panjang salah/kosong: hasil scan tiap digit NPM yg tak terbaca (blank) diisi SPASI,
+      // bukan dibuang -- hanya spasi di UJUNG yg ikut hilang (lihat core/decoder.py decode_field,
+      // "".join(digits).rstrip()). Jadi NPM bisa SAMA PANJANG 10 karakter tapi ada spasi/non-digit di
+      // TENGAHNYA (mis. "103 125001") -- .length!==10 saja tak menangkap itu, perlu cek tiap karakter.
+      const npmWarn = !/^\d{10}$/.test(npm);
+      // Kuisioner dicek terpisah dgn AMBANG JUMLAH (bukan rasio) -- soal biasanya jauh lebih banyak drpd
+      // kuisioner, jadi kuisioner kosong gampang "tenggelam" di rata-rata gabungan & lolos dari ambang
+      // keterisian keseluruhan. kui.length===0 (sesi tanpa kuisioner sama sekali) sengaja TAK kena ini.
+      const kuiWarn = kui.length > 0 && kuiFilled < 7;
+      const warn = npmWarn || rate < 0.4 || kuiWarn;
+      return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn, kuiWarn };
     },
     closeDetail() { this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
@@ -335,6 +344,7 @@ function admin() {
           if (this.detail.items.length) this.selectDetailSheet(this.detail.items[0]);
           else { this.detail.selectedId = null; this.detail.selectedItem = null; this._setPreview(""); }
         }
+        await this.loadSessions();   // kolom "Lembar" di tabel Sesi ikut diperbarui
       } catch (e) { this.toast(e.message, true); }
     },
     // NPM harus pas 10 digit -- merahin kotak input kalau kosong atau panjangnya salah (lihat jg

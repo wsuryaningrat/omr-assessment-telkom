@@ -91,6 +91,29 @@ def _clear_scan_cache(sheet_id: str):
         pass
 
 
+def _delete_sheet_and_cleanup(db, sh):
+    """Hapus satu Sheet (LJK) -- SEKALIGUS hapus UploadFile & foto sumbernya dari disk, bila setelah ini
+    tak ada Sheet LAIN yg masih memakai berkas itu (satu UploadFile bisa dipakai beberapa Sheet utk PDF
+    multi-halaman -- lihat Sheet.file_id). Tanpa ini, menghapus lembar meninggalkan UploadFile.state='done'
+    tanpa Sheet sama sekali -- PERSIS kondisi yg dideteksi admin._orphan_files sbg "hilang senyap" (dulu
+    dirancang utk berkas yg KEBETULAN gagal tercatat krn restart server, bukan yg SENGAJA admin hapus),
+    jadi lembar yg dihapus sengaja malah muncul lagi sbg peringatan "berkas tak menghasilkan lembar"."""
+    sheet_id, file_id = sh.id, sh.file_id
+    db.delete(sh)
+    db.flush()
+    remaining = db.scalar(select(func.count()).select_from(Sheet).where(Sheet.file_id == file_id))
+    if not remaining:
+        up = db.get(UploadFile, file_id)
+        if up is not None:
+            if up.path and os.path.exists(up.path):
+                try:
+                    os.remove(up.path)
+                except OSError:
+                    pass
+            db.delete(up)
+    _clear_scan_cache(sheet_id)
+
+
 def _kunci(db):
     from server.db import Kunci
     return {k.name: k.data for k in db.scalars(select(Kunci))}
@@ -706,9 +729,8 @@ def validate_batch(body: BatchIn, db=Depends(get_db)):
 def delete_sheet(shid: str, db=Depends(get_db)):
     sh = _sheet_or_404(db, shid)
     _guard_open(db, sh)
-    db.delete(sh)
+    _delete_sheet_and_cleanup(db, sh)
     db.commit()
-    _clear_scan_cache(shid)
 
 
 @app.post("/api/sheets/{shid}/replace")

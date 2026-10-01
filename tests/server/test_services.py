@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from server import auth, config, services, sheets
 from server import db as dbmod
-from server.db import AdminUser, ScanSession, Sheet, SessionLocal, TemplateCalib
+from server.db import AdminUser, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
 from server.main import app
 from tests.regression.fixtures import KUNCI
 
@@ -620,6 +620,47 @@ class TestServices(unittest.TestCase):
         # id tak dikenal diabaikan dgn tenang (bukan 404) -- batch, sebagian bisa saja sudah lenyap
         r2 = self.c.post(f"/api/admin/sessions/{sid}/delete-selected", headers=ADM, json={"sheet_ids": ["tidak-ada"]})
         self.assertEqual((r2.status_code, r2.json()["dihapus"]), (200, 0))
+
+    def test_admin_delete_sheet_removes_photo_without_leaving_an_orphan(self):
+        """Hapus lembar HARUS ikut menghapus foto sumbernya dari disk, & TIDAK boleh meninggalkan
+        UploadFile state='done' tanpa Sheet (persis kondisi yg dideteksi _orphan_files sbg "hilang
+        senyap") -- lihat main._delete_sheet_and_cleanup."""
+        sid = self.submitted_session("ADMDELPHOTO-01")
+        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
+        with SessionLocal() as db:
+            path = db.get(UploadFile, db.get(Sheet, shid).file_id).path
+        self.assertTrue(os.path.exists(path))
+        r = self.c.delete(f"/api/admin/sheets/{shid}", headers=ADM)
+        self.assertEqual(r.status_code, 204, r.text)
+        self.assertFalse(os.path.exists(path))   # foto ikut terhapus
+        self.assertEqual(self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["orphan_files"], [])
+        row = next(x for x in self.c.get("/api/admin/sessions?q=ADMDELPHOTO-01", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertEqual(row["files"]["orphans"], 0)
+
+    def test_admin_delete_sheet_keeps_shared_photo_until_its_last_sheet_is_gone(self):
+        """Satu UploadFile bisa dipakai beberapa Sheet (PDF multi-halaman, lihat Sheet.file_id) -- hapus
+        SATU lembar yg masih berbagi berkas dgn lembar lain TAK boleh ikut menghapus fotonya; baru dihapus
+        begitu lembar TERAKHIR yg memakainya ikut dihapus."""
+        sid = self.submitted_session("ADMDELSHARED-01")
+        with SessionLocal() as db:
+            s = db.get(ScanSession, sid)
+            sh1 = s.sheets[0]
+            sh1_id, file_id = sh1.id, sh1.file_id
+            path = db.get(UploadFile, file_id).path
+            sh2 = Sheet(session_id=sid, file_id=file_id, page=1, seq=2, doc_name="hal2",
+                        scan_status=sh1.scan_status, record=dict(sh1.record))
+            db.add(sh2)
+            db.commit()
+            sh2_id = sh2.id
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(self.c.delete(f"/api/admin/sheets/{sh1_id}", headers=ADM).status_code, 204)
+        self.assertTrue(os.path.exists(path))        # sh2 masih memakainya -- jangan ikut terhapus
+        with SessionLocal() as db:
+            self.assertIsNotNone(db.get(UploadFile, file_id))
+        self.assertEqual(self.c.delete(f"/api/admin/sheets/{sh2_id}", headers=ADM).status_code, 204)
+        self.assertFalse(os.path.exists(path))        # lembar terakhir yg memakainya -> baru dihapus
+        with SessionLocal() as db:
+            self.assertIsNone(db.get(UploadFile, file_id))
 
     def test_upload_path_organized_by_fakultas_prodi_kelas(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ORGTEST-01"}).json()["id"]
