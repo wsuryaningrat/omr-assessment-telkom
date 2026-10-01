@@ -106,6 +106,22 @@ class TemplateCalib(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class AdminUser(Base):
+    """Akun admin password yg dikelola lewat menu admin sendiri (tab Akun) -- beda dgn ADMIN_USER/
+    ADMIN_ACCOUNTS di env (server/config.py): akun di sini bisa ditambah/dinonaktifkan/reset password
+    tanpa ubah deploy/.env & redeploy. auth._admin_accounts() menggabungkan KEDUANYA; lihat juga
+    server/admin.py bag. "akun admin" utk endpoint CRUD-nya."""
+    __tablename__ = "admin_user"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str] = mapped_column(String(200), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 def init_db():
     Base.metadata.create_all(engine)
     _migrate()

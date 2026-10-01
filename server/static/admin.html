@@ -498,6 +498,46 @@
       </div>
     </section>
 
+    <!-- akun -->
+    <section x-show="tab==='akun'">
+      <div class="card">
+        <h2>Tambah akun admin</h2>
+        <p class="sub">Akun di sini aktif seketika (tak perlu redeploy) & masuk lewat halaman login dgn username+password, sama spt akun bawaan.</p>
+        <div class="grid" style="max-width:520px">
+          <div><label class="f" for="nuUser">Username</label><input id="nuUser" x-model.trim="newUser.username" autocomplete="off" placeholder="mis. budi"></div>
+          <div><label class="f" for="nuPw">Password</label><input id="nuPw" type="password" x-model="newUser.password" autocomplete="new-password" placeholder="minimal 8 karakter"></div>
+          <div class="full"><label class="f" for="nuName">Nama (opsional)</label><input id="nuName" x-model.trim="newUser.name" placeholder="Nama tampilan, mis. Budi Santoso"></div>
+        </div>
+        <div class="row-act">
+          <button class="btn p sm" @click="createUser()" :disabled="userBusy || !newUser.username || !newUser.password">Buat akun</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Akun terdaftar</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Username</th><th>Nama</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="u in users" :key="u.id">
+              <tr>
+                <td class="nm mono" x-text="u.username"></td>
+                <td x-text="u.name||'-'"></td>
+                <td><span class="chip" :class="u.active?'validated':'warning'" x-text="u.active?'Aktif':'Nonaktif'"></span></td>
+                <td x-text="u.created_by||'-'"></td>
+                <td x-text="fmt(u.last_login_at)"></td>
+                <td class="actrow">
+                  <button class="btn xs" @click="toggleUserActive(u)" x-text="u.active?'Nonaktifkan':'Aktifkan'"></button>
+                  <button class="btn xs" @click="resetUserPassword(u)">Reset password</button>
+                  <button class="btn xs d" @click="deleteUser(u)">Hapus</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table></div>
+        <p class="empty" x-show="!users.length">Belum ada akun tambahan -- login bawaan (SSO/username-password di deploy/.env) tetap berlaku.</p>
+      </div>
+    </section>
+
     <!-- ekspor -->
     <section x-show="tab==='ekspor'">
       <div class="card">

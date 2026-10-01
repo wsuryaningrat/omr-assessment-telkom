@@ -1,9 +1,10 @@
 function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "ekspor", label: "Ekspor" }],
+    tabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun" }, { id: "ekspor", label: "Ekspor" }],
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {} },
+    users: [], newUser: { username: "", password: "", name: "" }, userBusy: false,
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -72,7 +73,7 @@ function admin() {
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Berjalan", belum: "Belum" }[st] || st; },
     monWhen(iso) { if (!iso) return ""; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } },
-    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); },
+    async go(t) { this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
       const s = this.ses, p = new URLSearchParams({ page: s.page, size: s.size, q: s.q, status: s.status });
@@ -383,6 +384,38 @@ function admin() {
     async delKunci(name) {
       if (!confirm(`Hapus kunci "${name}"?`)) return;
       try { await this.api("/api/admin/kunci/" + encodeURIComponent(name), { method: "DELETE" }); this.toast("Kunci dihapus"); await this.loadKunci(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    // Akun admin (tab Akun) -- akun yg dikelola di sini aktif seketika, beda dgn ADMIN_USER/ADMIN_ACCOUNTS
+    // di deploy/.env yg butuh redeploy & sengaja tak ditampilkan/dikelola dari UI ini.
+    async loadUsers() { try { this.users = await this.json("/api/admin/users"); } catch (e) { this.toast(e.message, true); } },
+    async createUser() {
+      const f = this.newUser;
+      if (!f.username || !f.password) { this.toast("Isi username & password", true); return; }
+      if (f.password.length < 8) { this.toast("Password minimal 8 karakter", true); return; }
+      this.userBusy = true;
+      try {
+        await this.json("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
+        this.toast(`Akun "${f.username}" dibuat`);
+        this.newUser = { username: "", password: "", name: "" };
+        await this.loadUsers();
+      } catch (e) { this.toast(e.message, true); }
+      this.userBusy = false;
+    },
+    async toggleUserActive(u) {
+      try { await this.json(`/api/admin/users/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !u.active }) }); this.toast(u.active ? "Akun dinonaktifkan" : "Akun diaktifkan lagi"); await this.loadUsers(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async resetUserPassword(u) {
+      const pw = prompt(`Password baru utk "${u.username}" (min. 8 karakter):`);
+      if (!pw) return;
+      if (pw.length < 8) { this.toast("Password minimal 8 karakter", true); return; }
+      try { await this.json(`/api/admin/users/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) }); this.toast("Password direset"); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    async deleteUser(u) {
+      if (!confirm(`Hapus akun "${u.username}" permanen?`)) return;
+      try { await this.api(`/api/admin/users/${u.id}`, { method: "DELETE" }); this.toast("Akun dihapus"); await this.loadUsers(); }
       catch (e) { this.toast(e.message, true); }
     },
     async download(path, filename) {

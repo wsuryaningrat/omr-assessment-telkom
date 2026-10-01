@@ -1,4 +1,5 @@
 """Login admin dengan akun Microsoft (OIDC authorization code + PKCE lewat MSAL). Sesi = cookie bertanda tangan."""
+import datetime as dt
 import hashlib
 import hmac
 import logging
@@ -35,9 +36,12 @@ def sso_enabled() -> bool:
 
 
 def _admin_accounts() -> dict:
-    """{username: password_hash} -- ADMIN_USER/ADMIN_PASSWORD_HASH (akun asli, kompatibel mundur) digabung
-    dgn ADMIN_ACCOUNTS (akun tambahan, lihat server/config.py). Tiap akun masuk dgn identitasnya SENDIRI
-    (bukan disamarkan jadi satu nama) supaya "divalidasi oleh" di admin bisa menunjukkan siapa sebenarnya."""
+    """{username: password_hash} -- ADMIN_USER/ADMIN_PASSWORD_HASH (akun asli, kompatibel mundur) +
+    ADMIN_ACCOUNTS (akun tambahan lewat env, lihat server/config.py) + akun AKTIF di tabel admin_user
+    (dikelola lewat tab Akun di admin, tanpa perlu redeploy -- lihat server/db.py AdminUser). Tiap akun
+    masuk dgn identitasnya SENDIRI (bukan disamarkan jadi satu nama) supaya "divalidasi oleh" di admin
+    bisa menunjukkan siapa sebenarnya. Akun di DB menang kalau usernamenya bentrok dgn punya env (DB
+    dianggap lebih baru/otoritatif krn bisa diubah admin kapan saja)."""
     out = {}
     if config.ADMIN_USER and config.ADMIN_PASSWORD_HASH:
         out[config.ADMIN_USER] = config.ADMIN_PASSWORD_HASH
@@ -49,6 +53,13 @@ def _admin_accounts() -> dict:
         user, h = user.strip(), h.strip()
         if user and h:
             out[user] = h
+    try:
+        from server.db import AdminUser, SessionLocal
+        with SessionLocal() as db:
+            for u in db.query(AdminUser).filter(AdminUser.active.is_(True)):
+                out[u.username] = u.password_hash
+    except Exception:  # noqa: BLE001 -- tabel blm ada (DB lama blm dimigrasi) tak boleh mematikan login sama sekali
+        pass
     return out
 
 
@@ -229,8 +240,24 @@ async def password_login(request: Request):
         raise HTTPException(401, "Username atau password salah")
     with _LOCK:
         _FAILS.pop(ip, None)
-    request.session["admin"] = {"email": user, "name": user, "iat": int(now), "via": "password"}
+    request.session["admin"] = {"email": user, "name": _touch_login(user) or user, "iat": int(now), "via": "password"}
     return {"ok": True}
+
+
+def _touch_login(username: str) -> str | None:
+    """Kalau `username` adalah akun dari tabel admin_user (bukan env), catat waktu masuk & kembalikan nama
+    tampilannya (kalau diisi). Dipanggil stlh password cocok -- jangan sampai gagal login krn ini."""
+    try:
+        from server.db import AdminUser, SessionLocal
+        with SessionLocal() as db:
+            u = db.query(AdminUser).filter(AdminUser.username == username).first()
+            if u is None:
+                return None
+            u.last_login_at = dt.datetime.now(dt.timezone.utc)
+            db.commit()
+            return u.name or None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 @router.post("/auth/logout")

@@ -12,7 +12,7 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
-from server import config, services, sheets
+from server import auth, config, services, sheets
 from server.db import ScanSession, Sheet, SessionLocal, TemplateCalib
 from server.main import app
 from tests.regression.fixtures import KUNCI
@@ -770,6 +770,57 @@ class TestServices(unittest.TestCase):
         r = self.c.post(f"/api/admin/sessions/{sid2}/sync-now", headers=ADM)
         self.assertEqual(r.status_code, 409)
         self.assertIn("429", r.json()["detail"])
+
+    # ---------------------------------------------------------------- akun admin (tab Akun)
+    def test_admin_user_crud_lifecycle(self):
+        r = self.c.post("/api/admin/users", json={"username": "tes_akun1", "password": "rahasia123", "name": "Tes Satu"}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        uid = r.json()["id"]
+        self.assertTrue(r.json()["active"])
+
+        rows = self.c.get("/api/admin/users", headers=ADM).json()
+        row = next(x for x in rows if x["id"] == uid)
+        self.assertEqual((row["username"], row["name"], row["created_by"]), ("tes_akun1", "Tes Satu", "ADMIN_TOKEN"))
+        self.assertNotIn("password_hash", row)   # password tak pernah ikut terkirim balik
+
+        r2 = self.c.patch(f"/api/admin/users/{uid}", json={"name": "Tes Diganti", "active": False}, headers=ADM)
+        self.assertEqual((r2.status_code, r2.json()["name"], r2.json()["active"]), (200, "Tes Diganti", False))
+
+        self.assertEqual(self.c.delete(f"/api/admin/users/{uid}", headers=ADM).status_code, 204)
+        self.assertNotIn(uid, [x["id"] for x in self.c.get("/api/admin/users", headers=ADM).json()])
+        self.assertEqual(self.c.patch(f"/api/admin/users/{uid}", json={"name": "x"}, headers=ADM).status_code, 404)
+
+    def test_admin_create_user_rejects_weak_password_duplicate_and_bad_username(self):
+        self.assertEqual(self.c.post("/api/admin/users", json={"username": "ab", "password": "rahasia123"}, headers=ADM).status_code, 422)
+        self.assertEqual(self.c.post("/api/admin/users", json={"username": "tes_akun2", "password": "pendek"}, headers=ADM).status_code, 422)
+        r = self.c.post("/api/admin/users", json={"username": "tes_akun3", "password": "rahasia123"}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.c.post("/api/admin/users", json={"username": "tes_akun3", "password": "lainnya123"}, headers=ADM).status_code, 409)
+        self.assertEqual(self.c.post("/api/admin/users", json={"username": "tes_akun3", "password": "rahasia123"}).status_code, 401)
+
+    def test_new_admin_user_can_log_in_and_is_recorded_as_validator(self):
+        # auth._FAILS (pembatas 5x percobaan/15mnt) kunci per-IP, tapi TestClient Starlette selalu melapor
+        # IP palsu yg SAMA ("testclient") -- jadi dipakai BERSAMA oleh tes lain di modul/berkas manapun dlm
+        # satu sesi pytest (mis. test_auth.py sengaja memicu lockout). Bersihkan dulu spy tes ini tak
+        # bergantung urutan jalannya tes lain.
+        auth._FAILS.clear()
+        self.c.post("/api/admin/users", json={"username": "tes_login1", "password": "rahasia123", "name": "Pak Login"}, headers=ADM)
+        r = self.c.post("/auth/password", json={"username": "tes_login1", "password": "rahasia123"})
+        self.assertEqual(r.status_code, 200, r.text)
+        me = self.c.get("/auth/me").json()
+        self.assertEqual((me["authed"], me["email"], me["name"]), (True, "tes_login1", "Pak Login"))
+
+        sid = self.submitted_session("ADMUSERVAL-01")
+        rv = self.c.post(f"/api/admin/sessions/{sid}/validate")   # pakai cookie sesi, bukan token
+        self.assertEqual(rv.status_code, 200, rv.text)
+        self.assertEqual(rv.json()["admin_validated_by"], "Pak Login")
+        self.c.post("/auth/logout")
+
+        # password salah -> ditolak; akun dinonaktifkan -> ikut ditolak
+        self.assertEqual(self.c.post("/auth/password", json={"username": "tes_login1", "password": "salah-banget"}).status_code, 401)
+        uid = next(x["id"] for x in self.c.get("/api/admin/users", headers=ADM).json() if x["username"] == "tes_login1")
+        self.c.patch(f"/api/admin/users/{uid}", json={"active": False}, headers=ADM)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "tes_login1", "password": "rahasia123"}).status_code, 401)
 
     def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):
         sid = self.submitted_session("ADMBULK-01", n=3)

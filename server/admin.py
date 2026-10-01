@@ -18,7 +18,7 @@ from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
 from scanner.service import CALIB_MAX_OFFSET, apply_field_calib, classify_scan_status, load_default_template
 from server import auth, config, plotting, services, sheets
-from server.db import Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
+from server.db import AdminUser, Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
 
 
 def get_db():
@@ -904,3 +904,78 @@ def calib_preview(token: str, field: str = "", dx: float = 0.0, dy: float = 0.0,
     if not ok:
         raise HTTPException(422, "Gagal membuat pratinjau")
     return Response(buf.tobytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+# ---------------------------------------------------------------- akun admin (tab Akun)
+def _user_view(u: AdminUser) -> dict:
+    return {"id": u.id, "username": u.username, "name": u.name, "active": u.active,
+            "created_at": u.created_at.isoformat() if u.created_at else None, "created_by": u.created_by,
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
+
+
+@router.get("/users")
+def admin_list_users(db=Depends(get_db)):
+    """Daftar akun admin yg dikelola lewat DB (tab Akun di menu admin) -- password tak pernah disertakan.
+    TAK termasuk ADMIN_USER/ADMIN_ACCOUNTS dari env (deploy/.env): itu akun bawaan/cadangan yg cuma bisa
+    diubah lewat redeploy, sengaja tak ditampilkan di sini krn admin tak bisa mengelolanya dari UI ini."""
+    return [_user_view(u) for u in db.scalars(select(AdminUser).order_by(AdminUser.created_at))]
+
+
+class _AdminUserIn(BaseModel):
+    username: str
+    password: str
+    name: str = ""
+
+
+@router.post("/users")
+def admin_create_user(body: _AdminUserIn, db=Depends(get_db), admin=Depends(auth.require_admin)):
+    """Buat akun admin baru -- aktif seketika, tanpa redeploy (beda dgn ADMIN_ACCOUNTS di env)."""
+    username = body.username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,100}", username):
+        raise HTTPException(422, "Username 3-100 karakter: huruf/angka/._- saja")
+    if len(body.password) < 8:
+        raise HTTPException(422, "Password minimal 8 karakter")
+    if username in auth._admin_accounts():
+        raise HTTPException(409, "Username sudah dipakai")
+    u = AdminUser(username=username, password_hash=auth.hash_password(body.password), name=body.name.strip(),
+                  created_by=admin.get("name") or admin.get("email") or "?")
+    db.add(u)
+    try:
+        db.commit()
+    except Exception:  # noqa: BLE001 -- race kecil kemungkinan (dua permintaan bareng, username sama)
+        db.rollback()
+        raise HTTPException(409, "Username sudah dipakai")
+    return _user_view(u)
+
+
+class _AdminUserPatchIn(BaseModel):
+    password: str | None = None
+    name: str | None = None
+    active: bool | None = None
+
+
+@router.patch("/users/{uid}")
+def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
+    """Reset password, ubah nama, dan/atau nonaktifkan (active=false) -- tanpa menghapus riwayat akunnya."""
+    u = db.get(AdminUser, uid)
+    if u is None:
+        raise HTTPException(404, "Akun tidak ditemukan")
+    if body.password is not None:
+        if len(body.password) < 8:
+            raise HTTPException(422, "Password minimal 8 karakter")
+        u.password_hash = auth.hash_password(body.password)
+    if body.name is not None:
+        u.name = body.name.strip()
+    if body.active is not None:
+        u.active = body.active
+    db.commit()
+    return _user_view(u)
+
+
+@router.delete("/users/{uid}", status_code=204)
+def admin_delete_user(uid: str, db=Depends(get_db)):
+    u = db.get(AdminUser, uid)
+    if u is None:
+        raise HTTPException(404, "Akun tidak ditemukan")
+    db.delete(u)
+    db.commit()
