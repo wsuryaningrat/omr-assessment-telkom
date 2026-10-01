@@ -20,9 +20,9 @@ const hpLocal = raw => { let d = String(raw || "").replace(/\D/g, ""); if (d.sta
 
 function ljk() {
   return {
-    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "", page: 0, pageSize: 10,
-    ready: false, sid: null, session: null, sel: null, filter: "all", q: "", online: true, dragging: false, busy: false,
-    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, pv: { url: "", loading: false }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
+    meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "",
+    ready: false, sid: null, session: null, online: true, dragging: false, busy: false,
+    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
 
     async init() {
@@ -63,12 +63,12 @@ function ljk() {
       if (!f.hari) return "Pilih hari ujian"; if (!f.kodeSoal) return "Pilih kode soal";
       return "Siap — pilih berkas LJK di atas";
     },
-    get step() { if (this.session?.submitted) return 3; if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
-    canGo(n) { return !this.session?.submitted && this.step !== n && (n === 1 ? !!this.sid : !!this.session?.summary.lembar); },
+    get step() { if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
+    canGo(n) { return this.step !== n && (n === 1 ? !!this.sid : !!this.session?.summary.lembar); },
     go(n) {
       if (!this.canGo(n)) return;
       if (n === 1) this.loadForm();
-      this.view = n; this.close(); scrollTo({ top: 0 });
+      this.view = n; scrollTo({ top: 0 });
     },
     loadForm() {
       const p = this.session?.pengawas; if (!p) return;
@@ -90,91 +90,12 @@ function ljk() {
         return true;
       } catch (e) { this.toast(e.message, true); return false; }
     },
-    // ---- status & aturan peringatan
-    npmDigits(s) { const t = (s.npm && s.npm !== "-") ? String(s.npm) : ""; return Array.from({ length: 10 }, (_, i) => t[i] || " "); },
-    npmCount(s) { return this.npmDigits(s).filter(c => /^\d$/.test(c)).length; },
-    npmText(s) { return this.npmCount(s) || (s.npm && s.npm !== "-") ? this.npmDigits(s).map(c => /^[\d?]$/.test(c) ? c : "·").join("") : "-"; },
-    npmBad(s) { return this.npmCount(s) !== 10; },
-    kodeBad(s) { return !/^\d{3}$/.test(String(s.kode_soal || "").trim()); },
-    fakText(s) { const v = this.abbr(s.fakultas_ljk); return v && v !== "-" ? v : "(kosong)"; },
-    fillBad(s) { return this.fillPct(s) < 25; },
-    terisiText(s) { return (s.terisi || "-").toString().replace(/\s+/g, ""); },
-    reasons(s) {
-      if (s.label === "Gagal") return ["Pojok LJK tidak terdeteksi — ganti dengan foto baru"];
-      const r = [];
-      if (this.npmBad(s)) r.push(`NPM terbaca ${this.npmCount(s)} dari 10 digit`);
-      if (this.kodeBad(s)) r.push(`Kode soal "${s.kode_soal || "-"}" bukan 3 digit`);
-      if (this.fillBad(s)) r.push(`Jawaban terisi rendah (${this.terisiText(s)}, di bawah 25%)`);
-      return r;
-    },
-    reasonsShort(s) {
-      if (s.label === "Gagal") return "Pojok LJK tidak terdeteksi";
-      const r = [];
-      if (this.npmBad(s)) r.push(`NPM ${this.npmCount(s)}/10`);
-      if (this.kodeBad(s)) r.push("Kode ≠ 3 digit");
-      if (this.fillBad(s)) r.push("Terisi rendah");
-      return r.join(" · ");
-    },
-    status(s) { return s.validated ? "validated" : (this.reasons(s).length ? "warning" : "pending"); },
-    statusText(s) { return { validated: "Validated", warning: "Warning", pending: "Checking" }[this.status(s)]; },
-    get cnt() {
-      const c = { total: 0, pending: 0, warning: 0, validated: 0 };
-      for (const s of this.session?.sheets || []) { c.total++; c[this.status(s)]++; }
-      return c;
-    },
-    setFilter(f) { this.filter = this.filter === f ? "all" : f; this.page = 0; },
+    // ---- dialog konfirmasi (dipakai confirmKelasNotDuplicate saat unggah -- lihat bawah)
     ask(o) { return new Promise(res => { this._dlgAt = Date.now(); this.dlg = { ok: "OK", cancel: "Batal", danger: false, ...o }; this._dlgRes = res; clientLog("dialog_open", { t: o.title }); }); },
     veil() { if (Date.now() - this._dlgAt > 500) this.answer(false); },
     answer(v) { const r = this._dlgRes; this.dlg = null; this._dlgRes = null; if (r) r(v); },
-    async confirmForce(list) {
-      const one = list.length === 1;
-      return this.ask({
-        title: one ? "Lembar ini memiliki peringatan" : `${list.length} lembar memiliki peringatan`,
-        body: "Disarankan periksa ulang lembar fisiknya atau ambil foto ulang sebelum divalidasi. Tetap validasi?",
-        list: one ? this.reasons(list[0]) : list.slice(0, 5).map(s => `No. ${this.numOf(s)} (${s.file}) — ${this.reasonsShort(s)}`).concat(list.length > 5 ? [`…dan ${list.length - 5} lainnya`] : []),
-        ok: "Tetap validasi", cancel: "Cek ulang", danger: true,
-      });
-    },
     get scanDone() { return this.session ? this.session.files.total - this.session.files.pending : 0; },
     get scanPct() { const t = this.session?.files.total || 0; return t ? this.scanDone / t * 100 : 0; },
-    abbr(v) { const t = String(v || "").trim(); const m = /\(([A-Za-z]{2,5})\)/.exec(t); return (m ? m[1] : t.split(" - ")[0]).toUpperCase(); },
-    fillPct(s) { const m = /(\d+)\s*\/\s*(\d+)/.exec(s.terisi || ""); return m && +m[2] ? Math.round(+m[1] / +m[2] * 100) : 0; },
-    // Nama mahasiswa sengaja tidak ditampilkan/dicari di sisi pengawas (tetap tersimpan di rekap admin).
-    get filtered() {
-      let l = this.session?.sheets || [];
-      if (this.filter !== "all") l = l.filter(s => this.status(s) === this.filter);
-      const q = this.q.toLowerCase();
-      return q ? l.filter(s => `${s.npm} ${s.file}`.toLowerCase().includes(q)) : l;
-    },
-    numOf(s) { return (this.session?.sheets || []).findIndex(x => x.id === s.id) + 1; },
-    get pageCount() { return Math.max(1, Math.ceil(this.filtered.length / this.pageSize)); },
-    get curPage() { return Math.min(Math.max(0, this.page), this.pageCount - 1); },
-    get paged() { const a = this.curPage * this.pageSize; return this.filtered.slice(a, a + this.pageSize); },
-    get rangeText() {
-      const n = this.filtered.length; if (!n) return "0 lembar";
-      const a = this.curPage * this.pageSize; return `Menampilkan ${a + 1}–${Math.min(a + this.pageSize, n)} dari ${n} lembar`;
-    },
-    get pageTodo() { return this.paged.filter(s => !s.validated && s.label !== "Gagal").length; },
-    get pageAllValid() { return this.paged.length > 0 && this.paged.every(s => s.validated || s.label === "Gagal") && this.paged.some(s => s.validated); },
-    toTable() { document.querySelector(".tools")?.scrollIntoView({ behavior: "smooth", block: "start" }); },
-    async validatePage() {
-      const want = !this.pageAllValid;
-      const ids = this.paged.filter(s => want ? (!s.validated && s.label !== "Gagal") : s.validated).map(s => s.id);
-      if (!ids.length) { this.toast("Tidak ada lembar yang perlu diubah"); return; }
-      if (want) {
-        const warn = this.paged.filter(s => ids.includes(s.id) && this.status(s) === "warning");
-        if (warn.length && !(await this.confirmForce(warn))) return;
-      }
-      ids.forEach(id => this.apply(id, want));                 // optimistis
-      try { await this.api("/api/sheets/validate-batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, value: want }) });
-            this.toast(want ? `${ids.length} lembar divalidasi` : `Validasi ${ids.length} lembar dibatalkan`); }
-      catch (e) { this.toast(e.message, true); await this.refresh(); }
-    },
-    get submittedAt() {
-      const t = this.session?.submitted_at; if (!t) return "-";
-      try { return new Date(t).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }); } catch { return t; }
-    },
-    rowCls(s) { return s.label === "OK" ? "ok" : s.label === "Gagal" ? "bad" : "warn"; },
 
     // ---- util
     toast(text, bad = false) {
@@ -207,8 +128,8 @@ function ljk() {
     forget() { try { localStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
-      clearInterval(this._poll); this._poll = null; this.forget(); this.sel = null; this.up = { done: 0, total: 0 };
-      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; this.filter = "all"; scrollTo({ top: 0 });
+      clearInterval(this._poll); this._poll = null; this.forget(); this.up = { done: 0, total: 0 };
+      this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; scrollTo({ top: 0 });
     },
 
     // ---- unggah
@@ -226,7 +147,6 @@ function ljk() {
       if (!files.length) return;
       this.pick(files).finally(() => { try { input.value = ""; } catch {} });
     },
-    onReplace(ev) { const input = ev.target, f = input.files && input.files[0]; if (f) this.replace(f).finally(() => { try { input.value = ""; } catch {} }); },
     // Foto sumber kini disimpan per Fakultas/Prodi/Kelas (dibagi antar sesi sekelas) -- cek dulu apakah
     // kombinasi ini sudah pernah diunggah sesi LAIN, supaya pengawas sadar sebelum menambah foto ke tempat
     // yang sama (tak ada apa pun yang dihapus/ditimpa di server -- ini murni pemberitahuan).
@@ -278,84 +198,6 @@ function ljk() {
       this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal.` : `${ok.length} berkas terunggah — sedang dipindai…`;
       clientLog("upload_done", { ok: ok.length - fail, fail });
       if (!fail) this.toast(`${ok.length} berkas diunggah`);
-    },
-
-    // ---- aksi
-    async toggle(s) {
-      const want = !s.validated, prev = s.validated;
-      if (want && this.status(s) === "warning" && !(await this.confirmForce([s]))) return;
-      this.apply(s.id, want);                                  // optimistis
-      try { await this.api(`/api/sheets/${s.id}/${want ? "validate" : "unvalidate"}`, { method: "POST" }); }
-      catch (e) { this.apply(s.id, prev); this.toast(e.message, true); }
-    },
-    apply(id, v) {
-      const s = this.session.sheets.find(x => x.id === id); if (!s || s.validated === v) return;
-      s.validated = v; s.label = v ? "OK" : "Perlu Validasi";
-      const m = this.session.summary; m.ok += v ? 1 : -1; m.perlu_validasi += v ? -1 : 1;
-    },
-    open(s) { this.sel = s; this.pv = { url: "", loading: false, err: "" }; this.edit = { field: null, val: "" }; document.body.style.overflow = "hidden"; },
-    close() { this.sel = null; this.edit = { field: null, val: "" }; document.body.style.overflow = ""; },
-    // ---- koreksi manual NPM / fakultas / kode soal (silang di LJK kadang sulit terbaca mesin: fotokopi, tinta samar)
-    startEdit(field) {
-      const s = this.sel; if (!s) return;
-      const cur = field === "npm" ? (s.npm || "") : field === "kode_soal" ? (s.kode_soal || "") : (this.abbr(s.fakultas_ljk) || "");
-      this.edit = { field, val: cur === "-" ? "" : cur };
-      this.$nextTick(() => document.getElementById("ed_" + field)?.focus());
-    },
-    cancelEdit() { this.edit = { field: null, val: "" }; },
-    get fakultasOptions() { return this.meta.fakultas || []; },
-    async saveEdit() {
-      const f = this.edit.field; if (!f || !this.sel) return;
-      const body = {}; body[f] = this.edit.val.trim();
-      this.busy = true;
-      try {
-        await this.api(`/api/sheets/${this.sel.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const id = this.sel.id;
-        await this.refresh();
-        this.sel = this.session.sheets.find(x => x.id === id) || null;
-        this.edit = { field: null, val: "" };
-        this.toast("Data diperbarui");
-      } catch (e) { this.toast(e.message, true); }
-      this.busy = false;
-    },
-    // ---- navigasi antar lembar di panel detail (mengikuti urutan & filter daftar yang sedang tampil)
-    get selIndex() { return this.sel ? this.filtered.findIndex(x => x.id === this.sel.id) : -1; },
-    get hasPrev() { return this.selIndex > 0; },
-    get hasNext() { const i = this.selIndex; return i >= 0 && i < this.filtered.length - 1; },
-    goSheet(target) {
-      if (!target) return;
-      const keepPreview = !!this.pv.url && target.label !== "Gagal";   // sedang cek satu-satu: pratinjau ikut terbuka
-      this.open(target);
-      if (keepPreview) this.showPreview();
-      this.$nextTick(() => document.querySelector(".sheet")?.scrollTo({ top: 0 }));
-    },
-    move(d) { this.goSheet(this.filtered[this.selIndex + d]); },
-    async validateAndNext() {
-      const cur = this.sel; if (!cur) return;
-      if (cur.validated) { await this.toggle(cur); this.close(); return; }          // "Batalkan validasi": perilaku lama
-      const next = this.filtered[this.selIndex + 1];   // ambil SEBELUM validasi: daftar bisa menyusut bila filter = belum divalidasi
-      await this.toggle(cur);
-      if (!cur.validated) return;                       // dibatalkan (konfirmasi peringatan) / gagal: tetap di lembar ini
-      next ? this.goSheet(next) : this.close();
-    },
-    showPreview() { this.pv = { url: `/api/sheets/${this.sel.id}/preview?t=${Date.now()}`, loading: true, err: "" }; },
-    pvError() {
-      if (!this.pv.url) return;                       // abaikan error dari <img> tanpa sumber
-      this.pv.loading = false; this.pv.err = "Preview tidak dapat dimuat. Coba tekan “Muat ulang preview”.";
-      clientLog("preview_fail", { id: this.sel?.id });
-    },
-    async remove(s) {
-      if (!(await this.ask({ title: `Hapus lembar No. ${this.numOf(s)}?`, body: `${s.file}. Gunakan ini bila foto terunggah dobel.`, ok: "Hapus", cancel: "Batal", danger: true }))) return;
-      try { await this.api(`/api/sheets/${s.id}`, { method: "DELETE" }); this.close(); await this.refresh(); this.toast("Lembar dihapus"); }
-      catch (e) { this.toast(e.message, true); }
-    },
-    async replace(file) {
-      if (!file) return;
-      const fd = new FormData(); fd.append("file", file, file.name);
-      this.toast("Memproses foto baru…");
-      try { await this.api(`/api/sheets/${this.sel.id}/replace`, { method: "POST", body: fd }); await this.refresh();
-            this.sel = this.session.sheets.find(x => x.id === this.sel.id) || null; this.pv = { url: "", loading: false, err: "" }; this.toast("Foto diganti & dipindai ulang"); }
-      catch (e) { this.toast(e.message, true); }
     },
   };
 }

@@ -30,7 +30,7 @@
   </div>
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/" role="menuitem">Beranda</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
+    <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu"><a href="/" role="menuitem">Beranda</a><a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/monitor" role="menuitem">Monitoring</a><a href="/admin" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>Administrator</a></div>
   </div>
   <button class="btn sm" x-show="sid" @click="resetAll()"><span class="hm">Evaluasi baru</span><span class="ms">Baru</span></button>
 </div></header>
@@ -39,8 +39,7 @@
 
   <nav class="steps" aria-label="Tahap">
     <div class="step" :class="[step===1?'on':(step>1?'done':''), canGo(1)?'click':'']" @click="go(1)"><span class="n" x-text="step>1?'✓':'1'"></span><div><b><span class="hm">1. </span>Data<span class="hm"> & Unggah</span></b><small x-text="session?.summary.lembar ? session.summary.lembar+' LJK terbaca' : 'Pengawas, kelas, foto'"></small></div></div>
-    <div class="step" :class="[step===2?'on':(step>2?'done':'todo'), canGo(2)?'click':'']" @click="go(2)"><span class="n" x-text="step>2?'✓':'2'"></span><div><b><span class="hm">2. </span>Ringkasan</b><small>Terima kasih &amp; pantau progres</small></div></div>
-    <div class="step" :class="step===3?'finish':'todo'"><span class="n" x-text="step===3?'✓':'3'"></span><div><b><span class="hm">3. </span>Selesai</b><small x-text="step===3?'Divalidasi admin':'Menunggu admin'"></small></div></div>
+    <div class="step" :class="[step===2?'on':'todo', canGo(2)?'click':'']" @click="go(2)"><span class="n">2</span><div><b><span class="hm">2. </span>Ringkasan &amp; Selesai</b><small>Terima kasih &amp; pantau progres</small></div></div>
   </nav>
 
   <!-- TAHAP 1 -->
@@ -183,8 +182,7 @@
       </div>
       <a class="btn p" style="margin-top:16px" href="/monitor" target="_blank" rel="noopener">Pantau progres di Halaman Monitoring →</a>
     </div>
-    <p class="mute" style="margin:0 0 10px;font-size:13px">Lihat masih ada foto yang salah/kurang jelas? Anda tetap bisa mengecek &amp; mengganti foto di daftar bawah ini kapan saja sebelum admin memvalidasi.</p>
-    <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-bottom:10px">
+    <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-top:10px">
       <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+(session?.files.total||0)"></span></div>
       <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
       <ul class="queue" x-show="(session?.files.queue||[]).length">
@@ -194,107 +192,7 @@
       </ul>
     </div>
 
-    <div class="stats">
-      <button class="stat" @click="filter='all'; page=0"><small>Total lembar</small><b x-text="cnt.total"></b></button>
-      <button class="stat st-warn" :class="{sel: filter==='warning'}" @click="setFilter('warning')"><small>Warning</small><b x-text="cnt.warning"></b></button>
-      <button class="stat st-ok" :class="{sel: filter==='validated'}" @click="setFilter('validated')"><small>Validated</small><b x-text="cnt.validated"></b></button>
-    </div>
-    <p class="legend"><span class="lg"><i class="dot check"></i><b>Checking</b><span class="d"> menunggu validasi</span></span><span class="lg"><i class="dot warning"></i><b>Warning</b><span class="d"> ada data janggal, cek ulang</span></span><span class="lg"><i class="dot validated"></i><b>Validated</b><span class="d"> sudah divalidasi pengawas</span></span></p>
-
-    <template x-for="f in (session?.files.failed||[])" :key="f.name+f.error"><div class="fail"><b x-text="f.name"></b>: <span x-text="f.error"></span></div></template>
-
-    <div class="card flush">
-      <div class="tools">
-        <div class="tt"><h2>Daftar Mahasiswa & Hasil Pindaian</h2></div>
-        <div class="f">
-          <input type="search" placeholder="Cari NPM / berkas…" x-model.trim="q" @input="page=0" aria-label="Cari">
-          <select x-model="filter" @change="page=0" aria-label="Filter status">
-            <option value="all">Semua status</option><option value="warning">Warning</option>
-            <option value="validated">Validated</option><option value="pending">Checking</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="pagebar top">
-        <span class="mute" x-text="rangeText"></span>
-        <button class="btn sm" @click="validatePage()" :disabled="!paged.length || busy" x-text="pageAllValid ? 'Batalkan validasi halaman ini' : '✓ Validasi '+pageTodo+' di halaman ini'"></button>
-      </div>
-
-      <!-- tabel desktop -->
-      <div class="tbl"><table>
-        <thead><tr><th class="c">No</th><th>Status</th><th>NPM</th><th>Fak.</th><th>Kode</th><th>Terisi</th><th style="text-align:right">Aksi</th></tr></thead>
-        <tbody>
-          <template x-for="s in paged" :key="s.id">
-            <tr @click="open(s)">
-              <td class="c mono" x-text="numOf(s)"></td>
-              <td><span class="chip" :class="status(s)" :title="reasons(s).join('\n')" x-text="statusText(s)"></span></td>
-              <td><div class="nm mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></div></td>
-              <td class="fak" x-text="fakText(s)"></td>
-              <td class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></td>
-              <td class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></td>
-              <td @click.stop><div class="acts">
-                <button class="ib" @click="open(s)" title="Detail" aria-label="Detail"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
-                <button class="ib" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" :title="s.validated?'Batalkan validasi':'Validasi'" aria-label="Validasi"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
-                <button class="ib d" @click="remove(s)" title="Hapus lembar" aria-label="Hapus"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>
-              </div></td>
-            </tr>
-          </template>
-        </tbody>
-      </table></div>
-
-      <!-- kartu mobile: ringkas -->
-      <div class="only-m">
-        <template x-for="s in paged" :key="s.id">
-          <div class="rc" :class="status(s)">
-            <span class="num" x-text="numOf(s)"></span>
-            <div class="main" @click="open(s)">
-              <div class="l1"><span class="nm mono" :class="{bad: npmBad(s)}" x-text="npmText(s)"></span><span class="chip xs" :class="status(s)" x-text="statusText(s)"></span></div>
-              <div class="l2"><span class="mono" :class="{bad: kodeBad(s)}" x-text="s.kode_soal||'-'"></span><span>·</span><span class="mono" :class="{bad: fillBad(s)}" x-text="terisiText(s)"></span><span>·</span><span class="fak" x-text="fakText(s)"></span></div>
-            </div>
-            <div class="side">
-              <button class="ib" :class="{on: s.validated}" :disabled="s.label==='Gagal'" @click="toggle(s)" aria-label="Validasi"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
-              <button class="ib d" @click="remove(s)" aria-label="Hapus"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>
-            </div>
-          </div>
-        </template>
-      </div>
-      <p class="empty" x-show="!filtered.length" x-text="session?.scanning?'Menunggu hasil pindai…':'Tidak ada lembar yang cocok.'"></p>
-
-      <div class="pagebar" x-show="filtered.length">
-        <label class="mute">Tampil
-          <select x-model.number="pageSize" @change="page=0" style="width:auto;height:32px;font-size:13px;padding-right:26px;margin-left:4px">
-            <option value="10">10</option><option value="20">20</option><option value="50">50</option>
-          </select> / halaman</label>
-        <span class="pgnav">
-          <button class="btn sm" @click="page=curPage-1; toTable()" :disabled="curPage<=0">←</button>
-          <span class="mute" x-text="(curPage+1)+' / '+pageCount"></span>
-          <button class="btn sm" @click="page=curPage+1; toTable()" :disabled="curPage>=pageCount-1">→</button>
-        </span>
-      </div>
-    </div>
-  </section>
-
-  <!-- TAHAP 3 -->
-  <section x-show="step===3">
-    <div class="card thanks">
-      <div class="ok-ic">✓</div>
-      <h2>Terima kasih, <span x-text="session?.pengawas?.nama"></span>!</h2>
-      <p class="sub">Terima kasih telah mengawasi pelaksanaan ujian. Seluruh lembar jawaban sudah divalidasi admin &amp; tersimpan ke rekap.</p>
-      <div class="sumgrid">
-        <div class="sumbox"><small>Foto / lembar diperiksa</small><b x-text="session?.summary.lembar"></b></div>
-        <div class="sumbox"><small>Tervalidasi</small><b x-text="session?.summary.ok"></b></div>
-        <div class="sumbox"><small>Waktu validasi admin</small><b class="t" x-text="submittedAt"></b></div>
-      </div>
-      <dl class="who sumwho">
-        <dt>Nama pengawas</dt><dd x-text="session?.pengawas?.nama"></dd>
-        <dt>Nama kelas</dt><dd x-text="session?.pengawas?.kelas || '-'"></dd>
-        <dt>Program studi</dt><dd x-text="session?.pengawas?.prodi"></dd>
-      </dl>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;justify-content:center">
-        <a class="btn" href="/monitor" target="_blank" rel="noopener">Halaman Monitoring</a>
-        <button class="btn p" @click="resetAll()">Evaluasi baru</button>
-      </div>
-    </div>
+    <template x-for="f in (session?.files.failed||[])" :key="f.name+f.error"><div class="fail" style="margin-top:10px"><b x-text="f.name"></b>: <span x-text="f.error"></span></div></template>
   </section>
   <footer class="devby">developed by WHS MathCenter CSWDA Telkom University</footer>
 </main>
@@ -308,77 +206,6 @@
   <span class="sum"><b x-text="session?.summary.lembar||0"></b> lembar terunggah — diproses admin</span>
   <a class="btn g" href="/monitor" target="_blank" rel="noopener" style="text-decoration:none">Ke Halaman Monitoring →</a>
 </div></div>
-
-<!-- detail lembar -->
-<template x-if="sel">
-  <div>
-    <div class="veil" @click="close()"></div>
-    <div class="sheet" role="dialog" aria-modal="true" @keydown.window.arrow-right="!dlg && move(1)" @keydown.window.arrow-left="!dlg && move(-1)">
-      <div class="grab"></div>
-      <h3><span class="mono mute" x-text="'#'+numOf(sel)"></span> <span class="mono" x-text="sel.file"></span>
-        <span class="mute mono" style="font-size:12px;font-weight:400;float:right" x-show="selIndex>=0" x-text="(selIndex+1)+' / '+filtered.length" aria-label="Posisi lembar pada daftar"></span></h3>
-      <span class="chip" :class="status(sel)" x-text="statusText(sel)"></span>
-      <div class="warnbox" x-show="status(sel)==='warning'">
-        <b>Perlu dicek ulang</b>
-        <ul><template x-for="r in reasons(sel)" :key="r"><li x-text="r"></li></template></ul>
-      </div>
-      <dl class="kv">
-        <dt>NPM</dt>
-        <dd x-show="edit.field!=='npm'" class="mono edd" :class="{bad: npmBad(sel)}">
-          <span x-text="npmText(sel)"></span>
-          <button class="ed" @click="startEdit('npm')" title="Koreksi NPM" aria-label="Koreksi NPM">✎</button>
-        </dd>
-        <dd x-show="edit.field==='npm'" class="edrow">
-          <input id="ed_npm" class="mono" x-model="edit.val" inputmode="numeric" maxlength="10" placeholder="10 digit NPM" @keydown.enter="saveEdit()" @keydown.escape="cancelEdit()">
-          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
-          <button class="btn xs" @click="cancelEdit()">Batal</button>
-        </dd>
-
-        <dt>Fakultas (LJK)</dt>
-        <dd x-show="edit.field!=='fakultas_ljk'" class="edd">
-          <span class="fak" x-text="fakText(sel)"></span>
-          <button class="ed" @click="startEdit('fakultas_ljk')" title="Koreksi fakultas" aria-label="Koreksi fakultas">✎</button>
-        </dd>
-        <dd x-show="edit.field==='fakultas_ljk'" class="edrow">
-          <select id="ed_fakultas_ljk" x-model="edit.val" @keydown.escape="cancelEdit()">
-            <option value="">(kosong)</option>
-            <template x-for="f in fakultasOptions" :key="f"><option :value="f" x-text="f"></option></template>
-          </select>
-          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
-          <button class="btn xs" @click="cancelEdit()">Batal</button>
-        </dd>
-
-        <dt>Kode soal</dt>
-        <dd x-show="edit.field!=='kode_soal'" class="mono edd" :class="{bad: kodeBad(sel)}">
-          <span x-text="sel.kode_soal||'-'"></span>
-          <button class="ed" @click="startEdit('kode_soal')" title="Koreksi kode soal" aria-label="Koreksi kode soal">✎</button>
-        </dd>
-        <dd x-show="edit.field==='kode_soal'" class="edrow">
-          <input id="ed_kode_soal" class="mono" x-model="edit.val" inputmode="numeric" maxlength="3" placeholder="3 digit" @keydown.enter="saveEdit()" @keydown.escape="cancelEdit()">
-          <button class="btn xs p" @click="saveEdit()" :disabled="busy">Simpan</button>
-          <button class="btn xs" @click="cancelEdit()">Batal</button>
-        </dd>
-
-        <dt>Jawaban terisi</dt><dd class="mono" :class="{bad: fillBad(sel)}" x-text="terisiText(sel)"></dd>
-      </dl>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn sm" @click="showPreview()" :disabled="sel.label==='Gagal'||pv.loading" x-text="pv.url?'Muat ulang preview':'Tampilkan preview'"></button>
-        <span class="btn sm rel">Ganti foto<input type="file" class="ovl" accept="image/*,.pdf,.heic,.heif" aria-label="Ganti foto" @change="onReplace($event)"></span>
-        <button class="btn sm d" @click="remove(sel)">Hapus</button>
-      </div>
-      <div class="skel" x-show="pv.loading"></div>
-      <p class="mute" x-show="pv.err" style="margin:8px 0 0" x-text="pv.err"></p>
-      <template x-if="pv.url"><img class="pv" x-show="!pv.loading" :src="pv.url" @load="pv.loading=false" @error="pvError()" alt="Preview hasil scan"></template>
-      <p x-show="pv.url && !pv.loading && !pv.err" style="font-size:12px;color:var(--ink2);margin:6px 0 0">Hijau = jawaban terbaca · merah = terisi ganda</p>
-      <div class="sticky-act">
-        <button class="btn" @click="move(-1)" :disabled="!hasPrev" aria-label="Lembar sebelumnya" title="Sebelumnya (←)">‹</button>
-        <button class="btn" style="flex:1" @click="close()">Tutup</button>
-        <button class="btn" @click="move(1)" :disabled="!hasNext" aria-label="Lembar berikutnya" title="Berikutnya (→)">›</button>
-        <button class="btn p" style="flex:1.6" :disabled="sel.label==='Gagal'" @click="validateAndNext()" x-text="sel.validated ? 'Batalkan validasi' : (hasNext ? 'Validasi & berikutnya' : 'Validasi lembar ini')"></button>
-      </div>
-    </div>
-  </div>
-</template>
 
 <!-- dialog konfirmasi -->
 <template x-if="dlg">

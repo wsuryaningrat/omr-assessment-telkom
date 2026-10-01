@@ -88,16 +88,18 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(srv._pending.value, 0)
 
     def test_pengawas_dropdown_and_registered_phone(self):
-        import tempfile
-        from server import refdata
-        f = tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False, encoding="utf-8")
-        f.write("Nama Pengawas\tNIM\tNo HP\nBudi Z\t1001\t6281111111111\nAni A\t1002\t82222222222\nDra. Dosen\t\t\nCici Tanpa HP\t1003\t621220867079\n")
-        f.close()
-        old = refdata.PENGAWAS_FILE
-        refdata.PENGAWAS_FILE = f.name
-        refdata.pengawas.cache_clear()
+        from server.db import Pengawas, SessionLocal
+        ids = ["tes_pw_budiz", "tes_pw_ania", "tes_pw_dosen", "tes_pw_cici"]
+        with SessionLocal() as db:
+            db.add_all([
+                Pengawas(id=ids[0], nama="Budi Z", nim="1001", hp="6281111111111"),
+                Pengawas(id=ids[1], nama="Ani A", nim="1002", hp="82222222222"),
+                Pengawas(id=ids[2], nama="Dra. Dosen", nim="", hp=""),
+                Pengawas(id=ids[3], nama="Cici Tanpa HP", nim="1003", hp="621220867079"),
+            ])
+            db.commit()
         try:
-            p = self.c.get("/api/meta").json()["pengawas"]
+            p = [x for x in self.c.get("/api/meta").json()["pengawas"] if x["id"] in ids]   # abaikan baris pengawas lain yg mungkin ada
             self.assertEqual([x["nama"] for x in p], ["Ani A", "Budi Z", "Cici Tanpa HP", "Dra. Dosen"])
             # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar tetap wajib mengisi sendiri
             self.assertTrue(p[3]["dosen"] and not p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
@@ -121,9 +123,9 @@ class TestAPI(unittest.TestCase):
             self.assertEqual(r.status_code, 201)
             self.assertEqual(self.c.post("/api/sessions", json={**base, "pengawas_ref": "zzz"}).status_code, 422)
         finally:
-            refdata.PENGAWAS_FILE = old
-            refdata.pengawas.cache_clear()
-            os.unlink(f.name)
+            with SessionLocal() as db:
+                db.query(Pengawas).filter(Pengawas.id.in_(ids)).delete(synchronize_session=False)
+                db.commit()
 
     def test_ui_is_served(self):
         r = self.c.get("/")

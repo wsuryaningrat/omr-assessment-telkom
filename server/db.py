@@ -131,6 +131,27 @@ class AdminUser(Base):
     last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Pengawas(Base):
+    """Daftar pengawas yg muncul di dropdown "Nama Pengawas" halaman pengawas (/ljk) -- GANTI dari berkas
+    pengawas.tsv (Docker secret /run/secrets/pengawas.tsv, perlu redeploy utk ubah -- lihat server/refdata.py
+    versi lama) ke tabel DB biasa, supaya admin bisa tambah/ubah langsung lewat psql TANPA redeploy &
+    langsung kebaca di FE (refdata.pengawas() query tabel ini tiap panggil, TANPA cache proses).
+    nim KOSONG berarti dosen (bukan mahasiswa) -- lihat refdata.pengawas(). hp kosong & BUKAN dosen ->
+    pengawas WAJIB isi no HP sendiri saat pilih namanya di FE (lihat needs_hp di server/main.py /api/meta
+    & showHp di server/static/app.js) -- jadi admin tak perlu isi hp di sini kalau belum tahu.
+
+    Tambah lewat psql, mis.:
+        INSERT INTO pengawas (id, nama, nim, hp) VALUES (gen_random_uuid()::text, 'Nama Pengawas', '', '');
+    (nim diisi NIM mahasiswa, atau dikosongkan kalau dosen; hp diisi format +62xxxxxxxxxx atau dikosongkan)
+    """
+    __tablename__ = "pengawas"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_id)
+    nama: Mapped[str] = mapped_column(String(200))
+    nim: Mapped[str] = mapped_column(String(30), default="")
+    hp: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class AdminAccessLog(Base):
     """Riwayat tiap kali SESEORANG mencoba masuk admin -- lintas SEMUA jalur login (Google, Microsoft,
     username+password). Beda dgn AdminUser.last_login_at (cuma simpan yg PALING BARU, & cuma utk akun
@@ -151,6 +172,7 @@ def init_db():
     Base.metadata.create_all(engine)
     _migrate()
     _seed_env_admin_accounts()
+    _seed_pengawas_from_tsv()
 
 
 def _migrate():
@@ -221,4 +243,53 @@ def _seed_env_admin_accounts():
             if added:
                 db.commit()
     except Exception:  # noqa: BLE001 -- jangan sampai startup server gagal total krn migrasi kenyamanan ini
+        pass
+
+
+def _seed_pengawas_from_tsv():
+    """Migrasi SEKALI jalan: salin isi berkas pengawas.tsv lama (PENGAWAS_FILE / data/pengawas.tsv --
+    lihat server/refdata.py versi sebelum tabel `pengawas` ada) ke tabel pengawas, supaya data yg sudah
+    terdaftar tak hilang saat pindah dari berkas ke DB. id baris yg dimigrasi SENGAJA pakai skema id lama
+    (hash nama+nim, bukan uuid acak spt baris baru) supaya idempoten: dipanggil ulang tiap startup tak
+    pernah menggandakan baris yg sama. Berkas sumbernya boleh dihapus kapan saja setelah ini sukses
+    sekali -- refdata.pengawas() sudah TAK PERNAH membaca berkas itu lagi, murni dari tabel ini."""
+    import hashlib
+    import os
+    import re
+    path = os.environ.get("PENGAWAS_FILE", "/run/secrets/pengawas.tsv")
+    fallback = os.path.join(os.path.dirname(__file__), "..", "data", "pengawas.tsv")
+    path = path if os.path.exists(path) else fallback
+    if not os.path.exists(path):
+        return
+
+    def norm_hp(raw):
+        d = re.sub(r"\D", "", raw or "")
+        if d.startswith("62"):
+            d = d[2:]
+        d = d.lstrip("0")
+        return "+62" + d if re.fullmatch(r"8\d{8,11}", d) else ""
+
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            lines = [ln.rstrip("\r\n") for ln in f if ln.strip()]
+        rows = [ln.split("\t") for ln in lines[1:]]
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        with SessionLocal() as db:
+            existing = {p for (p,) in db.query(Pengawas.id)}
+            added = False
+            for r in rows:
+                r += [""] * (3 - len(r))
+                nama, nim, hp = r[0].strip(), r[1].strip(), r[2].strip()
+                if not nama:
+                    continue
+                pid = hashlib.sha1((nama + nim).encode()).hexdigest()[:10]
+                if pid not in existing:
+                    db.add(Pengawas(id=pid, nama=nama, nim=nim, hp=norm_hp(hp)))
+                    existing.add(pid)
+                    added = True
+            if added:
+                db.commit()
+    except Exception:  # noqa: BLE001
         pass

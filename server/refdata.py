@@ -1,13 +1,11 @@
-"""Data rujukan: daftar kelas->prodi (berkas repo) dan daftar pengawas (berkas rahasia, tidak masuk git)."""
-import hashlib
+"""Data rujukan: daftar kelas->prodi (berkas repo) dan daftar pengawas (tabel DB `pengawas`, lihat
+server/db.py Pengawas -- bisa ditambah admin langsung lewat psql, tanpa redeploy)."""
 import os
 import re
 from functools import lru_cache
 
 _DIR = os.path.dirname(__file__)
 KELAS_FILE = os.environ.get("KELAS_FILE", os.path.join(_DIR, "ref", "kelas.tsv"))
-PENGAWAS_FILE = os.environ.get("PENGAWAS_FILE", "/run/secrets/pengawas.tsv")
-_FALLBACK = os.path.join(_DIR, "..", "data", "pengawas.tsv")
 
 
 def _rows(path):
@@ -38,20 +36,20 @@ def prodi_list():
     return sorted({k["prodi"] for k in kelas()}, key=str.lower)
 
 
-@lru_cache(maxsize=1)
 def pengawas():
-    """Pengawas mahasiswa (terurut abjad) lalu dosen di paling bawah. HP kosong/tidak valid = pengawas mengisi sendiri."""
-    path = PENGAWAS_FILE if os.path.exists(PENGAWAS_FILE) else _FALLBACK
-    if not os.path.exists(path):
+    """Pengawas mahasiswa (terurut abjad) lalu dosen di paling bawah, dari tabel DB `pengawas` (server/db.py
+    Pengawas) -- TANPA cache proses (beda dgn kelas() di atas yg berkas statis), supaya baris yg ditambah
+    admin lewat psql langsung muncul di FE tanpa perlu restart server. nim kosong = dosen. HP kosong/tidak
+    valid = pengawas mengisi sendiri (lihat needs_hp di server/main.py /api/meta)."""
+    from server.db import Pengawas, SessionLocal
+    try:
+        with SessionLocal() as db:
+            rows = list(db.query(Pengawas).order_by(Pengawas.nama))
+    except Exception:  # noqa: BLE001 -- tabel blm ada (DB lama blm dimigrasi) tak boleh mematikan /api/meta
         return []
     mhs, dsn = [], []
-    for r in _rows(path):
-        r += [""] * (3 - len(r))
-        nama, nim, hp = r[0].strip(), r[1].strip(), r[2].strip()
-        if not nama:
-            continue
-        item = {"id": hashlib.sha1((nama + nim).encode()).hexdigest()[:10], "nama": nama, "nim": nim,
-                "hp": norm_hp(hp) or "", "dosen": not nim}
+    for p in rows:
+        item = {"id": p.id, "nama": p.nama, "nim": p.nim, "hp": norm_hp(p.hp) or "", "dosen": not p.nim}
         (dsn if item["dosen"] else mhs).append(item)
     key = lambda x: x["nama"].lower()  # noqa: E731
     return sorted(mhs, key=key) + sorted(dsn, key=key)

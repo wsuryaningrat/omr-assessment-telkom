@@ -12,7 +12,7 @@ import cv2
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile as FUploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import Integer, func, select
+from sqlalchemy import func, select
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
@@ -57,14 +57,18 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
     cond = []
     if config.MONITOR_SINCE:
         cond.append(ScanSession.created_at >= dt.datetime.fromisoformat(config.MONITOR_SINCE.replace("Z", "+00:00")))
+    # "lembar" di sini = jumlah FOTO yg berhasil diupload (UploadFile), BUKAN jumlah lembar hasil scan
+    # (Sheet) -- supaya progres kelihatan naik begitu pengawas selesai unggah, tanpa perlu nunggu seluruh
+    # antrean pemindaian beres (1 foto = 1 UploadFile, tapi bisa jadi >1 Sheet kalau PDF multi-halaman,
+    # atau 0 Sheet kalau masih diproses/gagal -- jadi dua angka ini memang bisa beda).
     q = (select(ScanSession.id, ScanSession.kelas, ScanSession.submitted, ScanSession.admin_validated, ScanSession.submitted_at, ScanSession.created_at,
-                ScanSession.nama_pengawas, func.count(Sheet.id), func.coalesce(func.sum(func.cast(Sheet.validated, Integer)), 0))
-         .outerjoin(Sheet, Sheet.session_id == ScanSession.id).where(*cond).group_by(ScanSession.id))
+                ScanSession.nama_pengawas, func.count(UploadFile.id))
+         .outerjoin(UploadFile, UploadFile.session_id == ScanSession.id).where(*cond).group_by(ScanSession.id))
     by_kelas = {}
-    for sid, kelas, sub, adm_val, sub_at, cr_at, nama, n_sheet, n_val in db.execute(q):
+    for sid, kelas, sub, adm_val, sub_at, cr_at, nama, n_files in db.execute(q):
         by_kelas.setdefault((kelas or "").strip().lower(), []).append(
             {"id": sid, "kelas": kelas, "submitted": bool(sub), "admin_validated": bool(adm_val), "submitted_at": sub_at, "created_at": cr_at,
-             "pengawas": nama, "lembar": int(n_sheet or 0), "validated": int(n_val or 0)})
+             "pengawas": nama, "lembar": int(n_files or 0)})
 
     days, seen = {}, set()
     for r in slots_src:
@@ -83,8 +87,13 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
             status, lembar, at, oleh = "berjalan", sum(x["lembar"] for x in openx), None, openx[-1]["pengawas"]
         else:
             status, lembar, at, oleh = "belum", 0, None, ""
+        # Jam upload terakhir (kapan sesi utk kelas ini mulai diunggah) -- dipakai FE sbg ganti kolom nama
+        # pengawas di tabel Monitoring (upload_file tak punya kolom waktu per-berkas, jadi dipakai created_at
+        # sesi yg paling baru sbg perkiraan terdekat).
+        upload_at = max((x["created_at"] for x in ss), default=None)
         d = days.setdefault(r["hari"], {"hari": r["hari"], "slots": []})
         d["slots"].append({**r, "status": status, "lembar": lembar, "submitted_at": at.isoformat() if at else None,
+                           "upload_at": upload_at.isoformat() if upload_at else None,
                            "oleh": oleh, "beda_pengawas": bool(oleh) and oleh.strip().lower() != r["pengawas"].strip().lower()})
 
     out_days = []

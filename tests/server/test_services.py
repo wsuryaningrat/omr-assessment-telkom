@@ -896,6 +896,45 @@ class TestServices(unittest.TestCase):
                 sdb.query(AdminUser).filter(AdminUser.username.in_(["tes_seed_env", "tes_seed_env2"])).delete(synchronize_session=False)
                 sdb.commit()
 
+    def test_seed_pengawas_from_tsv_is_idempotent_and_derives_dosen_from_empty_nim(self):
+        """db._seed_pengawas_from_tsv() -- migrasi SEKALI jalan dari berkas pengawas.tsv lama ke tabel
+        pengawas (server/db.py Pengawas), supaya admin selanjutnya tambah/ubah pengawas lewat psql, bukan
+        edit berkas + redeploy. id baris migrasi pakai hash nama+nim (skema id lama) spy idempoten."""
+        import hashlib
+        import tempfile
+        f = tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False, encoding="utf-8")
+        f.write("Nama Pengawas\tNIM\tNo HP\nTes Seed Mhs\t900001\t6281111111111\nTes Seed Dosen\t\t\n")
+        f.close()
+        old = os.environ.get("PENGAWAS_FILE")
+        os.environ["PENGAWAS_FILE"] = f.name
+        pid_mhs = hashlib.sha1(b"Tes Seed Mhs900001").hexdigest()[:10]
+        pid_dosen = hashlib.sha1(b"Tes Seed Dosen").hexdigest()[:10]
+        try:
+            dbmod._seed_pengawas_from_tsv()
+            with SessionLocal() as sdb:
+                mhs = sdb.get(dbmod.Pengawas, pid_mhs)
+                dosen = sdb.get(dbmod.Pengawas, pid_dosen)
+            self.assertEqual((mhs.nama, mhs.hp), ("Tes Seed Mhs", "+6281111111111"))
+            self.assertEqual((dosen.nama, dosen.nim), ("Tes Seed Dosen", ""))
+            # jalan lagi (spt tiap startup) -- TAK boleh menggandakan atau menimpa baris yg sudah diedit admin
+            with SessionLocal() as sdb:
+                row = sdb.get(dbmod.Pengawas, pid_mhs)
+                row.hp = "sudah-diubah-admin-lewat-psql"
+                sdb.commit()
+            dbmod._seed_pengawas_from_tsv()
+            with SessionLocal() as sdb:
+                self.assertEqual(sdb.query(dbmod.Pengawas).filter_by(id=pid_mhs).count(), 1)
+                self.assertEqual(sdb.get(dbmod.Pengawas, pid_mhs).hp, "sudah-diubah-admin-lewat-psql")
+        finally:
+            if old is None:
+                os.environ.pop("PENGAWAS_FILE", None)
+            else:
+                os.environ["PENGAWAS_FILE"] = old
+            os.unlink(f.name)
+            with SessionLocal() as sdb:
+                sdb.query(dbmod.Pengawas).filter(dbmod.Pengawas.id.in_([pid_mhs, pid_dosen])).delete(synchronize_session=False)
+                sdb.commit()
+
     def test_admin_create_user_rejects_weak_password_duplicate_and_bad_username(self):
         self.assertEqual(self.c.post("/api/admin/users", json={"username": "ab", "password": "rahasia123"}, headers=ADM).status_code, 422)
         self.assertEqual(self.c.post("/api/admin/users", json={"username": "tes_akun2", "password": "pendek"}, headers=ADM).status_code, 422)
