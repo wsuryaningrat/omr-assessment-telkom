@@ -604,6 +604,23 @@ class TestServices(unittest.TestCase):
         self.assertEqual(r.status_code, 204, r.text)
         self.assertEqual(self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"], [])
 
+    def test_admin_delete_selected_sheets_removes_only_checked_ones(self):
+        sid = self.submitted_session("ADMDELSEL-01", n=3)
+        self.submit(sid)
+        items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(items), 3)
+        keep_id = items[0]["id"]
+        delete_ids = [items[1]["id"], items[2]["id"]]
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/delete-selected", json={"sheet_ids": delete_ids}).status_code, 401)
+        r = self.c.post(f"/api/admin/sessions/{sid}/delete-selected", headers=ADM, json={"sheet_ids": delete_ids})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["dihapus"], 2)
+        remaining = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual([x["id"] for x in remaining], [keep_id])
+        # id tak dikenal diabaikan dgn tenang (bukan 404) -- batch, sebagian bisa saja sudah lenyap
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/delete-selected", headers=ADM, json={"sheet_ids": ["tidak-ada"]})
+        self.assertEqual((r2.status_code, r2.json()["dihapus"]), (200, 0))
+
     def test_upload_path_organized_by_fakultas_prodi_kelas(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ORGTEST-01"}).json()["id"]
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])

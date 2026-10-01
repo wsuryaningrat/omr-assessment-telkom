@@ -568,6 +568,28 @@ def admin_delete_sheet(shid: str, db=Depends(get_db)):
     _main._clear_scan_cache(shid)
 
 
+class _DeleteSelectedIn(BaseModel):
+    sheet_ids: list[str]
+
+
+@router.post("/sessions/{sid}/delete-selected")
+def admin_delete_selected_sheets(sid: str, body: _DeleteSelectedIn, db=Depends(get_db)):
+    """Hapus SEKALIGUS lembar2 yg dicentang admin di popup Detail lembar (checkbox per baris, sama dgn yg
+    dipakai "Pindai ulang terpilih" -- lihat admin_rescan_selected) -- mis. beberapa lembar salah
+    foto/duplikat/bukan LJK ketemu sekaligus. Sama spt DELETE /sheets/{shid} (admin-only, tak terhalang
+    sesi tersubmit) tapi utk banyak lembar dlm SATU permintaan."""
+    from server import main as _main
+    s = _admin_session_or_404(db, sid)
+    ids = set(body.sheet_ids)
+    to_delete = [sh for sh in s.sheets if sh.id in ids]
+    for sh in to_delete:
+        db.delete(sh)
+    db.commit()
+    for shid in ids:
+        _main._clear_scan_cache(shid)
+    return {"ok": True, "dihapus": len(to_delete)}
+
+
 @router.post("/sessions/{sid}/validate")
 def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), admin=Depends(auth.require_admin)):
     """Tandai (atau batalkan tanda) sesi sudah divalidasi admin. Sejak pemindaian dipindah ke latar belakang

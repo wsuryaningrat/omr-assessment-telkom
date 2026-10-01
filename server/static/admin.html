@@ -316,6 +316,7 @@
           <button class="btn sm p" @click="applyBulkEdit()" :disabled="(!detail.bulkKode && !detail.bulkFakultas) || detail.bulkBusy">Terapkan</button>
           <span style="flex:1 0 0"></span>
           <button class="btn sm d" x-show="detail?.checkedIds.length>0" @click="rescanSelectedSheets(detail)">Pindai ulang terpilih (<span x-text="detail?.checkedIds.length"></span>)</button>
+          <button class="btn sm d" x-show="detail?.checkedIds.length>0" @click="deleteSelectedSheets(detail)">Hapus terpilih (<span x-text="detail?.checkedIds.length"></span>)</button>
           <button class="btn sm d" @click="rescanAllSheets(detail)">Pindai ulang semua foto</button>
         </div>
 

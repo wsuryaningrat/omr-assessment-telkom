@@ -36,11 +36,26 @@ def prodi_list():
     return sorted({k["prodi"] for k in kelas()}, key=str.lower)
 
 
+# Gelar akademik umum yg menandakan nama ybs DOSEN -- dipakai HANYA saat nim kosong (lihat pengawas()
+# di bawah). Ditemukan 2 Okt 2026: banyak baris pengawas MAHASISWA peninggalan migrasi pengawas.tsv lama
+# (sebelum kolom nim ada) & hasil "Lainnya -- isi sendiri" (lihat main.py _sync_pengawas_contact, yg
+# selalu nim="") ikut bernim kosong -- nim-kosong SENDIRIAN tak cukup jadi penanda dosen, jadi dicek jg
+# apakah namanya memuat gelar (mis. "Dr. ..." atau "..., S.Si., M.Stat."), krn SEMUA baris dosen asli di
+# data saat ini memuat gelar spt itu sedangkan baris mahasiswa tidak pernah.
+_DOSEN_TITLE_RE = re.compile(r"(^|\s)(Dr|Prof|Ir|Drs|Dra)\.(\s|$)|,\s*[A-Za-z]+\.")
+
+
+def _looks_like_dosen(nama: str) -> bool:
+    return bool(_DOSEN_TITLE_RE.search(nama or ""))
+
+
 def pengawas():
     """Pengawas mahasiswa (terurut abjad) lalu dosen di paling bawah, dari tabel DB `pengawas` (server/db.py
     Pengawas) -- TANPA cache proses (beda dgn kelas() di atas yg berkas statis), supaya baris yg ditambah
-    admin lewat psql langsung muncul di FE tanpa perlu restart server. nim kosong = dosen. HP kosong/tidak
-    valid = pengawas mengisi sendiri (lihat needs_hp di server/main.py /api/meta)."""
+    admin lewat psql langsung muncul di FE tanpa perlu restart server. Dosen = nim kosong DAN namanya
+    memuat gelar akademik (lihat _looks_like_dosen) -- nim kosong tanpa gelar dianggap mahasiswa (lihat
+    catatan di _DOSEN_TITLE_RE). HP kosong/tidak valid = pengawas mengisi sendiri (lihat needs_hp di
+    server/main.py /api/meta) -- TERMASUK mahasiswa yg nim-nya kebetulan belum tercatat di tabel ini."""
     from server.db import Pengawas, SessionLocal
     try:
         with SessionLocal() as db:
@@ -49,7 +64,8 @@ def pengawas():
         return []
     mhs, dsn = [], []
     for p in rows:
-        item = {"id": p.id, "nama": p.nama, "nim": p.nim, "hp": norm_hp(p.hp) or "", "dosen": not p.nim}
+        is_dosen = not p.nim and _looks_like_dosen(p.nama)
+        item = {"id": p.id, "nama": p.nama, "nim": p.nim, "hp": norm_hp(p.hp) or "", "dosen": is_dosen}
         (dsn if item["dosen"] else mhs).append(item)
     key = lambda x: x["nama"].lower()  # noqa: E731
     return sorted(mhs, key=key) + sorted(dsn, key=key)

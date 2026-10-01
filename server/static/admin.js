@@ -220,6 +220,19 @@ function admin() {
         await this.openDetail(d);
       } catch (e) { this.toast(e.message, true); }
     },
+    // Hapus SEKALIGUS lembar2 yg dicentang (checkbox per baris) -- sama spt deleteSheet() tapi utk
+    // beberapa lembar dlm satu aksi (lihat POST /api/admin/sessions/{sid}/delete-selected).
+    async deleteSelectedSheets(d) {
+      const ids = d.checkedIds;
+      if (!ids.length) return;
+      if (!confirm(`Hapus ${ids.length} lembar terpilih dari sesi ini? Tindakan ini tidak bisa dibatalkan.`)) return;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/delete-selected`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sheet_ids: ids }) });
+        this.toast(`${r.dihapus} lembar dihapus`);
+        d.checkedIds = [];
+        await this.openDetail(d);
+      } catch (e) { this.toast(e.message, true); }
+    },
     // Ringkasan keterisian satu lembar utk ditampilkan di daftar lembar (kolom kiri popup Detail) --
     // dipakai jg utk tanda peringatan NPM ganjil/jawaban byk kosong, supaya admin tak perlu buka tiap
     // lembar satu2 utk tahu mana yg patut dicek lebih dulu.

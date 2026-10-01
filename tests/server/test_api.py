@@ -89,32 +89,38 @@ class TestAPI(unittest.TestCase):
 
     def test_pengawas_dropdown_and_registered_phone(self):
         from server.db import Pengawas, SessionLocal
-        ids = ["tes_pw_budiz", "tes_pw_ania", "tes_pw_dosen", "tes_pw_cici"]
+        ids = ["tes_pw_budiz", "tes_pw_ania", "tes_pw_dosen", "tes_pw_cici", "tes_pw_nonimtanpagelar"]
         with SessionLocal() as db:
             db.add_all([
                 Pengawas(id=ids[0], nama="Budi Z", nim="1001", hp="6281111111111"),
                 Pengawas(id=ids[1], nama="Ani A", nim="1002", hp="82222222222"),
                 Pengawas(id=ids[2], nama="Dra. Dosen", nim="", hp=""),
                 Pengawas(id=ids[3], nama="Cici Tanpa HP", nim="1003", hp="621220867079"),
+                # Peninggalan migrasi lama/entri "Lainnya -- isi sendiri" (main.py _sync_pengawas_contact):
+                # nim="" TAPI org-nya mahasiswa (namanya tanpa gelar) -- nim kosong SENDIRIAN tak boleh
+                # dibaca "dosen" (lihat refdata._looks_like_dosen), harus tetap diminta isi HP.
+                Pengawas(id=ids[4], nama="Zaki Tanpa Nim Tanpa Gelar", nim="", hp=""),
             ])
             db.commit()
         try:
             p = [x for x in self.c.get("/api/meta").json()["pengawas"] if x["id"] in ids]   # abaikan baris pengawas lain yg mungkin ada
-            self.assertEqual([x["nama"] for x in p], ["Ani A", "Budi Z", "Cici Tanpa HP", "Dra. Dosen"])
-            # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar tetap wajib mengisi sendiri
-            self.assertTrue(p[3]["dosen"] and not p[3]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
+            self.assertEqual([x["nama"] for x in p], ["Ani A", "Budi Z", "Cici Tanpa HP", "Zaki Tanpa Nim Tanpa Gelar", "Dra. Dosen"])
+            # dosen: tidak ada isian HP sama sekali; mahasiswa tanpa HP terdaftar (ber-NIM ATAU tak ber-NIM
+            # krn blm sempat tercatat) tetap wajib mengisi sendiri -- cuma nim kosong + gelar yg dianggap dosen
+            self.assertTrue(p[4]["dosen"] and not p[4]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
+            self.assertTrue(not p[3]["dosen"] and p[3]["needs_hp"])   # "Zaki..." -- nim kosong TANPA gelar
             self.assertNotIn("hp", p[0])
             base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[1]["id"]})
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
             self.assertEqual((d["nama"], d["hp"]), ("Budi Z", "+6281111111111"))
-            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[3]["id"]})           # dosen tanpa HP: sah
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[4]["id"]})           # dosen tanpa HP: sah
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
             self.assertEqual((d["nama"], d["hp"]), ("Dra. Dosen", ""))
             # HP kiriman klien diabaikan untuk dosen (UI memang tak menampilkannya)
-            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[3]["id"], "hp": "0812345678901"})
+            r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[4]["id"], "hp": "0812345678901"})
             self.assertEqual(r.status_code, 201)
             self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hp"], "")
             # mahasiswa yang HP-nya tak terdaftar TETAP wajib mengisi

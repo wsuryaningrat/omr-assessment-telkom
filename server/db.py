@@ -136,9 +136,11 @@ class Pengawas(Base):
     pengawas.tsv (Docker secret /run/secrets/pengawas.tsv, perlu redeploy utk ubah -- lihat server/refdata.py
     versi lama) ke tabel DB biasa, supaya admin bisa tambah/ubah langsung lewat psql TANPA redeploy &
     langsung kebaca di FE (refdata.pengawas() query tabel ini tiap panggil, TANPA cache proses).
-    nim KOSONG berarti dosen (bukan mahasiswa) -- lihat refdata.pengawas(). hp kosong & BUKAN dosen ->
-    pengawas WAJIB isi no HP sendiri saat pilih namanya di FE (lihat needs_hp di server/main.py /api/meta
-    & showHp di server/static/app.js) -- jadi admin tak perlu isi hp di sini kalau belum tahu.
+    nim KOSONG dianggap dosen HANYA bila namanya memuat gelar akademik (lihat refdata._looks_like_dosen) --
+    nim kosong TANPA gelar dianggap mahasiswa (banyak kejadian di data nyata: migrasi lama & entri
+    "Lainnya -- isi sendiri" sama2 nim="" walau org-nya mahasiswa, lihat refdata.pengawas()). hp kosong &
+    BUKAN dosen -> pengawas WAJIB isi no HP sendiri saat pilih namanya di FE (lihat needs_hp di
+    server/main.py /api/meta & showHp di server/static/app.js) -- jadi admin tak perlu isi hp di sini kalau belum tahu.
 
     Tambah lewat psql, mis.:
         INSERT INTO pengawas (id, nama, nim, hp) VALUES (gen_random_uuid()::text, 'Nama Pengawas', '', '');
