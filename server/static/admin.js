@@ -91,7 +91,7 @@ function admin() {
     },
     sesStatusLabel(st) { return { scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
     sesStatusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
-    kirimLabel(i) { if (!i.submitted) return "Berjalan"; if (i.synced) return "Sent"; if (i.sync_error) return "Gagal ×" + i.sync_attempts; return "Antre"; },
+    kirimLabel(i) { if (!i.submitted) return "Belum dikirim"; if (i.synced) return "Sent"; if (i.sync_error) return "Gagal ×" + i.sync_attempts; return "Antre"; },
     kirimChip(i) { if (!i.submitted) return "pending"; if (i.synced) return "validated"; if (i.sync_error) return "warning"; return "pending"; },
     async validateSession(id, value) {
       if (value && !confirm("Tandai sesi ini validated? Semua lembar yang berhasil discan akan otomatis divalidasi & sesi dikunci (submit) supaya masuk ekspor/sinkron Sheet.")) return;
@@ -193,6 +193,15 @@ function admin() {
         const d = await this.json(`/api/admin/sessions/${i.id}/rescan-all`, { method: "POST" });
         this.toast(`${d.diantre} lembar diantre utk dipindai ulang` + (d.dilewati ? ` (${d.dilewati} dilewati, foto tak ada)` : ""));
         await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
+    },
+    async validateAllSheets(d) {
+      if (!d.items.length) return;
+      if (!confirm(`Validasi SEMUA ${d.items.length} lembar di sesi ini (lembar yg gagal terbaca dilewati)?`)) return;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/validate-all-sheets`, { method: "POST" });
+        this.toast(`${r.divalidasi} lembar divalidasi`);
+        await this.openDetail(d);
       } catch (e) { this.toast(e.message, true); }
     },
     async unvalidateAllSheets(d) {

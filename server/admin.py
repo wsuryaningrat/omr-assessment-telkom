@@ -469,6 +469,24 @@ def admin_bulk_edit(sid: str, body: _BulkEditIn, db=Depends(get_db)):
     return {"ok": True, "diubah": n}
 
 
+@router.post("/sessions/{sid}/validate-all-sheets")
+def admin_validate_all_sheets(sid: str, db=Depends(get_db)):
+    """Validasi SEMUA lembar sesi ini sekaligus (Sheet.validated=True, KECUALI yg "Gagal" terbaca -- sama
+    spt admin_validate_sheet per-lembar, lembar gagal tak bisa divalidasi) -- lawan dari
+    admin_unvalidate_all_sheets. Admin-only & TIDAK terhalang sesi sudah disubmit (beda dgn endpoint
+    pengawas POST /api/sessions/{sid}/validate-all yg menolak bila sesi sudah disubmit). Dipakai tombol
+    "Validasi semua" di popup Detail lembar supaya admin tak perlu mencentang satu2 kalau semua lembar
+    memang sudah benar."""
+    s = _admin_session_or_404(db, sid)
+    n = 0
+    for sh in s.sheets:
+        if not sh.validated and classify_scan_status({"status": sh.scan_status}, False) != "Gagal":
+            sh.validated = True
+            n += 1
+    db.commit()
+    return {"ok": True, "divalidasi": n}
+
+
 @router.post("/sessions/{sid}/unvalidate-all-sheets")
 def admin_unvalidate_all_sheets(sid: str, db=Depends(get_db)):
     """Batalkan validasi SEMUA lembar sesi ini sekaligus (Sheet.validated=False utk tiap lembar) --
@@ -590,15 +608,16 @@ def admin_delete_selected_sheets(sid: str, body: _DeleteSelectedIn, db=Depends(g
 
 @router.post("/sessions/{sid}/validate")
 def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), admin=Depends(auth.require_admin)):
-    """Tandai (atau batalkan tanda) sesi sudah divalidasi admin. Sejak pemindaian dipindah ke latar belakang
-    & pengawas cukup unggah foto (validasi per-lembar tak lagi jadi tugas pengawas), aksi ini JUGA
-    memfinalisasi sesi -- dulu ini tugas tombol Submit pengawas: memvalidasi semua lembar yg berhasil
-    discan (bukan yg gagal), menilai ulang, lalu mengunci sesi (submitted=True) supaya ikut disinkron ke
-    Google Sheet & masuk ekspor. Lembar yg gagal (pojok LJK tak terdeteksi) TETAP gagal apa pun statusnya --
-    tidak ikut divalidasi, tidak memblokir sisanya (beda dgn submit() lama yg menolak bila ADA yg gagal).
-    Hanya bermakna bila pemindaian sudah selesai -- menandai sesi yg masih 'scanning' berisiko
-    menyembunyikan lembar yg belum sempat masuk daftar. Identitas admin yg menandai dicatat di
-    admin_validated_by (nama/username/email -- lihat auth.require_admin) supaya tampil di detail sesi."""
+    """Tandai (atau batalkan tanda) sesi sudah divalidasi admin -- QA murni: memvalidasi semua lembar yg
+    berhasil discan (bukan yg gagal) & menilai ulang dgn kunci saat ini. "validated" & "sent" SENGAJA
+    dipisah (2 Okt 2026): aksi ini TIDAK LAGI ikut mengunci/mengirim sesi (submitted) -- itu baru terjadi
+    kalau admin SENGAJA menekan "Kirim" (lihat admin_sync_session_now), supaya tak ada sesi yg nyasar
+    terkirim ke Google Sheet produksi sebelum admin benar2 menekan tombol itu. Lembar yg gagal (pojok LJK
+    tak terdeteksi) TETAP gagal apa pun statusnya -- tidak ikut divalidasi, tidak memblokir sisanya (beda
+    dgn submit() lama yg menolak bila ADA yg gagal). Hanya bermakna bila pemindaian sudah selesai --
+    menandai sesi yg masih 'scanning' berisiko menyembunyikan lembar yg belum sempat masuk daftar.
+    Identitas admin yg menandai dicatat di admin_validated_by (nama/username/email -- lihat
+    auth.require_admin) supaya tampil di detail sesi."""
     s = _admin_session_or_404(db, sid)
     if value:
         if _session_status(s) == "scanning":
@@ -608,10 +627,7 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
         for sh in s.sheets:
             if classify_scan_status({"status": sh.scan_status}, False) != "Gagal":
                 sh.validated = True
-        if not s.submitted:
-            services.regrade_session(db, s)
-            s.submitted, s.submitted_at = True, dt.datetime.now(dt.timezone.utc)
-            s.synced_at, s.sync_attempts, s.sync_error, s.sync_next = None, 0, None, None
+        services.regrade_session(db, s)
     s.admin_validated = value
     s.admin_validated_at = dt.datetime.now(dt.timezone.utc) if value else None
     s.admin_validated_by = (admin.get("name") or admin.get("email") or "?") if value else None
@@ -621,10 +637,20 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
 
 @router.post("/sessions/{sid}/sync-now")
 def admin_sync_session_now(sid: str, db=Depends(get_db)):
-    """Kirim sesi ini ke Google Sheet sekarang juga -- tombol manual (ikon kirim/upload) di tabel Sesi,
-    tak menunggu jadwal sinkron berkala. Lihat services.sync_session_now: sesi yg sudah tersinkron
-    dilewati aman (tak digandakan), sesi yg belum disubmit/Sheet belum dikonfigurasi ditolak jelas."""
+    """"Kirim": SATU-SATUNYA jalan sesi terkirim ke Google Sheet sejak "validated" & "sent" dipisah (lihat
+    admin_validate_session) -- tombol manual (ikon kirim/upload) di tabel Sesi & popup Detail lembar.
+    HANYA bisa dipanggil setelah admin_validated=True (admin harus SENGAJA menandai validated dulu),
+    supaya tak ada sesi yg terkirim tanpa admin benar2 menekan tombol ini. Mengunci sesi dulu bila belum
+    (submitted=True, nilai ulang dgn kunci saat ini) lalu langsung sinkron -- aman dipanggil berulang
+    (upsert per NPM, lihat services.sync_session_now), jg dipakai utk kirim ULANG sesi yg datanya berubah
+    stlh koreksi via Detail lembar, atau mencoba lagi setelah gagal (kuota/jaringan)."""
     s = _admin_session_or_404(db, sid)
+    if not s.admin_validated:
+        raise HTTPException(409, "Sesi belum ditandai validated -- validasi dulu sebelum mengirim")
+    if not s.submitted:
+        services.regrade_session(db, s)
+        s.submitted, s.submitted_at = True, dt.datetime.now(dt.timezone.utc)
+        db.commit()
     res = services.sync_session_now(db, s)
     if not res["ok"]:
         raise HTTPException(409, res["error"])

@@ -262,18 +262,22 @@ class TestServices(unittest.TestCase):
         rows = self.c.get(f"/api/admin/sessions?q=ADMV-01", headers=ADM).json()["items"]
         self.assertEqual(next(x for x in rows if x["id"] == sid)["status"], "perlu_cek")
         r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
-        self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, True, True))
+        self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, True, False))
         self.assertEqual(r.json()["admin_validated_by"], "ADMIN_TOKEN")   # identitas admin yg menandai (lihat auth.require_admin)
-        # validasi admin JUGA memfinalisasi sesi (dulu tugas pengawas via submit()): lembar yg berhasil discan
-        # otomatis tervalidasi & sesi terkunci (submitted) -- pengawas tak perlu apa2 lagi.
+        # "validated" & "sent" SENGAJA dipisah (2 Okt 2026): lembar yg berhasil discan otomatis tervalidasi,
+        # TAPI sesi belum terkunci/terkirim -- itu baru terjadi kalau admin SENGAJA menekan "Kirim" (sync-now).
         d = self.c.get(f"/api/sessions/{sid}").json()
-        self.assertTrue(d["submitted"])
+        self.assertFalse(d["submitted"])
         self.assertTrue(all(x["validated"] for x in d["sheets"]))
         rows = self.c.get("/api/admin/sessions?status=validated", headers=ADM).json()["items"]
         self.assertIn(sid, [x["id"] for x in rows])
         self.assertEqual(next(x for x in rows if x["id"] == sid)["admin_validated_by"], "ADMIN_TOKEN")
         self.assertNotIn(sid, [x["id"] for x in self.c.get("/api/admin/sessions?status=perlu_cek", headers=ADM).json()["items"]])
-        # batalkan tanda -- tak menyentuh submitted (sinkron mungkin sudah berjalan; lihat docstring), tapi
+        # admin menekan "Kirim" (sync-now) -- BARU di sini sesi terkunci (submitted) & benar2 terkirim
+        r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(self.c.get(f"/api/sessions/{sid}").json()["submitted"])
+        # batalkan tanda validated -- tak menyentuh submitted (sinkron sudah berjalan; lihat docstring), tapi
         # "divalidasi oleh" ikut dikosongkan (bukan validated lagi, jadi tak relevan menyebut siapa yg dulu menandai)
         r = self.c.post(f"/api/admin/sessions/{sid}/validate?value=false", headers=ADM)
         self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, False, True))
@@ -301,6 +305,20 @@ class TestServices(unittest.TestCase):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMV-EMPTY"}).json()["id"]
         r = self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
         self.assertEqual(r.status_code, 409, r.text)
+
+    def test_admin_sync_now_requires_validated_first(self):
+        """"Kirim" (sync-now) cuma boleh diklik admin SETELAH sesi ditandai validated -- "validated" &
+        "sent" sengaja dipisah (lihat admin_validate_session/admin_sync_session_now), jadi tak ada sesi
+        yg nyasar terkirim ke Google Sheet produksi sebelum admin benar2 menekan "Kirim"."""
+        sid = self.submitted_session("ADMSENTGATE-01")
+        r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("validated", r.json()["detail"].lower())
+        self.assertFalse(self.c.get(f"/api/sessions/{sid}").json()["submitted"])
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertTrue(self.c.get(f"/api/sessions/{sid}").json()["submitted"])
 
     def test_public_monitor_sesi_lists_status_without_login_or_phone(self):
         sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMMON-01", "kode_soal": "A", "hari_ujian": "2026-09-30"}).json()["id"]
@@ -586,6 +604,7 @@ class TestServices(unittest.TestCase):
         sid = self.submitted_session("ADMCACHE-02")
         shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
         self.submit(sid)
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # "Kirim" sekarang mensyaratkan validated dulu
         from server.main import _scan_cache_path
         cache_path = _scan_cache_path(shid)
         self.c.get(f"/api/sheets/{shid}/preview")
@@ -808,7 +827,7 @@ class TestServices(unittest.TestCase):
 
     def test_rescan_all_skips_sheets_whose_photo_was_cleared(self):
         sid = self.submitted_session("RESCANALL-02")
-        self.c.post(f"/api/admin/sessions/{sid}/validate?value=true", headers=ADM)   # ikut men-submit & memvalidasi
+        self.c.post(f"/api/admin/sessions/{sid}/validate?value=true", headers=ADM)   # status jadi "validated"
         self.c.post(f"/api/admin/sessions/{sid}/clear-photos", headers=ADM)
         r = self.c.post(f"/api/admin/sessions/{sid}/rescan-all", headers=ADM)
         self.assertEqual((r.json()["diantre"], r.json()["dilewati"]), (0, 1))
@@ -965,12 +984,12 @@ class TestServices(unittest.TestCase):
 
     def test_admin_sync_session_now_upserts_by_npm_without_duplicating(self):
         sid = self.submitted_session("ADMSYNC-01")
-        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # men-submit & memvalidasi
+        self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)   # "Kirim" (sync-now) mensyaratkan ini dulu
         shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
         self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "1234567890"}, headers=ADM)
         self.assertEqual(len(self.fake.calls), 0)
 
-        r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)
+        r = self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)   # men-submit (blm pernah) lalu sinkron
         self.assertEqual((r.status_code, r.json()["appended"], r.json()["updated"]), (200, 1, 0))
         self.assertEqual(len(self.fake.rows_by_npm), 1)
 
@@ -1148,9 +1167,30 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={"kode_soal": "1"}).status_code, 401)
         self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/bulk-edit", json={"kode_soal": "1"}, headers=ADM).status_code, 404)
 
+    def test_admin_validate_all_sheets_validates_every_unvalidated_sheet(self):
+        # submitted_session() ikut memvalidasi semua lembar via validate-all pengawas -- reset dulu lewat
+        # unvalidate-all-sheets supaya starting point-nya benar2 "belum ada yg tervalidasi".
+        sid = self.submitted_session("ADMVALALL-01", n=3)
+        self.c.post(f"/api/admin/sessions/{sid}/unvalidate-all-sheets", headers=ADM)
+        items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertTrue(all(not x["validated"] for x in items))
+        # satu lembar divalidasi manual dulu -- harus TAK ikut kehitung lagi di "divalidasi" (sudah valid)
+        self.c.post(f"/api/admin/sheets/{items[0]['id']}/validate", headers=ADM)
+
+        r = self.c.post(f"/api/admin/sessions/{sid}/validate-all-sheets", headers=ADM)
+        self.assertEqual((r.status_code, r.json()["divalidasi"]), (200, 2))
+        items2 = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertTrue(all(x["validated"] for x in items2))
+        # dipanggil lagi saat semua sudah tervalidasi -> tak ada yg baru "divalidasi" (bukan error)
+        r2 = self.c.post(f"/api/admin/sessions/{sid}/validate-all-sheets", headers=ADM)
+        self.assertEqual(r2.json()["divalidasi"], 0)
+        self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/validate-all-sheets").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/tidak-ada/validate-all-sheets", headers=ADM).status_code, 404)
+
     def test_admin_unvalidate_all_sheets_clears_every_sheet_without_touching_session_submitted(self):
         sid = self.submitted_session("ADMUNVAL-01", n=3)
         self.c.post(f"/api/admin/sessions/{sid}/validate", headers=ADM)
+        self.c.post(f"/api/admin/sessions/{sid}/sync-now", headers=ADM)   # jadikan submitted beneran ("Kirim")
         items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
         self.assertTrue(all(x["validated"] for x in items))
 
