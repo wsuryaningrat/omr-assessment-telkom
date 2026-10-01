@@ -13,6 +13,7 @@ import zipfile
 from fastapi.testclient import TestClient
 
 from server import auth, config, services, sheets
+from server import db as dbmod
 from server.db import AdminUser, ScanSession, Sheet, SessionLocal, TemplateCalib
 from server.main import app
 from tests.regression.fixtures import KUNCI
@@ -865,6 +866,35 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post("/auth/password", json={"username": "tes_bcrypt1", "password": "salah"}).status_code, 401)
         row = next(x for x in self.c.get("/api/admin/users", headers=ADM).json() if x["username"] == "tes_bcrypt1")
         self.assertEqual(row["hp"], "083333333333")
+
+    def test_seed_env_admin_accounts_copies_hash_verbatim_and_is_idempotent(self):
+        """db._seed_env_admin_accounts() -- migrasi akun ADMIN_USER/ADMIN_ACCOUNTS yg masih hardcode di env
+        (deploy/.env) ke tabel admin_user, supaya ke depannya dikelola tanpa redeploy. Hash disalin APA
+        ADANYA (bukan dihitung ulang dari password asli -- toh kita tak pernah tahu plaintext-nya)."""
+        saved = (config.ADMIN_USER, config.ADMIN_PASSWORD_HASH, config.ADMIN_ACCOUNTS)
+        config.ADMIN_USER, config.ADMIN_PASSWORD_HASH = "tes_seed_env", "240000:deadbeef:cafef00d"
+        config.ADMIN_ACCOUNTS = "tes_seed_env2:240000:aaaa:bbbb"
+        try:
+            dbmod._seed_env_admin_accounts()
+            with SessionLocal() as sdb:
+                rows = {u.username: u for u in sdb.query(AdminUser).filter(AdminUser.username.in_(["tes_seed_env", "tes_seed_env2"]))}
+            self.assertEqual(set(rows), {"tes_seed_env", "tes_seed_env2"})
+            self.assertEqual(rows["tes_seed_env"].password_hash, "240000:deadbeef:cafef00d")   # disalin APA ADANYA
+            self.assertEqual(rows["tes_seed_env"].created_by, "migrasi otomatis dari .env")
+            # jalan lagi (spt tiap kali server restart) -- TAK boleh menggandakan atau menimpa baris yg sudah ada
+            with SessionLocal() as sdb:
+                row = sdb.query(AdminUser).filter_by(username="tes_seed_env").one()
+                row.password_hash = "sudah-diubah-admin-lewat-tab-akun"
+                sdb.commit()
+            dbmod._seed_env_admin_accounts()
+            with SessionLocal() as sdb:
+                self.assertEqual(sdb.query(AdminUser).filter_by(username="tes_seed_env").count(), 1)
+                self.assertEqual(sdb.query(AdminUser).filter_by(username="tes_seed_env").one().password_hash, "sudah-diubah-admin-lewat-tab-akun")
+        finally:
+            config.ADMIN_USER, config.ADMIN_PASSWORD_HASH, config.ADMIN_ACCOUNTS = saved
+            with SessionLocal() as sdb:
+                sdb.query(AdminUser).filter(AdminUser.username.in_(["tes_seed_env", "tes_seed_env2"])).delete(synchronize_session=False)
+                sdb.commit()
 
     def test_admin_create_user_rejects_weak_password_duplicate_and_bad_username(self):
         self.assertEqual(self.c.post("/api/admin/users", json={"username": "ab", "password": "rahasia123"}, headers=ADM).status_code, 422)

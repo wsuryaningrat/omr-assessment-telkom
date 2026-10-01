@@ -150,6 +150,7 @@ class AdminAccessLog(Base):
 def init_db():
     Base.metadata.create_all(engine)
     _migrate()
+    _seed_env_admin_accounts()
 
 
 def _migrate():
@@ -183,3 +184,41 @@ def _migrate():
             for name, ddl in cols.items():
                 if name not in have:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
+def _seed_env_admin_accounts():
+    """Migrasi SEKALI jalan: salin akun admin yg masih hardcode di env (ADMIN_USER/ADMIN_PASSWORD_HASH &
+    ADMIN_ACCOUNTS di deploy/.env -- lihat server/config.py) ke tabel admin_user, supaya ke depannya
+    dikelola lewat tab Akun/psql TANPA perlu redeploy. Hash disalin APA ADANYA (tak dihitung ulang --
+    formatnya kompatibel, lihat auth._check_password), jadi login lewat akun itu tetap jalan sama persis.
+    Idempoten & aman diulang tiap startup: cuma menambah username yg BELUM ada di tabel ini; sekali sudah
+    ada (baik dari migrasi ini maupun dibuat manual), baris di env tak disentuh/ditimpa lagi -- boleh
+    dihapus dari deploy/.env begitu sudah dicek bisa login lewat akun hasil migrasi ini."""
+    from server import config
+    pairs = []
+    if config.ADMIN_USER and config.ADMIN_PASSWORD_HASH:
+        pairs.append((config.ADMIN_USER, config.ADMIN_PASSWORD_HASH))
+    for part in config.ADMIN_ACCOUNTS.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        user, h = part.split(":", 1)
+        user, h = user.strip(), h.strip()
+        if user and h:
+            pairs.append((user, h))
+    if not pairs:
+        return
+    try:
+        with SessionLocal() as db:
+            existing = {u for (u,) in db.query(AdminUser.username)}
+            added = False
+            for user, h in pairs:
+                if user not in existing:
+                    db.add(AdminUser(username=user, password_hash=h, name=user, active=True,
+                                      created_by="migrasi otomatis dari .env"))
+                    existing.add(user)
+                    added = True
+            if added:
+                db.commit()
+    except Exception:  # noqa: BLE001 -- jangan sampai startup server gagal total krn migrasi kenyamanan ini
+        pass
