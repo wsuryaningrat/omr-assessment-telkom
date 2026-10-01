@@ -233,7 +233,7 @@ function admin() {
       const total = kui.length + soal.length;
       const filled = kuiFilled + soalFilled;
       const rate = total ? filled / total : 1;
-      const npmWarn = npm.length > 0 && npm.length !== 10;
+      const npmWarn = npm.length !== 10;   // termasuk NPM kosong (blank) -- bukan cuma yg salah panjang
       const warn = npmWarn || rate <= 0.5;
       return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn };
     },
@@ -247,12 +247,21 @@ function admin() {
       if (this.preview.zoom <= 1) { this.preview.zoom = 1; this.preview.panX = 0; this.preview.panY = 0; }
     },
     resetZoom() { this.preview.zoom = 1; this.preview.panX = 0; this.preview.panY = 0; },
+    // Klik gambar langsung zoom in/out (bukan dobel-klik lagi) -- tapi JANGAN ikut toggle zoom kalau klik
+    // itu sebenarnya akhir dari seret/geser (lihat startPan: _dragged ditandai begitu gerak >3px).
+    clickPreview() {
+      if (this.preview._dragged) { this.preview._dragged = false; return; }
+      this.preview.zoom > 1 ? this.resetZoom() : this.zoomPreview(1);
+    },
     startPan(ev) {
       if (this.preview.zoom <= 1) return;
       ev.preventDefault();
       const startX = ev.clientX, startY = ev.clientY, origX = this.preview.panX, origY = this.preview.panY;
-      this.preview.panning = true;
-      const move = (e) => { this.preview.panX = origX + (e.clientX - startX); this.preview.panY = origY + (e.clientY - startY); };
+      this.preview.panning = true; this.preview._dragged = false;
+      const move = (e) => {
+        if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) this.preview._dragged = true;
+        this.preview.panX = origX + (e.clientX - startX); this.preview.panY = origY + (e.clientY - startY);
+      };
       const up = () => { this.preview.panning = false; window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
       window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
     },
@@ -279,20 +288,52 @@ function admin() {
         await this.openDetail(this.detail);
         const again = this.detail?.items.find(it => it.id === keepId);
         if (again) this.selectDetailSheet(again);
-      } catch (e) { this.toast(e.message, true); }
+      } catch (e) { this.toast(e.message, true); x.busy = false; }
+      // `x.busy` SENGAJA tak direset di jalur sukses -- openDetail() di atas sudah mengganti detail.items
+      // dgn objek baru (tanpa `busy`), jadi `x` lama ini dibuang begitu saja. Direset manual hanya di
+      // jalur gagal supaya tombol tak macet abu-abu selamanya (bug lama: baris ini sebelumnya tak ada).
     },
     async replaceSheetPhoto(x, ev) {
       const f = ev.target.files && ev.target.files[0]; if (!f || !x) return;
       const fd = new FormData(); fd.append("file", f, f.name);
       const keepId = x.id;
+      x.busy = true;
       try {
         const d = await this.json(`/api/admin/sheets/${x.id}/replace`, { method: "POST", body: fd });
         this.toast("Foto diganti & dipindai ulang — status: " + d.label);
         await this.openDetail(this.detail);
         const again = this.detail?.items.find(it => it.id === keepId);
         if (again) this.selectDetailSheet(again);
-      } catch (e) { this.toast(e.message, true); }
+      } catch (e) { this.toast(e.message, true); x.busy = false; }
       ev.target.value = "";
+    },
+    // Hapus SATU lembar dari popup Detail (mis. salah foto/bukan LJK/duplikat halaman) -- lihat
+    // DELETE /api/admin/sheets/{shid} (admin.py), beda dgn endpoint pengawas yg menolak sesi tersubmit.
+    async deleteSheet(x) {
+      if (!x) return;
+      if (!confirm(`Hapus lembar #${x.seq} ini dari sesi? Tindakan ini tidak bisa dibatalkan.`)) return;
+      try {
+        await this.api(`/api/admin/sheets/${x.id}`, { method: "DELETE" });
+        this.toast("Lembar dihapus");
+        const wasSelected = this.detail.selectedId === x.id;
+        this.detail.items = this.detail.items.filter(it => it.id !== x.id);
+        this.detail.checkedIds = this.detail.checkedIds.filter(id => id !== x.id);
+        if (wasSelected) {
+          if (this.detail.items.length) this.selectDetailSheet(this.detail.items[0]);
+          else { this.detail.selectedId = null; this.detail.selectedItem = null; this._setPreview(""); }
+        }
+      } catch (e) { this.toast(e.message, true); }
+    },
+    // NPM harus pas 10 digit -- merahin kotak input kalau kosong atau panjangnya salah (lihat jg
+    // sheetFillInfo.npmWarn utk tanda yg sama di daftar lembar kolom kiri).
+    get npmBad() { return (this.editForm.npm || "").replace(/\D/g, "").length !== 10; },
+    // NPM ditempel dari clipboard sering 12 digit (mis. nomor KTM lengkap dgn prefiks tahun/fakultas) --
+    // ambil 10 digit TERAKHIR otomatis saja drpd admin mengetik ulang/menghapus manual.
+    onNpmPaste(ev) {
+      ev.preventDefault();
+      const text = (ev.clipboardData || window.clipboardData).getData("text");
+      const digits = (text || "").replace(/\D/g, "");
+      this.editForm.npm = digits.length > 10 ? digits.slice(-10) : digits;
     },
     // Edit manual NPM/kode soal/fakultas/jawaban lembar yg sedang dipilih (kolom kanan Detail sesi).
     // Loncat ke kotak jawaban/kuisioner BERIKUTNYA begitu satu kotak terisi (spt input OTP) -- biar admin

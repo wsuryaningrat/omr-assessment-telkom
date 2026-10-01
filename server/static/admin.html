@@ -288,8 +288,6 @@
         <div class="tools" style="flex:0 0 auto">
           <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="btn sm d" x-show="detail?.checkedIds.length>0" @click="rescanSelectedSheets(detail)">Pindai ulang terpilih (<span x-text="detail?.checkedIds.length"></span>)</button>
-            <button class="btn sm d" x-show="detail && detail.items.length>0" @click="rescanAllSheets(detail)">Pindai ulang semua foto</button>
             <button class="btn sm" x-show="detail && detail.items.length>0" @click="unvalidateAllSheets(detail)">Batalkan validasi semua</button>
             <button class="btn sm" @click="closeDetail()">Tutup ✕</button>
           </div>
@@ -316,6 +314,9 @@
             </select>
           </label>
           <button class="btn sm p" @click="applyBulkEdit()" :disabled="(!detail.bulkKode && !detail.bulkFakultas) || detail.bulkBusy">Terapkan</button>
+          <span style="flex:1 0 0"></span>
+          <button class="btn sm d" x-show="detail?.checkedIds.length>0" @click="rescanSelectedSheets(detail)">Pindai ulang terpilih (<span x-text="detail?.checkedIds.length"></span>)</button>
+          <button class="btn sm d" @click="rescanAllSheets(detail)">Pindai ulang semua foto</button>
         </div>
 
         <p class="empty" x-show="detail && !detail.loading && !detail.items.length && !(detail?.orphans||[]).length">Belum ada lembar di sesi ini.</p>
@@ -352,21 +353,23 @@
               <button class="btn xs" :class="{p: detail.previewMode==='scan'}" :disabled="!detail.selectedItem?.photo_exists" @click="showDetailPreview('scan')">Hasil scan</button>
               <button class="btn xs" :disabled="!detail.selectedItem?.photo_exists || detail.selectedItem?.busy" @click="rescanSheet(detail.selectedItem)">Pindai ulang</button>
               <label class="btn xs" style="cursor:pointer">Ganti foto<input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" :disabled="!detail.selectedItem" @change="replaceSheetPhoto(detail.selectedItem, $event)"></label>
+              <button class="btn xs d" x-show="detail.selectedItem" @click="deleteSheet(detail.selectedItem)">Hapus lembar</button>
+              <span style="flex:1 0 0"></span>
+              <span class="zoominline" x-show="preview.url && !preview.loading">
+                <button class="ib xs" @click="zoomPreview(-0.5)" title="Perkecil" aria-label="Perkecil">−</button>
+                <span class="mono mute" style="font-size:11px;min-width:34px;text-align:center" x-text="Math.round(preview.zoom*100)+'%'"></span>
+                <button class="ib xs" @click="zoomPreview(0.5)" title="Perbesar" aria-label="Perbesar">+</button>
+                <button class="ib xs" x-show="preview.zoom>1" @click="resetZoom()" title="Reset zoom" aria-label="Reset zoom">↺</button>
+              </span>
               <button class="btn xs p" x-show="detail.selectedItem" @click="saveDetailEdit()" :disabled="detail.saving">Simpan perubahan</button>
               <span class="mute" style="font-size:11px" x-show="detail.saving">Menyimpan…</span>
             </div>
             <div class="previewbox" @wheel.prevent="zoomPreview($event.deltaY<0?0.4:-0.4)">
               <div class="skel" x-show="preview.loading"></div>
-              <img x-show="preview.url && !preview.loading" :src="preview.url" @mousedown="startPan($event)" @dblclick="preview.zoom>1?resetZoom():zoomPreview(1)"
+              <img x-show="preview.url && !preview.loading" :src="preview.url" @mousedown="startPan($event)" @click="clickPreview()"
                    :style="{transform:'scale('+preview.zoom+') translate('+(preview.panX/preview.zoom)+'px,'+(preview.panY/preview.zoom)+'px)', transition:preview.panning?'none':'transform .12s', cursor:preview.panning?'grabbing':(preview.zoom>1?'grab':'zoom-in'), maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}">
               <span class="mute" x-show="!preview.url && !preview.loading">Pilih lembar di kiri utk pratinjau</span>
               <span class="mute" x-show="detail.selectedItem && !detail.selectedItem.photo_exists">Foto sumber tak ada (sudah dibersihkan)</span>
-              <div class="zoomctl" x-show="preview.url && !preview.loading">
-                <button class="ib xs" @click="zoomPreview(-0.5)" title="Perkecil" aria-label="Perkecil">−</button>
-                <span class="mono mute" style="font-size:11px;min-width:34px;text-align:center" x-text="Math.round(preview.zoom*100)+'%'"></span>
-                <button class="ib xs" @click="zoomPreview(0.5)" title="Perbesar" aria-label="Perbesar">+</button>
-                <button class="ib xs" x-show="preview.zoom>1" @click="resetZoom()" title="Reset zoom" aria-label="Reset zoom">↺</button>
-              </div>
             </div>
           </div>
 
@@ -374,7 +377,7 @@
           <div class="editcol">
             <div x-show="detail.selectedItem">
                 <div class="grid">
-                  <div class="full"><label class="f" for="edNpm">NPM</label><input id="edNpm" class="mono" x-model="editForm.npm" maxlength="10" inputmode="numeric" placeholder="10 digit"></div>
+                  <div class="full"><label class="f" for="edNpm">NPM</label><input id="edNpm" class="mono" :class="{bad: npmBad}" x-model="editForm.npm" maxlength="10" inputmode="numeric" placeholder="10 digit" @paste="onNpmPaste($event)"></div>
                   <div class="full"><label class="f" for="edKode">Kode Soal</label><input id="edKode" class="mono" x-model.trim="editForm.kode_soal" maxlength="20"></div>
                   <div class="full"><label class="f" for="edFak">Fakultas (LJK)</label>
                     <select id="edFak" :value="editForm.fakultas_ljk" @change="editForm.fakultas_ljk=$event.target.value">

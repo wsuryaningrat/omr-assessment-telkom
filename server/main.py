@@ -68,6 +68,29 @@ def _class_folder(s: ScanSession) -> str:
     return os.path.join(config.UPLOAD_DIR, _safe_segment(s.fakultas), _safe_segment(s.prodi), _safe_segment(s.kelas))
 
 
+def _scan_cache_path(sheet_id: str) -> str:
+    """Lokasi cache JPEG 'Hasil scan' (overlay bulatan terbaca) satu lembar -- lihat preview(). Dikunci ke
+    sheet_id (stabil, tak ikut berubah saat folder Fakultas/Prodi/Kelas direorganisasi), BUKAN di bawah
+    _class_folder(s)."""
+    return os.path.join(config.UPLOAD_DIR, ".scan_cache", f"{sheet_id}.jpg")
+
+
+def _save_scan_cache(sheet_id: str, jpeg_bytes: bytes):
+    path = _scan_cache_path(sheet_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(jpeg_bytes)
+
+
+def _clear_scan_cache(sheet_id: str):
+    """Hapus cache 'Hasil scan' lembar ini (dipanggil tiap kali hasilnya mungkin berubah: pindai ulang,
+    ganti foto, lembar dihapus, atau sesi sudah 'Sent' & tak perlu dilihat lagi -- lihat services.py)."""
+    try:
+        os.remove(_scan_cache_path(sheet_id))
+    except OSError:
+        pass
+
+
 def _kunci(db):
     from server.db import Kunci
     return {k.name: k.data for k in db.scalars(select(Kunci))}
@@ -189,6 +212,7 @@ def _on_rescan_done(sheet_id, session_id, fut):
             r = results[0]
             sh.doc_name, sh.scan_status, sh.record, sh.validated = r["doc_name"], r["status"], _apply_identity(r["record"], s), False
             db.commit()
+        _clear_scan_cache(sheet_id)
     finally:
         with _rescan_lock:
             n = _RESCAN_PENDING.get(session_id, 1) - 1
@@ -684,6 +708,7 @@ def delete_sheet(shid: str, db=Depends(get_db)):
     _guard_open(db, sh)
     db.delete(sh)
     db.commit()
+    _clear_scan_cache(shid)
 
 
 @app.post("/api/sheets/{shid}/replace")
@@ -706,13 +731,22 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     up.path, up.name, up.size = dest, file.filename, size
     sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _apply_identity(res[0]["record"], s), False
     db.commit()
+    _clear_scan_cache(shid)
     return _sheet_view(sh)
 
 
 @app.get("/api/sheets/{shid}/preview")
 def preview(shid: str, db=Depends(get_db)):
-    """Preview on-demand: gambar hasil preprocessing + bubble terbaca (tidak disimpan)."""
+    """'Hasil scan': gambar hasil preprocessing + bubble terbaca. Dicache di disk (lihat _scan_cache_path)
+    krn pipeline penuh dgn overlay bisa makan beberapa detik -- klik ulang biasa cukup disajikan dari cache.
+    Cache diperbarui (dihapus lalu dibuat ulang di sini) tiap kali lembar ini dipindai ulang/foto diganti
+    (_clear_scan_cache di rescan/replace), & dihapus permanen begitu sesi 'Sent' (lihat services.py) krn
+    admin sudah tak perlu melihatnya lagi."""
     sh = _sheet_or_404(db, shid)
+    cache_path = _scan_cache_path(shid)
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return Response(f.read(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     s = db.get(ScanSession, sh.session_id)
     up = db.get(UploadFile, sh.file_id)
     if not os.path.exists(up.path):
@@ -721,7 +755,9 @@ def preview(shid: str, db=Depends(get_db)):
     res = fut.result(timeout=120)
     if not res or "overlay_jpeg" not in res[0]:
         raise HTTPException(404, "Preview tidak tersedia")
-    return Response(res[0]["overlay_jpeg"], media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    jpeg = res[0]["overlay_jpeg"]
+    _save_scan_cache(shid, jpeg)
+    return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/sessions/{sid}/submit")

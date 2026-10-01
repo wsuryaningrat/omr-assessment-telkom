@@ -523,6 +523,7 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
         raise HTTPException(422, "Hasil pindai ulang kosong (halaman tak terbaca)")
     sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
     db.commit()
+    _main._clear_scan_cache(shid)
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
 
@@ -550,7 +551,21 @@ async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db
     up.path, up.name, up.size = dest, file.filename, size
     sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
     db.commit()
+    _main._clear_scan_cache(shid)
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
+
+
+@router.delete("/sheets/{shid}", status_code=204)
+def admin_delete_sheet(shid: str, db=Depends(get_db)):
+    """Hapus SATU lembar (mis. salah foto/bukan LJK/duplikat) -- admin-only & TIDAK terhalang sesi sudah
+    disubmit (beda dgn endpoint pengawas DELETE /api/sheets/{shid}, yg menolak bila sesi sudah disubmit)."""
+    from server import main as _main
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    db.delete(sh)
+    db.commit()
+    _main._clear_scan_cache(shid)
 
 
 @router.post("/sessions/{sid}/validate")

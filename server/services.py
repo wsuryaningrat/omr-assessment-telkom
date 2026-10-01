@@ -100,6 +100,7 @@ def sync_pending_once(limit: int = 30):
             client.append_records(recs)
             for s in group:
                 s.synced_at, s.sync_error, s.sync_next = _now(), None, None
+                clear_scan_cache_for_session(s)
 
         def _fail(s, e):
             s.sync_attempts = (s.sync_attempts or 0) + 1
@@ -140,6 +141,7 @@ def sync_session_now(db, s: ScanSession) -> dict:
         recs = [dict(sh.record) for sh in s.sheets]
         res = client.upsert_records(recs, key_col="NPM")
         s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
+        clear_scan_cache_for_session(s)
     except Exception as e:  # noqa: BLE001
         s.sync_attempts = (s.sync_attempts or 0) + 1
         s.sync_error = f"{type(e).__name__}: {e}"[:500]
@@ -181,10 +183,19 @@ def sync_kunci_once():
 
 
 # --------------------------------------------------------------------------- pembersihan
+def clear_scan_cache_for_session(s):
+    """Hapus cache 'Hasil scan' (server/main.py _scan_cache_path) semua lembar sesi ini -- dipanggil otomatis
+    begitu sesi berhasil tersinkron ('Sent') krn admin sudah tak perlu melihat overlay pemindaiannya lagi."""
+    from server import main as _main
+    for sh in s.sheets:
+        _main._clear_scan_cache(sh.id)
+
+
 def remove_session_files(s) -> int:
     """Hapus berkas sumber milik SESI INI saja. Foto kini disimpan per Fakultas/Prodi/Kelas (dibagi antar
     sesi yg sama kombinasinya -- lihat server/main.py _class_folder), jadi TIDAK boleh rmtree seluruh folder
-    kelas (bisa ikut menghapus punya sesi lain) -- hapus file per file sesuai UploadFile.path sesi ini."""
+    kelas (bisa ikut menghapus punya sesi lain) -- hapus file per file sesuai UploadFile.path sesi ini.
+    Foto sumber sudah hilang -> cache 'Hasil scan' ikut tak bermakna, dihapus jg (lihat clear_scan_cache_for_session)."""
     n = 0
     for f in s.files:
         if f.path and os.path.exists(f.path):
@@ -193,6 +204,7 @@ def remove_session_files(s) -> int:
                 n += 1
             except OSError:
                 pass
+    clear_scan_cache_for_session(s)
     return n
 
 
