@@ -424,10 +424,17 @@ def _iter_roi_variants(roi, skip_upscale=False):
       2 adaptive    — local thresholding; handles harsh shadows.
       3 upscale 2×  — recovers small markers; omitted when skip_upscale=True.
       4 CLAHE       — contrast equalisation; last resort for flat/low-contrast.
+      5 Otsu+dilate — reconnects a FADED/THIN marker border into one solid quad
+                      (toner tipis, fotokopi, kompresi JPEG); marker spt itu sering
+                      gagal BUKAN krn salah baca bit, tapi krn kontur luarnya
+                      terputus sebelum sampai tahap baca bit sama sekali.
 
-    CLAHE is deliberately moved to last because it is the most expensive
-    preprocessing step (~250 ms on a 400×550 ROI).  For the vast majority of
-    images the marker is found in variants 0-3; CLAHE then adds no cost.
+    CLAHE is deliberately moved to last (before the new dilate variant) because it
+    is the most expensive preprocessing step (~250 ms on a 400×550 ROI).  For the
+    vast majority of images the marker is found in variants 0-3; CLAHE/dilate then
+    add no cost. NOTE: variant 5 is appended AFTER CLAHE (not inserted earlier) so
+    the hardcoded `roi_variants[3]` upscale lookup in find_aruco_markers (Step 2 of
+    the full cascade) keeps pointing at the right variant.
     """
     yield roi
     # Otsu: strong binarization for clean scans.
@@ -446,6 +453,13 @@ def _iter_roi_variants(roi, skip_upscale=False):
     # CLAHE: last resort for low-contrast / uneven illumination.
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
     yield clahe.apply(roi)
+    # Otsu + dilasi ringan (1px) atas tinta: menyambung kembali tepi/modul marker yang
+    # pudar atau terputus jadi kontur persegi yang utuh & bisa dilacak detektor. Dilasi
+    # diterapkan pada tinta (bukan latar), lalu citra dikembalikan ke orientasi normal
+    # (tinta gelap, latar terang) spt varian lain di atas sebelum diberikan ke detektor.
+    ink = cv2.bitwise_not(otsu)   # tinta jadi putih (foreground) supaya dilate() menebalkannya
+    ink = cv2.dilate(ink, np.ones((2, 2), np.uint8), iterations=1)
+    yield cv2.bitwise_not(ink)
 
 
 def _make_roi_variants(roi, skip_upscale=False):

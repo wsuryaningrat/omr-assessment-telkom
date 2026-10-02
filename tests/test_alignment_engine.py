@@ -191,6 +191,49 @@ class TestBlurredMarkerFallback(unittest.TestCase):
         self.assertIsNone(_template_marker_search(blank, self.cv2.aruco.DICT_4X4_50, 2, (450, 450), 200, 30.0))
 
 
+class TestFadedMarkerVariant(unittest.TestCase):
+    """Varian "Otsu+dilasi" (core.alignment._iter_roi_variants) -- menyambung tepi/modul marker yang
+    pudar/terputus. Permintaan pengguna 2 Okt 2026: optimasi deteksi ArUco 4-sudut utk kondisi marker
+    yang hitamnya pudar. Uji sintetis dgn alpha-fade/speckle/erosi RINGAN sekalipun tak berhasil
+    menjatuhkan deteksi existing (pipeline sudah sangat tangguh thd itu -- lihat catatan di commit),
+    jadi tes di sini memverifikasi varian barunya SENDIRI (bukan hasil akhir pipeline): bentuk,
+    orientasi gelap/terang, & bahwa ia benar2 MENEBALKAN tinta dibanding varian Otsu polos -- supaya
+    maksud teknisnya (menyambung kontur yg putus) terjaga & tak sengaja berbalik arah di masa depan."""
+
+    def test_dilate_variant_is_last_and_matches_input_shape(self):
+        from core.alignment import _make_roi_variants
+        roi = np.full((120, 100), 235, np.uint8)
+        cv2.rectangle(roi, (30, 30), (70, 70), 0, -1)   # kotak tinta solid, spt marker bersih
+        variants = _make_roi_variants(roi)
+        self.assertEqual(len(variants), 6)   # raw, otsu, adapt, upscale, clahe, +dilate (baru)
+        dilated = variants[-1]
+        self.assertEqual(dilated.shape, roi.shape)
+        self.assertEqual(dilated.dtype, roi.dtype)
+
+    def test_dilate_variant_thickens_ink_versus_plain_otsu(self):
+        """Inti perbaikan: piksel tinta (gelap) pada varian baru harus >= varian Otsu polos (menyambung
+        modul yg terputus), bukan malah menipiskannya (yg akan memperparah marker pudar, bukan membantu)."""
+        from core.alignment import _make_roi_variants
+        roi = np.full((120, 100), 235, np.uint8)
+        # Beberapa kotak tinta TERPUTUS (simulasi modul marker yg pudar/retak) -- bukan satu blok utuh.
+        for (x, y) in [(30, 30), (36, 30), (30, 36), (42, 42), (48, 48)]:
+            cv2.rectangle(roi, (x, y), (x + 4, y + 4), 0, -1)
+        variants = _make_roi_variants(roi)
+        otsu, dilated = variants[1], variants[-1]
+        ink_otsu = int(np.sum(otsu < 128))
+        ink_dilated = int(np.sum(dilated < 128))
+        self.assertGreaterEqual(ink_dilated, ink_otsu)
+        self.assertGreater(ink_dilated, ink_otsu)   # strictly thickened for a sparse/broken pattern
+
+    def test_variant_order_unaffected_upscale_index_still_correct(self):
+        """roi_variants[3] HARUS tetap varian upscale 2x -- find_aruco_markers (core/alignment.py) pakai
+        indeks ini langsung (bukan nama), jadi varian baru WAJIB ditambah di akhir, bukan disisipkan."""
+        from core.alignment import _make_roi_variants
+        roi = np.full((60, 50), 235, np.uint8)
+        variants = _make_roi_variants(roi)
+        self.assertEqual(variants[3].shape, (roi.shape[0] * 2, roi.shape[1] * 2))
+
+
 class TestAlignmentSpeedups(unittest.TestCase):
     """Percepatan perataan tidak boleh mengubah hasil: jalur marker cepat identik dgn jalur lengkap; blur kanvas terhitung dekat."""
 
