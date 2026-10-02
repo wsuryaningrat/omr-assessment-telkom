@@ -244,8 +244,8 @@
                   <button class="ib" :class="{on: i.admin_validated}" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" :title="i.admin_validated?'Batalkan validasi':'Tandai validated'" aria-label="Tandai validated">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                   </button>
-                  <button class="ib" x-show="i.admin_validated" :disabled="i.syncing" @click="syncSessionNow(i)" :title="i.submitted?'Kirim ulang ke Google Sheet (perbarui baris NPM yg sama)':'Kirim ke Google Sheet (kunci sesi lalu sinkron)'" aria-label="Kirim ke Google Sheet">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+                  <button class="ib" :class="{on: i.synced}" x-show="!i.files.orphans && i.status!=='scanning'" :disabled="!i.admin_validated || i.syncing" @click="syncSessionNow(i)" :title="!i.admin_validated ? 'Kirim ke Google Sheet (validasi dulu)' : (i.synced ? 'Sudah terkirim — klik utk kirim ulang (perbarui baris NPM yg sama)' : 'Kirim ke Google Sheet (kunci sesi lalu sinkron)')" aria-label="Kirim ke Google Sheet">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                   </button>
                   <button class="ib" x-show="i.lembar>0" @click="rescanAllSheets(i)" title="Pindai ulang semua lembar" aria-label="Pindai ulang semua lembar">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>

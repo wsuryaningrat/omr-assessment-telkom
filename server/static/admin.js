@@ -104,6 +104,7 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async syncSessionNow(i) {
+      if (!i.synced && !confirm("Kirim sesi ini ke Google Sheet? Sesi akan dikunci (submitted) lalu disinkronkan.")) return;
       i.syncing = true;
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sync-now`, { method: "POST" });
