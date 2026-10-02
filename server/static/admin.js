@@ -104,6 +104,7 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async syncSessionNow(i) {
+      if (!i.admin_validated) { this.toast("Tandai sesi ini validated dulu (tombol centang di sebelah kiri) sebelum Kirim", true); return; }
       if (!i.synced && !confirm("Kirim sesi ini ke Google Sheet? Sesi akan dikunci (submitted) lalu disinkronkan.")) return;
       i.syncing = true;
       try {

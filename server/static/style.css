@@ -261,6 +261,7 @@ th.c,td.c{width:36px;padding-left:8px;padding-right:4px}
 .ib.on{background:var(--ok);border-color:var(--ok);color:#fff}
 .ib.d{color:var(--bad)}
 .ib.p{background:var(--ink);border-color:var(--ink);color:#fff}.ib.p:hover{background:#1c2333}
+.ib.dim{opacity:.45}
 .ib[disabled]{opacity:.35;pointer-events:none}
 /* kartu mobile ringkas */
 .rc{padding:8px 8px 8px 10px;gap:8px;margin-bottom:6px;align-items:center;border-left-width:3px;border-radius:10px}
