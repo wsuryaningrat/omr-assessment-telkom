@@ -126,9 +126,10 @@ function admin() {
       catch (e) { this.toast(e.message, true); }
     },
     async openDetail(i) {
+      clearTimeout(this._autoT); this._dirtyId = null;
       this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by,
         items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
-        questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false, checkedIds: [] };
+        questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false, savedAt: 0, checkedIds: [] };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
         this.detail.items = d.items; this.detail.orphans = d.orphan_files || [];
@@ -148,6 +149,7 @@ function admin() {
     },
     // Pilih satu lembar di kolom kiri: muat pratinjau foto asli + isi form edit (kolom kanan) dari record-nya.
     selectDetailSheet(x) {
+      if (this.detail.selectedId !== x.id) this.flushAutoSave();
       this.detail.selectedId = x.id; this.detail.selectedItem = x;
       this._loadEditForm(x);
       this.detail.previewMode = "original";
@@ -268,7 +270,7 @@ function admin() {
       const warn = npmWarn || rate < 0.4 || kuiWarn;
       return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn, kuiWarn };
     },
-    closeDetail() { this._setPreview(""); this.detail = null; },
+    closeDetail() { this.flushAutoSave(); this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
     // Zoom/geser foto di kolom preview Detail sesi -- scroll utk zoom, seret utk geser saat diperbesar,
     // klik-2x/tombol utk reset. panX/panY dlm piksel LAYAR (dibagi zoom sebelum masuk transform, lihat
@@ -366,6 +368,7 @@ function admin() {
       const text = (ev.clipboardData || window.clipboardData).getData("text");
       const digits = (text || "").replace(/\D/g, "");
       this.editForm.npm = digits.length > 10 ? digits.slice(-10) : digits;
+      this.markDirty();
     },
     // Edit manual NPM/kode soal/fakultas/jawaban lembar yg sedang dipilih (kolom kanan Detail sesi).
     // Loncat ke kotak jawaban/kuisioner BERIKUTNYA begitu satu kotak terisi (spt input OTP) -- biar admin
@@ -376,19 +379,68 @@ function admin() {
       const next = ev.target.closest(".anscell")?.nextElementSibling?.querySelector("input");
       if (next) { next.focus(); next.select?.(); }
     },
+    // Payload edit utk SATU lembar dari editForm saat ini. NPM yg masih diketik setengah jalan (bukan 10
+    // digit, bukan kosong, & beda dari nilai tersimpan) SENGAJA tak dikirim -- server menolaknya (422) dan
+    // autosave tak boleh memunculkan error di tiap ketukan; ia ikut terkirim begitu genap 10 digit.
+    _editPayload(x) {
+      const f = this.editForm, digits = (f.npm || "").replace(/\D/g, "");
+      const orig = String((x.record || {})["NPM"] || "").replace(/\D/g, "");
+      const body = { kode_soal: f.kode_soal, fakultas_ljk: f.fakultas_ljk, jawaban: f.jawaban, kuisioner: f.kuisioner };
+      if (digits.length === 10 || digits === "" || digits === orig) body.npm = f.npm;
+      return body;
+    },
+    // Kirim PATCH utk lembar x pada detail d (ditangkap eksplisit: autosave bisa berjalan setelah admin
+    // pindah lembar / menutup popup). reload=true (tombol Simpan manual) memuat ulang form dari hasil server;
+    // autosave TIDAK -- form yg sedang diketik tak boleh ditimpa di tengah jalan.
+    async _persist(d, x, body, reload) {
+      d.saving = true;
+      try {
+        const updated = await this.json(`/api/admin/sheets/${x.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const idx = d.items.findIndex(it => it.id === x.id);
+        if (idx >= 0) d.items[idx] = updated;
+        if (d.selectedId === x.id) {
+          d.selectedItem = updated;
+          if (reload) this._loadEditForm(updated);
+        }
+        d.savedAt = Date.now();
+        if (reload) this.toast("Perubahan disimpan");
+        return true;
+      } catch (e) { this.toast(e.message, true); return false; }
+      finally { d.saving = false; }
+    },
     async saveDetailEdit() {
       const x = this.detail?.selectedItem; if (!x) return;
-      this.detail.saving = true;
-      try {
-        const body = { npm: this.editForm.npm, kode_soal: this.editForm.kode_soal, fakultas_ljk: this.editForm.fakultas_ljk, jawaban: this.editForm.jawaban, kuisioner: this.editForm.kuisioner };
-        const updated = await this.json(`/api/admin/sheets/${x.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const idx = this.detail.items.findIndex(it => it.id === x.id);
-        if (idx >= 0) this.detail.items[idx] = updated;
-        this.detail.selectedItem = updated;
-        this._loadEditForm(updated);
-        this.toast("Perubahan disimpan");
-      } catch (e) { this.toast(e.message, true); }
-      this.detail.saving = false;
+      clearTimeout(this._autoT); this._dirtyId = null;
+      const body = { ...this._editPayload(x), npm: this.editForm.npm };
+      await this._persist(this.detail, x, body, true);
+    },
+    // Autosave: tiap perubahan isian (NPM/kode soal/fakultas/jawaban/kuisioner) ditandai lewat markDirty()
+    // lalu disimpan otomatis ~0,8 dtk setelah ketukan terakhir. Pindah lembar / tutup popup memaksa simpan
+    // dulu (flushAutoSave) supaya ketikan terakhir tak hilang.
+    markDirty() {
+      if (!this.detail?.selectedItem) return;
+      this._dirtyId = this.detail.selectedId;
+      clearTimeout(this._autoT);
+      this._autoT = setTimeout(() => this.autoSave(), 800);
+    },
+    async autoSave() {
+      clearTimeout(this._autoT);
+      const d = this.detail;
+      if (!this._dirtyId || !d) return;
+      if (d.saving) { this._autoT = setTimeout(() => this.autoSave(), 400); return; }
+      const x = d.selectedItem;
+      if (!x || x.id !== this._dirtyId) { this._dirtyId = null; return; }
+      this._dirtyId = null;
+      await this._persist(d, x, this._editPayload(x), false);
+    },
+    // Simpan seketika (tanpa menunggu debounce) bila ada perubahan tertunda -- dipanggil SEBELUM
+    // editForm diganti (pindah lembar) atau detail dibuang (tutup popup). Tak di-await.
+    flushAutoSave() {
+      clearTimeout(this._autoT);
+      const d = this.detail, x = d?.selectedItem;
+      if (!this._dirtyId || !d || !x || x.id !== this._dirtyId) { this._dirtyId = null; return; }
+      this._dirtyId = null;
+      this._persist(d, x, this._editPayload(x), false);
     },
     // Terapkan Kode Soal dan/atau Fakultas ke SEMUA lembar sesi ini sekaligus (mis. satu blok terbaca
     // konsisten salah utk seluruh kelas) -- tak menyentuh NPM/jawaban (beda per mahasiswa).

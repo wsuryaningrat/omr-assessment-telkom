@@ -390,7 +390,7 @@
               <button class="ib xs p" x-show="detail.selectedItem" @click="saveDetailEdit()" :disabled="detail.saving" title="Simpan perubahan" aria-label="Simpan perubahan">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4"/><path d="M8 20v-6h8v6"/></svg>
               </button>
-              <span class="mute" style="font-size:11px" x-show="detail.saving">Menyimpan…</span>
+              <span class="mute" style="font-size:11px" x-show="detail.saving">Menyimpan…</span><span class="mute" style="font-size:11px" x-show="!detail.saving && detail.savedAt" title="Perubahan disimpan otomatis">✓ Tersimpan</span>
             </div>
             <div class="previewbox" @wheel.prevent="zoomPreview($event.deltaY<0?0.4:-0.4)">
               <div class="skel" x-show="preview.loading"></div>
@@ -405,10 +405,10 @@
           <div class="editcol">
             <div x-show="detail.selectedItem">
                 <div class="grid">
-                  <div class="full"><label class="f" for="edNpm">NPM</label><input id="edNpm" class="mono" :class="{bad: npmBad}" x-model="editForm.npm" maxlength="10" inputmode="numeric" placeholder="10 digit" @paste="onNpmPaste($event)"></div>
-                  <div class="full"><label class="f" for="edKode">Kode Soal</label><input id="edKode" class="mono" x-model.trim="editForm.kode_soal" maxlength="20"></div>
+                  <div class="full"><label class="f" for="edNpm">NPM</label><input id="edNpm" class="mono" :class="{bad: npmBad}" x-model="editForm.npm" maxlength="10" inputmode="numeric" placeholder="10 digit" @input="markDirty()" @paste="onNpmPaste($event)"></div>
+                  <div class="full"><label class="f" for="edKode">Kode Soal</label><input id="edKode" class="mono" x-model.trim="editForm.kode_soal" maxlength="20" @input="markDirty()"></div>
                   <div class="full"><label class="f" for="edFak">Fakultas (LJK)</label>
-                    <select id="edFak" :value="editForm.fakultas_ljk" @change="editForm.fakultas_ljk=$event.target.value">
+                    <select id="edFak" :value="editForm.fakultas_ljk" @change="editForm.fakultas_ljk=$event.target.value; markDirty()">
                       <option value="">(kosong)</option>
                       <template x-for="f in fakultasOptions" :key="'ed-'+f"><option :value="f" x-text="f"></option></template>
                     </select>
@@ -420,7 +420,7 @@
                   <template x-for="q in detail.kuisionerNums" :key="'kui-'+q">
                     <label class="anscell" :class="{filled: editForm.kuisioner[q] && editForm.kuisioner[q]!=='BLANK'}">
                       <span x-text="+q"></span>
-                      <input maxlength="1" :value="editForm.kuisioner[q]==='BLANK'?'':editForm.kuisioner[q]" @input="editForm.kuisioner[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event)">
+                      <input maxlength="1" :value="editForm.kuisioner[q]==='BLANK'?'':editForm.kuisioner[q]" @input="editForm.kuisioner[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event); markDirty()">
                     </label>
                   </template>
                 </div>
@@ -429,7 +429,7 @@
                   <template x-for="q in detail.questionNums" :key="'soal-'+q">
                     <label class="anscell" :class="{filled: editForm.jawaban[q] && editForm.jawaban[q]!=='BLANK'}">
                       <span x-text="+q"></span>
-                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event)">
+                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event); markDirty()">
                     </label>
                   </template>
                 </div>
