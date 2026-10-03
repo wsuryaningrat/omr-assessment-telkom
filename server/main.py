@@ -543,6 +543,10 @@ def monitor_sesi(db=Depends(get_db)):
     rows = db.scalars(select(ScanSession).order_by(ScanSession.created_at.desc()))
     items = []
     by_kelas_lembar = {}
+    try:
+        jml_mhs_map = admin._jml_mhs_by_kelas()   # jumlah mahasiswa per kelas dari jadwal plotting (data jadwal, bukan data peserta)
+    except Exception:  # noqa: BLE001
+        jml_mhs_map = {}
     for s in rows:
         n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
         status = "scanning" if n_pending else ("validated" if s.admin_validated else "perlu_cek")
@@ -551,6 +555,7 @@ def monitor_sesi(db=Depends(get_db)):
             "nama": s.nama_pengawas, "kelas": s.kelas, "prodi": s.prodi,
             "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
             "lembar": n_files, "status": status,
+            "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
         key = (s.kelas or "").strip().lower()

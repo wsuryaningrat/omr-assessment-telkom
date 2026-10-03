@@ -365,6 +365,7 @@ class TestServices(unittest.TestCase):
             self.assertEqual(d["kelas_total"], 2)
             self.assertEqual(d["kelas_upload"], 1)
             self.assertEqual(d["upload_pct"], 50.0)
+            self.assertEqual(next(x for x in d["items"] if x["kelas"] == "PUBMON-A")["jml_mhs"], 1)   # kolom Mahasiswa di /monitor (dari jadwal)
         finally:
             plotting._download = old_download
             plotting._cache.update(rows=None, at=0.0, error=None)

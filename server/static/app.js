@@ -158,9 +158,9 @@ function ljk() {
         const d = await r.json();
         if (!d.exists) return true;
         return await this.ask({
-          title: "Kelas ini sudah ada foto tersimpan",
-          body: `${d.sesi} sesi (${d.lembar} lembar) sudah diunggah utk kelas ini sebelumnya, terakhir oleh ${d.pengawas_terakhir}. Foto baru akan ditambahkan ke tempat yang sama (bukan menimpa). Lanjutkan?`,
-          ok: "Lanjutkan", cancel: "Batal",
+          title: "Kelas sudah pernah diupload",
+          body: "LJK kelas terpilih sudah terupload sebelumnya. Upload ulang akan menimpa sesi upload sebelumnya. Yakin?",
+          ok: "Yakin", cancel: "Batal",
         });
       } catch { return true; }   // gagal cek -> jangan blokir unggah krn hal sepele
     },
