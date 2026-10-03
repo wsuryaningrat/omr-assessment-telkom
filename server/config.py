@@ -46,6 +46,9 @@ CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # 
 
 # ---- Login admin username+password (hash PBKDF2, format "iter:salt_hex:hash_hex"; buat dengan `python -m server.auth hash`)
 ADMIN_USER = os.environ.get("ADMIN_USER", "").strip()
+# Super user = satu-satunya yg boleh membuka menu Akun (kelola akun admin & riwayat akses). Admin lain
+# biasa. Cocokkan dgn identitas login: username (login password) ATAU email (login Google/Microsoft).
+SUPERUSERS = {e.strip().lower() for e in os.environ.get("SUPERUSERS", "wsningrat,wahyusuryaningrat@gmail.com").split(",") if e.strip()}
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
 # Akun password TAMBAHAN (selain ADMIN_USER/ADMIN_PASSWORD_HASH di atas) -- format "user1:iter:salt:hash,user2:iter:salt:hash"
 # (maxsplit=1 di auth._admin_accounts, jadi ":" di dalam hash aman). Dipakai bila lebih dari satu orang perlu masuk admin

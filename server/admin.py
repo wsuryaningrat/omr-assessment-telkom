@@ -1061,7 +1061,13 @@ def _user_view(u: AdminUser) -> dict:
             "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
 
 
-@router.get("/users")
+@router.get("/whoami")
+def admin_whoami(admin=Depends(auth.require_admin)):
+    """Identitas admin yg sedang login + apakah super user (menu Akun) -- dipakai UI utk menyembunyikan tab."""
+    return {"name": admin.get("name"), "email": admin.get("email"), "superuser": auth.is_superuser(admin)}
+
+
+@router.get("/users", dependencies=[Depends(auth.require_superuser)])
 def admin_list_users(db=Depends(get_db)):
     """Daftar akun admin yg dikelola lewat DB (tab Akun di menu admin) -- password tak pernah disertakan.
     TAK termasuk ADMIN_USER/ADMIN_ACCOUNTS dari env (deploy/.env): itu akun bawaan/cadangan yg cuma bisa
@@ -1076,7 +1082,7 @@ class _AdminUserIn(BaseModel):
     hp: str = ""
 
 
-@router.post("/users")
+@router.post("/users", dependencies=[Depends(auth.require_superuser)])
 def admin_create_user(body: _AdminUserIn, db=Depends(get_db), admin=Depends(auth.require_admin)):
     """Buat akun admin baru -- aktif seketika, tanpa redeploy (beda dgn ADMIN_ACCOUNTS di env)."""
     username = body.username.strip()
@@ -1104,7 +1110,7 @@ class _AdminUserPatchIn(BaseModel):
     active: bool | None = None
 
 
-@router.patch("/users/{uid}")
+@router.patch("/users/{uid}", dependencies=[Depends(auth.require_superuser)])
 def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
     """Reset password, ubah nama, dan/atau nonaktifkan (active=false) -- tanpa menghapus riwayat akunnya."""
     u = db.get(AdminUser, uid)
@@ -1124,7 +1130,7 @@ def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
     return _user_view(u)
 
 
-@router.delete("/users/{uid}", status_code=204)
+@router.delete("/users/{uid}", status_code=204, dependencies=[Depends(auth.require_superuser)])
 def admin_delete_user(uid: str, db=Depends(get_db)):
     u = db.get(AdminUser, uid)
     if u is None:
@@ -1133,7 +1139,7 @@ def admin_delete_user(uid: str, db=Depends(get_db)):
     db.commit()
 
 
-@router.get("/access-log")
+@router.get("/access-log", dependencies=[Depends(auth.require_superuser)])
 def admin_access_log(limit: int = Query(100, ge=1, le=500), db=Depends(get_db)):
     """Riwayat percobaan masuk admin terbaru (berhasil & ditolak), lintas SSO Google/Microsoft & password
     -- lihat server.db.AdminAccessLog. Dipakai tab Akun bag. "Riwayat akses"."""

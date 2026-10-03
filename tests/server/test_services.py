@@ -1186,6 +1186,34 @@ class TestServices(unittest.TestCase):
         self.c.patch(f"/api/admin/users/{uid}", json={"active": False}, headers=ADM)
         self.assertEqual(self.c.post("/auth/password", json={"username": "tes_login1", "password": "rahasia123"}).status_code, 401)
 
+    def test_only_superuser_can_use_akun_menu(self):
+        """Menu Akun (kelola akun admin + riwayat akses) khusus super user (config.SUPERUSERS); admin biasa
+        tetap bisa memakai menu lain tapi ditolak 403 di endpoint akun."""
+        auth._FAILS.clear()
+        for u in ("tes_biasa", "tes_super"):
+            self.c.post("/api/admin/users", json={"username": u, "password": "rahasia123", "name": u}, headers=ADM)
+        old = config.SUPERUSERS
+        config.SUPERUSERS = {"tes_super"}
+        try:
+            self.assertEqual(self.c.post("/auth/password", json={"username": "tes_biasa", "password": "rahasia123"}).status_code, 200)
+            w = self.c.get("/api/admin/whoami").json()
+            self.assertEqual((w["email"], w["superuser"]), ("tes_biasa", False))
+            self.assertEqual(self.c.get("/auth/me").json()["superuser"], False)
+            self.assertEqual(self.c.get("/api/admin/summary").status_code, 200)       # admin biasa: menu lain tetap bisa
+            self.assertEqual(self.c.get("/api/admin/users").status_code, 403)
+            self.assertEqual(self.c.get("/api/admin/access-log").status_code, 403)
+            self.assertEqual(self.c.post("/api/admin/users", json={"username": "x_y_z", "password": "rahasia123"}).status_code, 403)
+            self.c.post("/auth/logout")
+            self.assertEqual(self.c.post("/auth/password", json={"username": "tes_super", "password": "rahasia123"}).status_code, 200)
+            self.assertTrue(self.c.get("/api/admin/whoami").json()["superuser"])
+            self.assertEqual(self.c.get("/api/admin/users").status_code, 200)
+            self.assertEqual(self.c.get("/api/admin/access-log").status_code, 200)
+            self.c.post("/auth/logout")
+            self.assertTrue(self.c.get("/api/admin/whoami", headers=ADM).json()["superuser"])   # ADMIN_TOKEN = operator
+        finally:
+            config.SUPERUSERS = old
+            self.c.post("/auth/logout")
+
     def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):
         sid = self.submitted_session("ADMBULK-01", n=3)
         items_before = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]

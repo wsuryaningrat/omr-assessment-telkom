@@ -169,12 +169,26 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
     raise HTTPException(401, "Belum masuk sebagai admin")
 
 
+def is_superuser(admin: dict) -> bool:
+    """Super user: identitas login ada di config.SUPERUSERS, atau pakai ADMIN_TOKEN (rahasia operator server,
+    identitas "token"). Admin biasa lain tak punya akses menu Akun."""
+    ident = str((admin or {}).get("email") or "").strip().lower()
+    return ident == "token" or ident in config.SUPERUSERS
+
+
+def require_superuser(request: Request, x_admin_token: str = Header(default="")):
+    admin = require_admin(request, x_admin_token)
+    if not is_superuser(admin):
+        raise HTTPException(403, "Hanya super user yang boleh mengakses menu Akun")
+    return admin
+
+
 @router.get("/auth/me")
 def me(request: Request):
     s = current_admin(request)
     return {"microsoft": enabled(), "google": google_enabled(), "authed": bool(s),
             "email": (s or {}).get("email"), "name": (s or {}).get("name"), "via": (s or {}).get("via"),
-            "password": password_enabled(),
+            "password": password_enabled(), "superuser": is_superuser(s) if s else False,
             "token_allowed": (not sso_enabled()) or config.ADMIN_ALLOW_TOKEN}
 
 
