@@ -297,6 +297,27 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=lembar&dir=desc", headers=ADM).status_code, 200)
         self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=bukan_kolom", headers=ADM).status_code, 200)
 
+    def test_create_session_replace_existing_removes_old_unprotected_sessions(self):
+        """Upload ulang kelas yg sama (replace_existing, setelah konfirmasi pengawas) MENIMPA sesi lama
+        beserta foto & lembarnya -- kecuali sesi yg sudah divalidasi admin / terkirim (dilindungi)."""
+        kelas = "REPL-01"
+        old = self.submitted_session(kelas)                       # belum divalidasi admin -> boleh ditimpa
+        with SessionLocal() as db:
+            path = db.get(ScanSession, old).files[0].path
+        self.assertTrue(os.path.exists(path))
+        r = self.c.post("/api/sessions", json={**VALID, "kelas": kelas, "replace_existing": True})
+        self.assertEqual((r.status_code, r.json()["diganti"]), (201, 1))
+        self.assertEqual(self.c.get(f"/api/sessions/{old}").status_code, 404)
+        self.assertFalse(os.path.exists(path))
+        # sesi tervalidasi admin TIDAK ikut terhapus
+        kept = self.submitted_session("REPL-02")
+        self.c.post(f"/api/admin/sessions/{kept}/validate", headers=ADM)
+        r2 = self.c.post("/api/sessions", json={**VALID, "kelas": "REPL-02", "replace_existing": True})
+        self.assertEqual(r2.json()["diganti"], 0)
+        self.assertEqual(self.c.get(f"/api/sessions/{kept}").status_code, 200)
+        # tanpa flag: tak ada yg dihapus
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": "REPL-02"}).json()["diganti"], 0)
+
     def test_admin_sessions_filters_by_hari_ujian(self):
         a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-A", "hari_ujian": "2026-09-29"}).json()["id"]
         b = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-B", "hari_ujian": "2026-09-30"}).json()["id"]

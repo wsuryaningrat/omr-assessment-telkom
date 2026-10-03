@@ -395,6 +395,7 @@ class SessionIn(BaseModel):
     fakultas: str = ""
     kode_soal: str = ""
     hari_ujian: str = ""
+    replace_existing: bool = False   # hanya dipakai saat BUAT sesi: ganti sesi lama kelas yg sama (lihat create_session)
 
 
 def _sync_pengawas_contact(ref_id: str, nama: str, hp: str):
@@ -469,11 +470,27 @@ def _resolve_identity(body: SessionIn, db):
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
     nama, hp, fakultas, kode_soal, hari_ujian = _resolve_identity(body, db)
+    replaced = 0
+    if body.replace_existing:
+        # Pengawas sudah mengonfirmasi "Upload ulang akan menimpa sesi upload sebelumnya": hapus sesi LAMA
+        # fakultas/prodi/kelas yg sama (beserta lembar & fotonya). Endpoint ini publik, jadi sesi yg SUDAH
+        # divalidasi admin / sudah terkirim ke Sheet SENGAJA tak disentuh -- hanya admin yg boleh menghapusnya.
+        old = db.scalars(select(ScanSession).where(ScanSession.fakultas == fakultas, ScanSession.prodi == body.prodi.strip(),
+                                                   ScanSession.kelas == body.kelas.strip())).all()
+        for o in old:
+            if o.admin_validated or o.submitted:
+                continue
+            cancel_pending_files(db, o)
+            services.remove_session_files(o)
+            db.delete(o)
+            replaced += 1
+        if replaced:
+            db.commit()
     s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas=fakultas, prodi=body.prodi.strip(),
                      kode_soal=kode_soal, hari_ujian=hari_ujian)
     db.add(s)
     db.commit()
-    return {"id": s.id}
+    return {"id": s.id, "diganti": replaced}
 
 
 @app.patch("/api/sessions/{sid}")

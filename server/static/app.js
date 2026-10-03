@@ -22,7 +22,7 @@ function ljk() {
   return {
     meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "",
     ready: false, sid: null, session: null, online: true, dragging: false, busy: false,
-    upErr: "", upStatus: "", staged: [], _stagedSeq: 0, uploading: false, dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
+    upErr: "", upStatus: "", staged: [], _stagedSeq: 0, _replaceExisting: false, uploading: false, dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
 
     async init() {
@@ -157,11 +157,13 @@ function ljk() {
         const r = await fetch("/api/kelas-check?" + q);
         const d = await r.json();
         if (!d.exists) return true;
-        return await this.ask({
+        const yes = await this.ask({
           title: "Kelas sudah pernah diupload",
           body: "LJK kelas terpilih sudah terupload sebelumnya. Upload ulang akan menimpa sesi upload sebelumnya. Yakin?",
           ok: "Yakin", cancel: "Batal",
         });
+        this._replaceExisting = !!yes;   // dikonfirmasi -> server menghapus sesi lama kelas ini saat sesi baru dibuat
+        return yes;
       } catch { return true; }   // gagal cek -> jangan blokir unggah krn hal sepele
     },
     // Berkas yang dipilih TIDAK langsung dikirim: masuk daftar `staged` dulu supaya pengawas bisa membuang
@@ -200,8 +202,9 @@ function ljk() {
       if (!this.sid) {
         if (!(await this.confirmKelasNotDuplicate())) return;
         try {
-          const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: this.identityBody() });
+          const body = this._replaceExisting ? JSON.stringify({ ...JSON.parse(this.identityBody()), replace_existing: true }) : this.identityBody();
+          const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+          this._replaceExisting = false;
           this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
         } catch (e) { this.toast(e.message, true); return; }
