@@ -46,7 +46,7 @@
       </div>
     </div>
     <div class="tbl"><table>
-      <thead><tr><th>Pengawas</th><th>Ujian</th><th>Upload at</th><th>Kelas</th><th class="c" style="width:auto">Lembar</th><th>Status</th></tr></thead>
+      <thead><tr><th class="sortable" @click="sortBy('nama')" :aria-sort="sortKey==='nama'?(sortDir==='asc'?'ascending':'descending'):'none'">Pengawas <span class="sa" x-text="sortArrow('nama')"></span></th><th class="sortable" @click="sortBy('hari_ujian')" :aria-sort="sortKey==='hari_ujian'?(sortDir==='asc'?'ascending':'descending'):'none'">Ujian <span class="sa" x-text="sortArrow('hari_ujian')"></span></th><th class="sortable" @click="sortBy('created_at')" :aria-sort="sortKey==='created_at'?(sortDir==='asc'?'ascending':'descending'):'none'">Upload at <span class="sa" x-text="sortArrow('created_at')"></span></th><th class="sortable" @click="sortBy('kelas')" :aria-sort="sortKey==='kelas'?(sortDir==='asc'?'ascending':'descending'):'none'">Kelas <span class="sa" x-text="sortArrow('kelas')"></span></th><th class="sortable c" style="width:auto" @click="sortBy('lembar')" :aria-sort="sortKey==='lembar'?(sortDir==='asc'?'ascending':'descending'):'none'">Lembar <span class="sa" x-text="sortArrow('lembar')"></span></th><th class="sortable" @click="sortBy('status')" :aria-sort="sortKey==='status'?(sortDir==='asc'?'ascending':'descending'):'none'">Status <span class="sa" x-text="sortArrow('status')"></span></th></tr></thead>
       <tbody>
         <template x-for="i in filtered" :key="i.nama + i.kelas + i.created_at">
           <tr>

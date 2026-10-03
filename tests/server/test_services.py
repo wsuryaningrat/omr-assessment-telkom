@@ -283,6 +283,20 @@ class TestServices(unittest.TestCase):
         self.assertEqual((r.status_code, r.json()["admin_validated"], r.json()["submitted"]), (200, False, True))
         self.assertIsNone(r.json()["admin_validated_by"])
 
+    def test_admin_sessions_sort_by_column_across_pages(self):
+        for k in ("SORTK-B", "SORTK-C", "SORTK-A"):
+            self.c.post("/api/sessions", json={**VALID, "kelas": k})
+        asc = self.c.get("/api/admin/sessions?q=SORTK-&sort=kelas&dir=asc", headers=ADM).json()["items"]
+        desc = self.c.get("/api/admin/sessions?q=SORTK-&sort=kelas&dir=desc", headers=ADM).json()["items"]
+        self.assertEqual([x["kelas"] for x in asc], ["SORTK-A", "SORTK-B", "SORTK-C"])
+        self.assertEqual([x["kelas"] for x in desc], ["SORTK-C", "SORTK-B", "SORTK-A"])
+        # urut dilakukan SEBELUM paginasi: halaman 1 berukuran 1 harus berisi yg terkecil, bukan sekadar baris pertama
+        p1 = self.c.get("/api/admin/sessions?q=SORTK-&sort=kelas&dir=asc&size=1&page=1", headers=ADM).json()
+        self.assertEqual((p1["total"], [x["kelas"] for x in p1["items"]]), (3, ["SORTK-A"]))
+        # kolom turunan (lembar) & kunci tak dikenal tak membuat error
+        self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=lembar&dir=desc", headers=ADM).status_code, 200)
+        self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=bukan_kolom", headers=ADM).status_code, 200)
+
     def test_admin_sessions_filters_by_hari_ujian(self):
         a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-A", "hari_ujian": "2026-09-29"}).json()["id"]
         b = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-B", "hari_ujian": "2026-09-30"}).json()["id"]

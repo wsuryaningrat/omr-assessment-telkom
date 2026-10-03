@@ -1,6 +1,6 @@
 function monitor() {
   return {
-    items: [], q: "", status: "all", loading: true, lastLoad: "", _poll: null,
+    items: [], q: "", status: "all", sortKey: "", sortDir: "desc", loading: true, lastLoad: "", _poll: null,
     kelas_upload: 0, kelas_total: 0, upload_pct: 0,
 
     async init() {
@@ -22,8 +22,22 @@ function monitor() {
       if (this.status !== "all") l = l.filter(i => i.status === this.status);
       const q = this.q.toLowerCase();
       if (q) l = l.filter(i => `${i.nama} ${i.kelas} ${i.prodi} ${i.kode_soal}`.toLowerCase().includes(q));
+      if (this.sortKey) {
+        const k = this.sortKey, asc = this.sortDir === "asc", order = { scanning: 0, perlu_cek: 1, validated: 2 };
+        const val = i => k === "status" ? (order[i.status] ?? 9) : (typeof i[k] === "string" ? i[k].toLowerCase() : i[k]);
+        const filled = l.filter(i => val(i) !== null && val(i) !== undefined && val(i) !== ""), empty = l.filter(i => !filled.includes(i));
+        filled.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * (asc ? 1 : -1));
+        l = filled.concat(empty);
+      }
       return l;
     },
+    // Klik judul kolom: naik -> turun -> kembali ke urutan asli (terbaru dulu).
+    sortBy(key) {
+      if (this.sortKey !== key) { this.sortKey = key; this.sortDir = "asc"; }
+      else if (this.sortDir === "asc") this.sortDir = "desc";
+      else { this.sortKey = ""; this.sortDir = "desc"; }
+    },
+    sortArrow(key) { return this.sortKey === key ? (this.sortDir === "asc" ? "▲" : "▼") : ""; },
     statusLabel(st) { return { scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
     statusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
     hariLabel(v) { if (!v) return "-"; const d = new Date(v + "T00:00:00"); return isNaN(d) ? v : d.toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" }); },

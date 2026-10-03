@@ -22,7 +22,7 @@ function ljk() {
   return {
     meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "",
     ready: false, sid: null, session: null, online: true, dragging: false, busy: false,
-    upErr: "", upStatus: "", dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
+    upErr: "", upStatus: "", staged: [], _stagedSeq: 0, uploading: false, dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
     _poll: null, _toast: null,
 
     async init() {
@@ -128,7 +128,7 @@ function ljk() {
     forget() { try { localStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
     resetAll() {
       if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
-      clearInterval(this._poll); this._poll = null; this.forget(); this.up = { done: 0, total: 0 };
+      clearInterval(this._poll); this._poll = null; this.forget(); this.clearStaged(); this.up = { done: 0, total: 0 };
       this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; scrollTo({ top: 0 });
     },
 
@@ -143,9 +143,9 @@ function ljk() {
     onFiles(ev) {
       const input = ev.target, files = Array.from(input.files || []);
       clientLog("pick", { n: files.length, valid: this.formValid, sid: !!this.sid, types: files.slice(0, 3).map(f => f.type || f.name.split(".").pop()), sizes: files.slice(0, 3).map(f => f.size) });
-      this.upStatus = files.length ? `${files.length} berkas dipilih…` : "Tidak ada berkas yang terbaca — coba pilih lagi.";
+      if (!files.length) this.upStatus = "Tidak ada berkas yang terbaca — coba pilih lagi.";
       if (!files.length) return;
-      this.pick(files).finally(() => { try { input.value = ""; } catch {} });
+      this.pick(files); try { input.value = ""; } catch {}
     },
     // Foto sumber kini disimpan per Fakultas/Prodi/Kelas (dibagi antar sesi sekelas) -- cek dulu apakah
     // kombinasi ini sudah pernah diunggah sesi LAIN, supaya pengawas sadar sebelum menambah foto ke tempat
@@ -164,40 +164,75 @@ function ljk() {
         });
       } catch { return true; }   // gagal cek -> jangan blokir unggah krn hal sepele
     },
-    async pick(files) {
+    // Berkas yang dipilih TIDAK langsung dikirim: masuk daftar `staged` dulu supaya pengawas bisa membuang
+    // yang tak sengaja terpilih, lalu menekan "Unggah" (uploadStaged) -- jumlah yang terkirim jadi tepat.
+    pick(files) {
       files = [...(files || [])]; if (!files.length) return;
+      const max = (this.meta.max_upload_mb || 10) * 1048576;
+      const big = files.filter(f => f.size > max);
+      if (big.length) this.toast(`${big.length} berkas > ${this.meta.max_upload_mb || 10} MB dilewati`, true);
+      const key = f => `${f.name}|${f.size}|${f.lastModified}`;
+      const have = new Set(this.staged.map(x => key(x.file)));
+      let dup = 0;
+      for (const f of files) {
+        if (f.size > max) continue;
+        if (have.has(key(f))) { dup++; continue; }
+        have.add(key(f));
+        const img = /^image\//.test(f.type) && !/heic|heif/i.test(f.type + f.name);
+        this.staged.push({ id: ++this._stagedSeq, file: f, url: img ? URL.createObjectURL(f) : "" });
+      }
+      if (dup) this.toast(`${dup} berkas sama sudah ada di daftar`, true);
+      this.upStatus = this.staged.length ? `${this.staged.length} berkas siap diunggah — periksa daftar lalu tekan Unggah.` : "";
+    },
+    removeStaged(id) {
+      const i = this.staged.findIndex(x => x.id === id); if (i < 0) return;
+      if (this.staged[i].url) URL.revokeObjectURL(this.staged[i].url);
+      this.staged.splice(i, 1);
+      this.upStatus = this.staged.length ? `${this.staged.length} berkas siap diunggah — periksa daftar lalu tekan Unggah.` : "";
+    },
+    clearStaged() { this.staged.forEach(x => x.url && URL.revokeObjectURL(x.url)); this.staged = []; this.upStatus = ""; },
+    fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; },
+    async uploadStaged() {
+      if (this.uploading || !this.staged.length) return;
       if (!this.formValid) { this.upErr = "Lengkapi data dulu: " + this.formHint.toLowerCase() + "."; this.toast(this.formHint, true); return; }
       this.upErr = "";
       if (this.dirty && !(await this.saveIdentity())) return;
       if (!this.sid) {
         if (!(await this.confirmKelasNotDuplicate())) return;
         try {
-          const f = this.form;
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" },
             body: this.identityBody() });
           this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
         } catch (e) { this.toast(e.message, true); return; }
       }
-      const max = (this.meta.max_upload_mb || 10) * 1048576;
-      const ok = files.filter(f => f.size <= max);
-      if (ok.length < files.length) this.toast(`${files.length - ok.length} berkas > ${this.meta.max_upload_mb} MB dilewati`, true);
+      const ok = [...this.staged];
+      this.uploading = true;
       this.up = { done: 0, total: ok.length }; this.upStatus = `Mengunggah ${ok.length} berkas…`;
       clientLog("upload_start", { n: ok.length });
       let i = 0, fail = 0;
       const worker = async () => {
         while (i < ok.length) {
-          const f = ok[i++], fd = new FormData(); fd.append("files", f, f.name);
-          try { await this.api(`/api/sessions/${this.sid}/files`, { method: "POST", body: fd }); } catch (e) { fail++; this.toast(`${f.name}: ${e.message}`, true); }
+          const it = ok[i++], fd = new FormData(); fd.append("files", it.file, it.file.name);
+          try {
+            await this.api(`/api/sessions/${this.sid}/files`, { method: "POST", body: fd });
+            this.removeStagedQuiet(it.id);
+          } catch (e) { fail++; this.toast(`${it.file.name}: ${e.message}`, true); }
           this.up.done++;
           if (this.up.done % 3 === 0 || this.up.done === ok.length) this.refresh();
         }
       };
       await Promise.all([worker(), worker(), worker()]);   // 3 unggahan paralel
+      this.uploading = false;
       await this.refresh();
-      this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal.` : `${ok.length} berkas terunggah — sedang dipindai…`;
+      this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal — yang gagal tetap di daftar, tekan Unggah untuk coba lagi.` : `${ok.length} berkas terunggah — sedang dipindai…`;
       clientLog("upload_done", { ok: ok.length - fail, fail });
       if (!fail) this.toast(`${ok.length} berkas diunggah`);
+    },
+    removeStagedQuiet(id) {
+      const i = this.staged.findIndex(x => x.id === id); if (i < 0) return;
+      if (this.staged[i].url) URL.revokeObjectURL(this.staged[i].url);
+      this.staged.splice(i, 1);
     },
   };
 }

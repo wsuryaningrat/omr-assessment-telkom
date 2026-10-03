@@ -186,10 +186,29 @@ def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
 
 
 _DERIVED_STATUSES = ("scanning", "perlu_cek", "validated")
+_SORT_KEYS = ("created_at", "nama", "kelas", "lembar", "jml_mhs", "status", "hari_ujian")
+_STATUS_ORDER = {"scanning": 0, "perlu_cek": 1, "validated": 2}
+
+
+def _sort_rows(rows, key, asc):
+    """Urutkan baris sesi menurut kolom yg diklik di tabel Sesi. Nilai kosong (None/"") SELALU di akhir,
+    apa pun arahnya, supaya tak menutupi data nyata di puncak daftar."""
+    def val(r):
+        if key == "lembar":
+            return r["files"]["total"]
+        if key == "status":
+            return _STATUS_ORDER.get(r["status"], 9)
+        v = r.get(key)
+        return v.lower() if isinstance(v, str) else v
+    filled = [r for r in rows if val(r) not in (None, "")]
+    empty = [r for r in rows if val(r) in (None, "")]
+    return sorted(filled, key=val, reverse=not asc) + empty
+
+
 
 
 @router.get("/sessions")
-def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q: str = "", status: str = "all", hari: str = "", db=Depends(get_db)):
+def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q: str = "", status: str = "all", hari: str = "", sort: str = "", dir: str = "desc", db=Depends(get_db)):
     cond = []
     if status == "submitted":
         cond.append(ScanSession.submitted.is_(True))
@@ -203,12 +222,14 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
         like = f"%{q.strip()}%"
         cond.append(ScanSession.nama_pengawas.ilike(like) | ScanSession.kelas.ilike(like) | ScanSession.prodi.ilike(like))
     jml_mhs_map = _jml_mhs_by_kelas()
-    if status in _DERIVED_STATUSES:
-        # scanning/perlu_cek/validated butuh f.state per berkas & s.admin_validated -- tak bisa disaring lewat
-        # SQL LIMIT/OFFSET tanpa join rumit, jadi disaring+dipaginasi di Python. Jumlah sesi total (bukan per
-        # kelas ujian) di alat ini kecil, jadi memuat semua baris yg cocok `q` sekali lalu menyaring aman.
+    if status in _DERIVED_STATUSES or sort in _SORT_KEYS:
+        # scanning/perlu_cek/validated butuh f.state per berkas & s.admin_validated, dan kolom turunan
+        # (lembar/mhs/status) tak ada di SQL -- jadi disaring, diurutkan, & dipaginasi di Python. Jumlah sesi
+        # total (bukan per kelas ujian) di alat ini kecil, jadi memuat semua baris yg cocok `q` sekali aman.
         all_rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()))
-        items_all = [_session_row(db, s, jml_mhs_map) for s in all_rows if _session_status(s) == status]
+        items_all = [_session_row(db, s, jml_mhs_map) for s in all_rows if status not in _DERIVED_STATUSES or _session_status(s) == status]
+        if sort in _SORT_KEYS:
+            items_all = _sort_rows(items_all, sort, dir == "asc")
         total = len(items_all)
         items = items_all[(page - 1) * size: (page - 1) * size + size]
     else:

@@ -144,13 +144,28 @@
         <p class="sub">Sistem otomatis mendeteksi marker, merapikan posisi, dan membaca bulatan.</p>
         <div class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg></span>
-          <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.summary.lembar ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
+          <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.summary.lembar || staged.length ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
           <p>JPG · PNG · HEIC · PDF — maks. <span x-text="meta.max_upload_mb||10"></span> MB per berkas, boleh banyak sekaligus</p>
           <span class="btn p sm">Pilih berkas dari perangkat</span>
           <input type="file" class="ovl" multiple accept="image/*,.pdf,.heic,.heif" aria-label="Pilih berkas LJK" @click="guardPick($event)" @change="onFiles($event)">
         </div>
         <div class="err" style="margin-top:8px;font-size:13px" x-show="upErr" x-text="upErr"></div>
         <div class="upstat" x-show="upStatus" x-text="upStatus"></div>
+        <div class="staged" x-show="staged.length">
+          <div class="staged-head"><b><span x-text="staged.length"></span> berkas dipilih</b>
+            <button type="button" class="btn sm" @click="clearStaged()" :disabled="uploading">Kosongkan</button></div>
+          <ul>
+            <template x-for="(it, n) in staged" :key="it.id">
+              <li>
+                <span class="th"><img x-show="it.url" :src="it.url" alt=""><i x-show="!it.url">📄</i></span>
+                <span class="nm"><b x-text="it.file.name"></b><small x-text="fmtSize(it.file.size)"></small></span>
+                <button type="button" class="rm" @click="removeStaged(it.id)" :disabled="uploading" :aria-label="'Hapus '+it.file.name" title="Hapus dari daftar">✕</button>
+              </li>
+            </template>
+          </ul>
+          <button type="button" class="btn p" style="width:100%" @click="uploadStaged()" :disabled="uploading">
+            <span x-text="uploading ? 'Mengunggah…' : 'Unggah '+staged.length+' berkas'"></span></button>
+        </div>
         <div style="margin-top:12px" x-show="up.total>0 && up.done<up.total">
           <div class="prog"><span>Mengunggah…</span><span x-text="up.done+' / '+up.total"></span></div>
           <div class="bar"><i :style="`width:${up.total?up.done/up.total*100:0}%`"></i></div>
