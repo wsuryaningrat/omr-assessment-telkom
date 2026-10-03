@@ -1,7 +1,7 @@
 function admin() {
   return {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", superuser: false, busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    allTabs: [{ id: "monitoring", label: "Monitoring" }, { id: "ringkasan", label: "Ringkasan" }, { id: "sesi", label: "Sesi" }, { id: "kunci", label: "Kunci jawaban" }, { id: "kalibrasi", label: "Kalibrasi" }, { id: "akun", label: "Akun", superOnly: true }, { id: "ekspor", label: "Ekspor" }],
+    allTabs: [{ id: "monitoring", label: "Monitoring" }, { id: "sesi", label: "Sesi" }, { id: "akun", label: "Akun", superOnly: true }, { id: "ekspor", label: "Ekspor" }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all", hari: "", sort: "", dir: "desc" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
@@ -52,7 +52,7 @@ function admin() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "ringkasan") this.loadSummary(); if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
     async loadMonitor(refresh = false) {
       this.monBusy = true;
       try {
@@ -83,7 +83,7 @@ function admin() {
     // Ringkas nama pengawas jadi 2 kata pertama di tabel Sesi (nama lengkap tetap ada di title/tooltip)
     // -- nama panjang (mis. gelar dosen) bikin baris melebar & bikin kolom lain tak sejajar.
     shortName(nama) { return (nama || "").trim().split(/\s+/).slice(0, 2).join(" "); },
-    async go(t) { if (t === "akun" && !this.superuser) return; this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "kunci") await this.loadKunci(); if (t === "ringkasan") await this.loadSummary(); if (t === "kalibrasi") await this.loadCalib(); if (t === "akun") await this.loadUsers(); },
+    async go(t) { if (t === "akun" && !this.superuser) return; this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "akun") await this.loadUsers(); },
     async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {
