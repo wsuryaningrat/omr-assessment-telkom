@@ -78,43 +78,35 @@
 
       <div class="card">
         <h2>Data Ujian &amp; Peserta</h2>
-        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Program studi dan kelas peserta ujian.'"></p>
+        <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Cukup pilih kelas — program studi & fakultas terisi otomatis.'"></p>
         <div class="grid">
           <div class="full">
-            <label class="f" for="fk">Fakultas</label>
-            <div class="selbox">
-              <span class="face" :class="{ph: !form.fakultas}" x-text="form.fakultas || 'Pilih fakultas'"></span>
-              <select autocomplete="off" id="fk" x-model="form.fakultas" aria-label="Fakultas">
-                <option value="">Pilih fakultas</option>
-                <template x-for="f in meta.fakultas||[]" :key="f"><option :value="f" x-text="f"></option></template>
-              </select>
-            </div>
-          </div>
-          <div class="full">
-            <label class="f" for="pr">Program Studi</label>
-            <div class="selbox">
-              <span class="face" :class="{ph: !form.prodi}" x-text="form.prodi === 'manual' ? 'Lainnya — isi sendiri' : (form.prodi || 'Pilih program studi')"></span>
-              <select autocomplete="off" id="pr" x-model="form.prodi" @change="onProdi()" aria-label="Program studi mahasiswa">
-                <option value="">Pilih program studi</option>
-                <template x-for="p in prodiOptions" :key="p"><option :value="p" x-text="p"></option></template>
-                <option value="manual">Lainnya — isi sendiri</option>
-              </select>
-            </div>
-            <input autocomplete="off" id="prm" style="margin-top:8px" x-show="form.prodi === 'manual'" x-model.trim="form.prodiManual" maxlength="150" placeholder="Tulis program studi (bila gabungan, pisahkan dengan koma)" aria-label="Program studi (isi sendiri)">
-          </div>
-          <div class="full">
-            <label class="f" for="kl">Kelas <span class="mute" x-show="prodiKnown" x-text="'(' + kelasOptions.length + ' kelas)'"></span></label>
+            <label class="f" for="kl">Kelas <span class="mute" x-text="'(' + kelasOptions.length + ' kelas)'"></span></label>
             <div class="selbox">
               <span class="face" :class="{ph: !form.kelas}" x-text="form.kelas === 'manual' ? 'Lainnya — isi sendiri' : (form.kelas || 'Pilih kelas')"></span>
-              <select autocomplete="off" id="kl" x-model="form.kelas" @change="onKelas()" aria-label="Kelas mahasiswa">
+              <select autocomplete="off" id="kl" x-model="form.kelas" aria-label="Kelas mahasiswa">
                 <option value="">Pilih kelas</option>
-                <template x-for="k in kelasOptions" :key="k.kelas"><option :value="k.kelas" x-text="prodiKnown ? k.kelas : k.kelas + ' — ' + k.prodi"></option></template>
+                <template x-for="k in kelasOptions" :key="k.kelas"><option :value="k.kelas" x-text="k.kelas + ' — ' + k.prodi"></option></template>
                 <option value="manual">Lainnya — isi sendiri</option>
               </select>
             </div>
-            <input autocomplete="off" id="klm" style="margin-top:8px" x-show="form.kelas === 'manual'" x-model.trim="form.kelasManual" maxlength="100" placeholder="Tulis nama kelas (bila gabungan, pisahkan dengan koma)" aria-label="Kelas (isi sendiri)">
+            <p class="mute" style="margin-top:6px;font-size:13px" x-show="kelasInfo">
+              <b x-text="kelasInfo?.prodi"></b><span x-show="kelasInfo?.fakultas"> · Fakultas <b x-text="kelasInfo?.fakultas"></b></span>
+              <span x-show="kelasInfo && !kelasInfo.fakultas"> · (fakultas belum terdaftar — hubungi admin)</span>
+            </p>
+            <div x-show="form.kelas === 'manual'">
+              <input autocomplete="off" id="klm" style="margin-top:8px" x-model.trim="form.kelasManual" maxlength="100" placeholder="Tulis nama kelas (bila gabungan, pisahkan dengan koma)" aria-label="Kelas (isi sendiri)">
+              <input autocomplete="off" id="prm" style="margin-top:8px" x-model.trim="form.prodiManual" maxlength="150" placeholder="Tulis program studi" aria-label="Program studi (isi sendiri)">
+              <div class="selbox" style="margin-top:8px">
+                <span class="face" :class="{ph: !form.fakultas}" x-text="form.fakultas || 'Pilih fakultas'"></span>
+                <select autocomplete="off" id="fk" x-model="form.fakultas" aria-label="Fakultas">
+                  <option value="">Pilih fakultas</option>
+                  <template x-for="f in meta.fakultas||[]" :key="f"><option :value="f" x-text="f"></option></template>
+                </select>
+              </div>
+            </div>
           </div>
-          <div>
+          <div class="full">
             <label class="f" for="hr">Hari Ujian</label>
             <div class="selbox">
               <span class="face" :class="{ph: !form.hari}" x-text="hariLabel(form.hari) || 'Pilih hari'"></span>
@@ -123,11 +115,6 @@
                 <template x-for="h in meta.hari||[]" :key="h.value"><option :value="h.value" x-text="h.label"></option></template>
               </select>
             </div>
-          </div>
-          <div>
-            <label class="f" for="ks">Kode Soal</label>
-            <input autocomplete="off" id="ks" x-model.trim="form.kodeSoal" maxlength="20" list="kodeSoalList" placeholder="mis. 273" aria-label="Kode soal">
-            <datalist id="kodeSoalList"><template x-for="k in meta.kunci||[]" :key="k"><option :value="stripKode(k)"></option></template></datalist>
           </div>
         </div>
       </div>

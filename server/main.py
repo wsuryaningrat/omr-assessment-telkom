@@ -391,7 +391,7 @@ class SessionIn(BaseModel):
     nama_pengawas: str = ""
     hp: str = ""
     kelas: str
-    prodi: str
+    prodi: str = ""            # opsional bila kelas ada di tabel kelas (diisi server)
     fakultas: str = ""
     kode_soal: str = ""
     hari_ujian: str = ""
@@ -425,6 +425,11 @@ def _sync_pengawas_contact(ref_id: str, nama: str, hp: str):
 def _resolve_identity(body: SessionIn, db):
     """Validasi isian dan kembalikan (nama, hp) pengawas: dari daftar terdaftar bila dipilih, atau isian sendiri."""
     errors = []
+    info = refdata.kelas_info(body.kelas)
+    if info:   # kelas ada di tabel -> prodi & fakultas SELALU dari tabel (isian klien diabaikan)
+        body.prodi = info["prodi"]
+        if info["fakultas"]:
+            body.fakultas = info["fakultas"]
     nama, hp = body.nama_pengawas.strip(), _norm_hp(body.hp)
     dosen = False
     if body.pengawas_ref:
@@ -456,10 +461,8 @@ def _resolve_identity(body: SessionIn, db):
     # Kode soal: isian singkat bebas (label bantu admin, mis. "273") -- TIDAK dicocokkan ke nama kunci
     # jawaban terdaftar; kunci yg dipakai saat menilai tetap ditentukan otomatis dari Kode Soal hasil
     # scan LJK per-mahasiswa (lihat core.evaluator.find_matching_kunci_sheet), bukan dari isian ini.
-    kode_soal = body.kode_soal.strip()
-    if not kode_soal:
-        errors.append("Kode soal wajib diisi")
-    elif len(kode_soal) > 20:
+    kode_soal = body.kode_soal.strip()   # opsional: pengawas tak perlu mengisi lagi (kunci dipilih dari hasil scan)
+    if len(kode_soal) > 20:
         errors.append("Kode soal terlalu panjang (maks. 20 karakter)")
     if errors:
         raise HTTPException(422, errors)

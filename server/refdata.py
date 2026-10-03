@@ -24,12 +24,19 @@ def norm_hp(raw: str):
 
 @lru_cache(maxsize=1)
 def kelas():
-    """[{kelas, prodi}] terurut abjad."""
+    """[{kelas, prodi, fakultas}] terurut abjad. Fakultas = kolom ke-3 kelas.tsv (kosong bila belum dipetakan)."""
     out = []
     for r in _rows(KELAS_FILE):
         if len(r) >= 2 and r[0].strip() and r[1].strip():
-            out.append({"kelas": r[0].strip(), "prodi": r[1].strip()})
+            out.append({"kelas": r[0].strip(), "prodi": r[1].strip(), "fakultas": r[2].strip() if len(r) > 2 else ""})
     return sorted(out, key=lambda x: x["kelas"].lower())
+
+
+def kelas_info(nama_kelas: str):
+    """Baris tabel kelas utk nama kelas persis (tanpa beda kapital), atau None -- sumber prodi & fakultas
+    sesi: pengawas cukup memilih kelas, server yg mengisi sisanya (lihat main._resolve_identity)."""
+    n = (nama_kelas or "").strip().lower()
+    return next((k for k in kelas() if k["kelas"].lower() == n), None)
 
 
 def prodi_list():

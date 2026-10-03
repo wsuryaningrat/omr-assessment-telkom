@@ -40,27 +40,25 @@ function ljk() {
     get manual() { return this.form.ref === "manual"; },
     get showHp() { return this.manual || !!this.picked?.needs_hp; },
     get namaOk() { return this.manual ? !!this.form.nama : !!this.picked; },
-    get prodiOptions() { return this.meta.prodi || []; },
     hariLabel(v) { return (this.meta.hari || []).find(h => h.value === v)?.label || ""; },
     stripKode(k) { const m = /^k[j]?(\d+)$/i.exec(k || ""); return m ? m[1] : (k || ""); },
-    get prodiKnown() { return !!this.form.prodi && this.form.prodi !== "manual"; },
-    get prodiFinal() { return this.form.prodi === "manual" ? this.form.prodiManual.trim() : this.form.prodi; },
+    get kelasInfo() { return (this.meta.kelas || []).find(x => x.kelas === this.form.kelas) || null; },
+    get prodiFinal() { return this.kelasInfo ? this.kelasInfo.prodi : (this.form.kelas === "manual" ? this.form.prodiManual.trim() : ""); },
+    get fakultasFinal() { return this.kelasInfo ? (this.kelasInfo.fakultas || "") : (this.form.kelas === "manual" ? this.form.fakultas : ""); },
     get kelasFinal() { return this.form.kelas === "manual" ? this.form.kelasManual.trim() : this.form.kelas; },
-    get kelasOptions() { const k = this.meta.kelas || []; return this.prodiKnown ? k.filter(x => x.prodi === this.form.prodi) : k; },
-    onProdi() { const k = (this.meta.kelas || []).find(x => x.kelas === this.form.kelas); if (k && this.prodiKnown && k.prodi !== this.form.prodi) this.form.kelas = ""; },
-    onKelas() { const k = (this.meta.kelas || []).find(x => x.kelas === this.form.kelas); if (k && (!this.form.prodi || this.prodiKnown)) this.form.prodi = k.prodi; },
+    get kelasOptions() { return this.meta.kelas || []; },
     onPengawas() { if (!this.showHp) this.form.hp = ""; if (!this.manual) this.form.nama = ""; },
     get phoneOk() { return PHONE(this.form.hp); },
     cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
-    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal, fakultas: f.fakultas, hari_ujian: f.hari, kode_soal: f.kodeSoal }); },
-    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && f.fakultas && this.prodiFinal && this.kelasFinal && f.hari && f.kodeSoal); },
+    identityBody() { const f = this.form; return JSON.stringify({ pengawas_ref: this.manual ? "" : f.ref, nama_pengawas: this.manual ? f.nama : "", hp: this.showHp ? "+62" + f.hp : "", kelas: this.kelasFinal, prodi: this.prodiFinal, fakultas: this.fakultasFinal, hari_ujian: f.hari, kode_soal: "" }); },
+    get formValid() { const f = this.form; return !!(this.namaOk && (!this.showHp || this.phoneOk) && this.fakultasFinal && this.prodiFinal && this.kelasFinal && f.hari); },
     get dirty() { return !!this.sid && JSON.stringify(this.form) !== this.baseline; },
     get formHint() {
       const f = this.form;
       if (!f.ref) return "Pilih nama pengawas"; if (this.manual && !f.nama) return "Isi nama lengkap pengawas"; if (this.showHp && !this.phoneOk) return "Isi nomor HP yang valid";
-      if (!f.fakultas) return "Pilih fakultas";
-      if (!this.prodiFinal) return f.prodi === "manual" ? "Isi program studi" : "Pilih program studi"; if (!this.kelasFinal) return f.kelas === "manual" ? "Isi nama kelas" : "Pilih kelas";
-      if (!f.hari) return "Pilih hari ujian"; if (!f.kodeSoal) return "Pilih kode soal";
+      if (!this.kelasFinal) return f.kelas === "manual" ? "Isi nama kelas" : "Pilih kelas";
+      if (!this.prodiFinal) return "Isi program studi"; if (!this.fakultasFinal) return f.kelas === "manual" ? "Pilih fakultas" : "Fakultas kelas ini belum terdaftar — hubungi admin";
+      if (!f.hari) return "Pilih hari ujian";
       return "Siap — pilih berkas LJK di atas";
     },
     get step() { if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
@@ -73,10 +71,10 @@ function ljk() {
     loadForm() {
       const p = this.session?.pengawas; if (!p) return;
       const ref = this.pengawasList.find(x => x.nama === p.nama);
-      const kn = (this.meta.kelas || []).some(x => x.kelas === p.kelas), pn = (this.meta.prodi || []).includes(p.prodi);
+      const kn = (this.meta.kelas || []).some(x => x.kelas === p.kelas);
       this.form = { ref: ref ? ref.id : "manual", nama: ref ? "" : p.nama, hp: !ref || ref.needs_hp ? hpLocal(p.hp) : "",
-        kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: pn ? p.prodi : (p.prodi ? "manual" : ""), prodiManual: pn ? "" : (p.prodi || ""),
-        fakultas: p.fakultas || "", hari: p.hari_ujian || "", kodeSoal: p.kode_soal || "" };
+        kelas: kn ? p.kelas : (p.kelas ? "manual" : ""), kelasManual: kn ? "" : (p.kelas || ""), prodi: "", prodiManual: kn ? "" : (p.prodi || ""),
+        fakultas: kn ? "" : (p.fakultas || ""), hari: p.hari_ujian || "", kodeSoal: "" };
       this.baseline = JSON.stringify(this.form);
     },
     async saveIdentity() {
@@ -138,7 +136,7 @@ function ljk() {
       if (this.formValid) { this.upErr = ""; return; }
       ev.preventDefault(); this.upErr = "Lengkapi data pengawas & kelas dulu: " + this.formHint.toLowerCase() + ".";
       clientLog("guard", { hint: this.formHint });
-      document.getElementById(!this.form.ref ? "pw" : (this.manual && !this.form.nama) ? "nama" : (this.showHp && !this.phoneOk) ? "hp" : !this.prodiFinal ? (this.form.prodi === "manual" ? "prm" : "pr") : (this.form.kelas === "manual" ? "klm" : "kl"))?.focus();
+      document.getElementById(!this.form.ref ? "pw" : (this.manual && !this.form.nama) ? "nama" : (this.showHp && !this.phoneOk) ? "hp" : !this.kelasFinal ? (this.form.kelas === "manual" ? "klm" : "kl") : !this.prodiFinal ? "prm" : !this.fakultasFinal ? "fk" : "hr")?.focus();
     },
     onFiles(ev) {
       const input = ev.target, files = Array.from(input.files || []);
@@ -153,7 +151,7 @@ function ljk() {
     async confirmKelasNotDuplicate() {
       const f = this.form;
       try {
-        const q = new URLSearchParams({ fakultas: f.fakultas, prodi: this.prodiFinal, kelas: this.kelasFinal });
+        const q = new URLSearchParams({ fakultas: this.fakultasFinal, prodi: this.prodiFinal, kelas: this.kelasFinal });
         const r = await fetch("/api/kelas-check?" + q);
         const d = await r.json();
         if (!d.exists) return true;

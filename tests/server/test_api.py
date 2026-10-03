@@ -47,14 +47,14 @@ class TestAPI(unittest.TestCase):
             r = self.c.post("/api/sessions", json={**VALID, "hp": ok})
             self.assertEqual(r.status_code, 201, ok)
             self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hp"], "+6281234567890", ok)
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "prodi": " "}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": "LUAR-TABEL-01", "prodi": " "}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": " "}).status_code, 422)
         # isi sendiri: prodi/kelas di luar daftar atau gabungan diterima apa adanya
         r = self.c.post("/api/sessions", json={**VALID, "prodi": "S1 Film, S1 Kriya", "kelas": "GAB-XYZ-01, GAB-XYZ-02"})
         self.assertEqual(r.status_code, 201)
         d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
         self.assertEqual((d["prodi"], d["kelas"]), ("S1 Film, S1 Kriya", "GAB-XYZ-01, GAB-XYZ-02"))
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "prodi": "x" * 151}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": "LUAR-TABEL-01", "prodi": "x" * 151}).status_code, 422)
         m = self.c.get("/api/meta").json()
         self.assertGreater(len(m["kelas"]), 100)
         self.assertEqual(m["prodi"], sorted(set(k["prodi"] for k in m["kelas"]), key=str.lower))
@@ -67,7 +67,16 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(m["hari"][1]["label"], "Selasa, 29 September 2026")
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": ""}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-27"}).status_code, 422)   # di luar 28 Sep-2 Okt
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 422)
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 201)   # kode soal tak wajib lagi
+        # kelas yg ADA di tabel kelas -> prodi & fakultas diisi server dari tabel, isian klien diabaikan
+        r = self.c.post("/api/sessions", json={**VALID, "kelas": "BS1TR-50-REG-01", "prodi": "SALAH", "fakultas": "FIF", "kode_soal": ""})
+        self.assertEqual(r.status_code, 201, r.text)
+        d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
+        self.assertEqual((d["prodi"], d["fakultas"]), ("S1 Teknik Sistem Energi", "FTE"))
+        # tanpa prodi & fakultas sama sekali pun cukup (pengawas hanya memilih kelas)
+        r = self.c.post("/api/sessions", json={**{k: v for k, v in VALID.items() if k not in ("prodi", "fakultas", "kode_soal")}, "kelas": "BS1TR-50-REG-02"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertTrue(all(k.get("fakultas") for k in self.c.get("/api/meta").json()["kelas"]))
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "x" * 21}).status_code, 422)   # terlalu panjang
         r = self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA-DI-KUNCI"})   # bebas, tak perlu cocok kunci
         self.assertEqual(r.status_code, 201, r.text)
