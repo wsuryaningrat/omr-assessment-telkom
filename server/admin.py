@@ -691,9 +691,9 @@ def admin_stop_session(sid: str, db=Depends(get_db)):
     return cancel_pending_files(db, s)
 
 
-@router.delete("/sessions/{sid}", status_code=204)
+@router.delete("/sessions/{sid}", status_code=204, dependencies=[Depends(auth.require_superuser)])
 def admin_delete_session(sid: str, db=Depends(get_db)):
-    """Hapus sesi (kaskade: berkas & lembar ikut terhapus dari DB) + berkas fotonya di disk. Bila sesi masih
+    """Khusus super_admin (auth.require_superuser). Hapus sesi (kaskade: berkas & lembar ikut terhapus dari DB) + berkas fotonya di disk. Bila sesi masih
     ada pemindaian berjalan, coba hentikan dulu (upaya terbaik) supaya worker tak sia-sia memproses sesi yg
     sebentar lagi lenyap; sisa yg sudah benar2 jalan aman diselesaikan (lihat guard di _on_done). Foto kini
     dibagi per Fakultas/Prodi/Kelas antar sesi sekelas (lihat server/main.py _class_folder) -- HANYA berkas
@@ -1058,7 +1058,7 @@ def calib_preview(token: str, field: str = "", dx: float = 0.0, dy: float = 0.0,
 def _user_view(u: AdminUser) -> dict:
     return {"id": u.id, "username": u.username, "name": u.name, "hp": u.hp, "active": u.active,
             "created_at": u.created_at.isoformat() if u.created_at else None, "created_by": u.created_by,
-            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None, "type": u.type or "admin"}
 
 
 @router.get("/whoami")

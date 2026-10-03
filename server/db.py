@@ -129,6 +129,9 @@ class AdminUser(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "admin" (default, akun biasa) atau "super_admin" (HANYA username config.SUPER_ADMIN_USERNAME = wsningrat:
+    # boleh membuka menu Akun & menghapus sesi). Dijaga tiap startup oleh _sync_admin_types().
+    type: Mapped[str] = mapped_column(String(20), default="admin", server_default="admin")
 
 
 class Pengawas(Base):
@@ -174,6 +177,7 @@ def init_db():
     Base.metadata.create_all(engine)
     _migrate()
     _seed_env_admin_accounts()
+    _sync_admin_types()
     _seed_pengawas_from_tsv()
 
 
@@ -189,7 +193,7 @@ def _migrate():
             "kode_soal": "VARCHAR(100) DEFAULT ''", "hari_ujian": "VARCHAR(20) DEFAULT ''",
         },
         "kunci": {"source": "VARCHAR(20) DEFAULT 'manual'", "updated_at": "TIMESTAMP"},
-        "admin_user": {"hp": "VARCHAR(40) DEFAULT ''"},
+        "admin_user": {"hp": "VARCHAR(40) DEFAULT ''", "type": "VARCHAR(20) NOT NULL DEFAULT 'admin'"},
     }
     if not _is_sqlite:
         # pgcrypto: supaya admin_user.password_hash bisa diisi langsung lewat psql pakai crypt()/
@@ -208,6 +212,21 @@ def _migrate():
             for name, ddl in cols.items():
                 if name not in have:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
+def _sync_admin_types():
+    """Jaga aturan tipe akun tiap startup: super_admin HANYA utk config.SUPER_ADMIN_USERNAME (wsningrat);
+    akun lain apa pun nilai type-nya (mis. diubah manual lewat psql) dikembalikan ke "admin"."""
+    from server import config
+    try:
+        with SessionLocal() as db:
+            for u in db.query(AdminUser):
+                want = "super_admin" if u.username == config.SUPER_ADMIN_USERNAME else "admin"
+                if u.type != want:
+                    u.type = want
+            db.commit()
+    except Exception:  # noqa: BLE001 -- tak boleh menggagalkan startup
+        pass
 
 
 def _seed_env_admin_accounts():

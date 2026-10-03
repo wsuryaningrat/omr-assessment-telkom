@@ -1186,32 +1186,44 @@ class TestServices(unittest.TestCase):
         self.c.patch(f"/api/admin/users/{uid}", json={"active": False}, headers=ADM)
         self.assertEqual(self.c.post("/auth/password", json={"username": "tes_login1", "password": "rahasia123"}).status_code, 401)
 
-    def test_only_superuser_can_use_akun_menu(self):
-        """Menu Akun (kelola akun admin + riwayat akses) khusus super user (config.SUPERUSERS); admin biasa
-        tetap bisa memakai menu lain tapi ditolak 403 di endpoint akun."""
+    def test_only_super_admin_can_use_akun_menu_and_delete_sessions(self):
+        """admin_user.type: "admin" (default) atau "super_admin" (HANYA config.SUPER_ADMIN_USERNAME). Hanya
+        super_admin boleh menu Akun & menghapus sesi; admin biasa tetap bisa menu lain."""
         auth._FAILS.clear()
         for u in ("tes_biasa", "tes_super"):
-            self.c.post("/api/admin/users", json={"username": u, "password": "rahasia123", "name": u}, headers=ADM)
-        old = config.SUPERUSERS
-        config.SUPERUSERS = {"tes_super"}
+            r = self.c.post("/api/admin/users", json={"username": u, "password": "rahasia123", "name": u}, headers=ADM)
+            self.assertEqual(r.json()["type"], "admin", r.text)          # akun baru selalu "admin"
+        old = config.SUPER_ADMIN_USERNAME
+        config.SUPER_ADMIN_USERNAME = "tes_super"
         try:
+            with SessionLocal() as db:   # tes_biasa DIPAKSA super_admin lewat DB -> startup-sync harus mengembalikannya
+                db.query(AdminUser).filter(AdminUser.username == "tes_biasa").update({"type": "super_admin"})
+                db.commit()
+            dbmod._sync_admin_types()
+            with SessionLocal() as db:
+                types = {u.username: u.type for u in db.query(AdminUser).filter(AdminUser.username.in_(["tes_biasa", "tes_super"]))}
+            self.assertEqual(types, {"tes_biasa": "admin", "tes_super": "super_admin"})
+
+            sid = self.c.post("/api/sessions", json={**VALID, "kelas": "SUPDEL-01"}).json()["id"]
             self.assertEqual(self.c.post("/auth/password", json={"username": "tes_biasa", "password": "rahasia123"}).status_code, 200)
             w = self.c.get("/api/admin/whoami").json()
             self.assertEqual((w["email"], w["superuser"]), ("tes_biasa", False))
-            self.assertEqual(self.c.get("/auth/me").json()["superuser"], False)
             self.assertEqual(self.c.get("/api/admin/summary").status_code, 200)       # admin biasa: menu lain tetap bisa
             self.assertEqual(self.c.get("/api/admin/users").status_code, 403)
             self.assertEqual(self.c.get("/api/admin/access-log").status_code, 403)
             self.assertEqual(self.c.post("/api/admin/users", json={"username": "x_y_z", "password": "rahasia123"}).status_code, 403)
+            self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}").status_code, 403)   # hapus sesi: super_admin saja
             self.c.post("/auth/logout")
             self.assertEqual(self.c.post("/auth/password", json={"username": "tes_super", "password": "rahasia123"}).status_code, 200)
             self.assertTrue(self.c.get("/api/admin/whoami").json()["superuser"])
-            self.assertEqual(self.c.get("/api/admin/users").status_code, 200)
+            rows = {u["username"]: u["type"] for u in self.c.get("/api/admin/users").json()}
+            self.assertEqual((rows["tes_super"], rows["tes_biasa"]), ("super_admin", "admin"))
             self.assertEqual(self.c.get("/api/admin/access-log").status_code, 200)
+            self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}").status_code, 204)
             self.c.post("/auth/logout")
             self.assertTrue(self.c.get("/api/admin/whoami", headers=ADM).json()["superuser"])   # ADMIN_TOKEN = operator
         finally:
-            config.SUPERUSERS = old
+            config.SUPER_ADMIN_USERNAME = old
             self.c.post("/auth/logout")
 
     def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):

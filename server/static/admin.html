@@ -250,7 +250,7 @@
                   <button class="ib" x-show="i.lembar>0" @click="rescanAllSheets(i)" title="Pindai ulang semua lembar" aria-label="Pindai ulang semua lembar">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
                   </button>
-                  <button class="ib d" @click="deleteSession(i.id)" title="Hapus sesi" aria-label="Hapus sesi">
+                  <button class="ib d" x-show="superuser" @click="deleteSession(i.id)" title="Hapus sesi" aria-label="Hapus sesi">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>
                   </button>
                   <div class="rowmenu" @click.outside="menuOpen=false">
@@ -583,11 +583,12 @@
       <div class="card">
         <h2>Akun terdaftar</h2>
         <div class="tbl"><table>
-          <thead><tr><th>Username</th><th>Nama</th><th>No HP</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
+          <thead><tr><th>Username</th><th>Tipe</th><th>Nama</th><th>No HP</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
           <tbody>
             <template x-for="u in users" :key="u.id">
               <tr>
                 <td class="nm mono" x-text="u.username"></td>
+                <td><span class="chip" :class="u.type==='super_admin'?'validated':''" x-text="u.type==='super_admin'?'Super admin':'Admin'"></span></td>
                 <td x-text="u.name||'-'"></td>
                 <td class="mono" x-text="u.hp||'-'"></td>
                 <td><span class="chip" :class="u.active?'validated':'warning'" x-text="u.active?'Aktif':'Nonaktif'"></span></td>

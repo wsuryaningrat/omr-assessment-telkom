@@ -170,10 +170,23 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
 
 
 def is_superuser(admin: dict) -> bool:
-    """Super user: identitas login ada di config.SUPERUSERS, atau pakai ADMIN_TOKEN (rahasia operator server,
-    identitas "token"). Admin biasa lain tak punya akses menu Akun."""
-    ident = str((admin or {}).get("email") or "").strip().lower()
-    return ident == "token" or ident in config.SUPERUSERS
+    """Super admin: login password dgn akun admin_user bertipe "super_admin" (dan username-nya memang
+    config.SUPER_ADMIN_USERNAME), atau pakai ADMIN_TOKEN (rahasia operator server, identitas "token").
+    Admin biasa -- termasuk login Google/Microsoft -- tak punya akses menu Akun / hapus sesi."""
+    if not admin:
+        return False
+    ident = str(admin.get("email") or "").strip()
+    if ident == "token":
+        return True
+    if admin.get("via") != "password" or ident != config.SUPER_ADMIN_USERNAME:
+        return False
+    try:
+        from server.db import AdminUser, SessionLocal
+        with SessionLocal() as db:
+            u = db.query(AdminUser).filter(AdminUser.username == ident).first()
+            return bool(u and u.active and u.type == "super_admin")
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def require_superuser(request: Request, x_admin_token: str = Header(default="")):
