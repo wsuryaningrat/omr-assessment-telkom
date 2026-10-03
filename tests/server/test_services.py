@@ -1226,6 +1226,46 @@ class TestServices(unittest.TestCase):
             config.SUPER_ADMIN_USERNAME = old
             self.c.post("/auth/logout")
 
+    def test_super_admin_registers_gmail_login_without_restart(self):
+        """Email yg boleh masuk admin dikelola di tabel admin_user (username=email, tanpa password) lewat tab
+        Akun -- berlaku seketika (auth.is_allowed*), bisa dinonaktifkan/dihapus, ADMIN_EMAILS env di-seed ke sini."""
+        email = "tes.gmail@gmail.com"
+        self.assertFalse(auth.is_allowed(email))
+        r = self.c.post("/api/admin/users/email", json={"email": " Tes.Gmail@Gmail.com ", "name": "Tes"}, headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        row = r.json()
+        self.assertEqual((row["username"], row["type"], row["sso_only"]), (email, "admin", True))
+        self.assertTrue(auth.is_allowed(email))
+        self.assertTrue(auth.is_allowed_google({"email": email, "email_verified": True}))
+        self.assertFalse(auth.is_allowed_google({"email": email, "email_verified": False}))   # wajib terverifikasi
+        self.assertEqual(self.c.post("/api/admin/users/email", json={"email": email}, headers=ADM).status_code, 409)
+        self.assertEqual(self.c.post("/api/admin/users/email", json={"email": "bukan-email"}, headers=ADM).status_code, 422)
+        self.assertEqual(self.c.patch(f"/api/admin/users/{row['id']}", json={"password": "rahasia123"}, headers=ADM).status_code, 409)
+        # akun email tak bisa login lewat password
+        auth._FAILS.clear()
+        self.assertEqual(self.c.post("/auth/password", json={"username": email, "password": ""}).status_code, 401)
+        # nonaktif -> tak boleh masuk lagi
+        self.c.patch(f"/api/admin/users/{row['id']}", json={"active": False}, headers=ADM)
+        self.assertFalse(auth.is_allowed(email))
+        self.c.delete(f"/api/admin/users/{row['id']}", headers=ADM)
+        # seed dari ADMIN_EMAILS env
+        old = config.ADMIN_EMAILS
+        config.ADMIN_EMAILS = ["tes.env@gmail.com"]
+        try:
+            dbmod._seed_env_admin_emails()
+            with SessionLocal() as db:
+                u = db.query(AdminUser).filter(AdminUser.username == "tes.env@gmail.com").one()
+                self.assertEqual((u.password_hash, u.type), ("", "admin"))
+                db.delete(u); db.commit()
+        finally:
+            config.ADMIN_EMAILS = old
+        # admin biasa tak boleh menambah email
+        auth._FAILS.clear()
+        self.c.post("/api/admin/users", json={"username": "tes_em_biasa", "password": "rahasia123"}, headers=ADM)
+        self.assertEqual(self.c.post("/auth/password", json={"username": "tes_em_biasa", "password": "rahasia123"}).status_code, 200)
+        self.assertEqual(self.c.post("/api/admin/users/email", json={"email": "x@gmail.com"}).status_code, 403)
+        self.c.post("/auth/logout")
+
     def test_admin_bulk_edit_applies_kode_soal_and_fakultas_to_every_sheet(self):
         sid = self.submitted_session("ADMBULK-01", n=3)
         items_before = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]

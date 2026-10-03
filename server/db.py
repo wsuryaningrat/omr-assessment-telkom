@@ -177,6 +177,7 @@ def init_db():
     Base.metadata.create_all(engine)
     _migrate()
     _seed_env_admin_accounts()
+    _seed_env_admin_emails()
     _sync_admin_types()
     _seed_pengawas_from_tsv()
 
@@ -212,6 +213,24 @@ def _migrate():
             for name, ddl in cols.items():
                 if name not in have:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
+def _seed_env_admin_emails():
+    """Salin ADMIN_EMAILS dari env ke admin_user (username = email, password_hash kosong = akun SSO-saja) supaya
+    daftarnya dikelola lewat tab Akun tanpa restart. Idempoten; email yg sudah ada tak disentuh. Env tetap
+    dibaca sbg cadangan anti-terkunci (auth.is_allowed), tapi boleh dikosongkan setelah dicek di tab Akun."""
+    from server import config
+    if not config.ADMIN_EMAILS:
+        return
+    try:
+        with SessionLocal() as db:
+            existing = {u for (u,) in db.query(AdminUser.username)}
+            for em in sorted(config.ADMIN_EMAILS):
+                if em not in existing:
+                    db.add(AdminUser(username=em, password_hash="", name=em, active=True, created_by="migrasi otomatis dari .env"))
+            db.commit()
+    except Exception:  # noqa: BLE001 -- tak boleh menggagalkan startup
+        pass
 
 
 def _sync_admin_types():

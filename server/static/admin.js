@@ -5,7 +5,7 @@ function admin() {
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all", hari: "", sort: "", dir: "desc" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
-    users: [], newUser: { username: "", password: "", name: "", hp: "" }, userBusy: false, accessLog: [],
+    users: [], newUser: { username: "", password: "", name: "", hp: "" }, newEmail: { email: "", name: "" }, userBusy: false, accessLog: [],
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -617,6 +617,18 @@ function admin() {
     async loadUsers() {
       try { this.users = await this.json("/api/admin/users"); } catch (e) { this.toast(e.message, true); }
       try { this.accessLog = await this.json("/api/admin/access-log"); } catch { /* riwayat akses opsional, jangan ganggu tab kalau gagal */ }
+    },
+    async createEmailUser() {
+      const f = this.newEmail;
+      if (!f.email) return;
+      this.userBusy = true;
+      try {
+        await this.json("/api/admin/users/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(f) });
+        this.toast(`Email "${f.email.toLowerCase()}" boleh masuk admin`);
+        this.newEmail = { email: "", name: "" };
+        await this.loadUsers();
+      } catch (e) { this.toast(e.message, true); }
+      this.userBusy = false;
     },
     async createUser() {
       const f = this.newUser;

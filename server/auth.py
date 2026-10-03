@@ -57,7 +57,8 @@ def _admin_accounts() -> dict:
         from server.db import AdminUser, SessionLocal
         with SessionLocal() as db:
             for u in db.query(AdminUser).filter(AdminUser.active.is_(True)):
-                out[u.username] = u.password_hash
+                if u.password_hash:   # baris tanpa hash = akun email SSO-saja, tak bisa login password
+                    out[u.username] = u.password_hash
     except Exception:  # noqa: BLE001 -- tabel blm ada (DB lama blm dimigrasi) tak boleh mematikan login sama sekali
         pass
     return out
@@ -122,12 +123,23 @@ def _redirect_uri(request: Request) -> str:
     return base + "/auth/callback"
 
 
+def _db_emails() -> set:
+    """Email Google/Microsoft yang boleh masuk, dikelola super_admin di tab Akun (tanpa restart): baris
+    admin_user AKTIF yang username-nya berupa email (password_hash kosong = akun SSO-saja)."""
+    try:
+        from server.db import AdminUser, SessionLocal
+        with SessionLocal() as db:
+            return {u.lower() for (u,) in db.query(AdminUser.username).filter(AdminUser.active.is_(True), AdminUser.username.like("%@%"))}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
 def is_allowed(email: str) -> bool:
     """Default-deny: hanya email di ADMIN_EMAILS atau berdomain di ADMIN_DOMAINS."""
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         return False
-    if email in config.ADMIN_EMAILS:
+    if email in config.ADMIN_EMAILS or email in _db_emails():
         return True
     return email.rsplit("@", 1)[1] in config.ADMIN_DOMAINS
 
@@ -356,7 +368,7 @@ def is_allowed_google(claims: dict) -> bool:
     if not claims.get("email_verified"):
         return False
     email = (claims.get("email") or "").strip().lower()
-    if email and email in config.ADMIN_EMAILS:
+    if email and (email in config.ADMIN_EMAILS or email in _db_emails()):
         return True
     return bool(claims.get("hd")) and claims["hd"].lower() in config.ADMIN_DOMAINS
 

@@ -1058,7 +1058,7 @@ def calib_preview(token: str, field: str = "", dx: float = 0.0, dy: float = 0.0,
 def _user_view(u: AdminUser) -> dict:
     return {"id": u.id, "username": u.username, "name": u.name, "hp": u.hp, "active": u.active,
             "created_at": u.created_at.isoformat() if u.created_at else None, "created_by": u.created_by,
-            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None, "type": u.type or "admin"}
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None, "type": u.type or "admin", "sso_only": not u.password_hash}
 
 
 @router.get("/whoami")
@@ -1110,6 +1110,27 @@ class _AdminUserPatchIn(BaseModel):
     active: bool | None = None
 
 
+class _AdminEmailIn(BaseModel):
+    email: str
+    name: str = ""
+
+
+@router.post("/users/email", dependencies=[Depends(auth.require_superuser)])
+def admin_create_email_user(body: _AdminEmailIn, db=Depends(get_db), admin=Depends(auth.require_admin)):
+    """Daftarkan email Google/Microsoft yg boleh masuk admin (akun SSO-saja: username = email, tanpa password).
+    Aktif seketika, tanpa restart (auth.is_allowed membaca tabel ini). Selalu bertipe admin biasa."""
+    email = body.email.strip().lower()
+    if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", email) or len(email) > 100:
+        raise HTTPException(422, "Format email tidak valid")
+    if email in config.ADMIN_EMAILS or db.scalar(select(AdminUser).where(AdminUser.username == email)):
+        raise HTTPException(409, "Email sudah terdaftar")
+    u = AdminUser(username=email, password_hash="", name=body.name.strip() or email,
+                  created_by=admin.get("name") or admin.get("email") or "?")
+    db.add(u)
+    db.commit()
+    return _user_view(u)
+
+
 @router.patch("/users/{uid}", dependencies=[Depends(auth.require_superuser)])
 def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
     """Reset password, ubah nama, dan/atau nonaktifkan (active=false) -- tanpa menghapus riwayat akunnya."""
@@ -1117,6 +1138,8 @@ def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
     if u is None:
         raise HTTPException(404, "Akun tidak ditemukan")
     if body.password is not None:
+        if not u.password_hash:
+            raise HTTPException(409, "Akun email hanya bisa masuk lewat Google/Microsoft (tanpa password)")
         if len(body.password) < 8:
             raise HTTPException(422, "Password minimal 8 karakter")
         u.password_hash = auth.hash_password(body.password)

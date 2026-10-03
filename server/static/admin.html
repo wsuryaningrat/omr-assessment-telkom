@@ -581,13 +581,25 @@
       </div>
 
       <div class="card">
+        <h2>Tambah akun Gmail / Google</h2>
+        <p class="sub">Email yang didaftarkan di sini boleh masuk admin lewat tombol "Masuk dengan Google" — aktif seketika, tanpa restart. Selalu berstatus admin biasa.</p>
+        <div class="grid" style="max-width:520px">
+          <div><label class="f" for="neEmail">Email Gmail</label><input id="neEmail" type="email" x-model.trim="newEmail.email" autocomplete="off" placeholder="mis. budi@gmail.com" @keydown.enter="createEmailUser()"></div>
+          <div><label class="f" for="neName">Nama (opsional)</label><input id="neName" x-model.trim="newEmail.name" placeholder="Nama tampilan"></div>
+        </div>
+        <div class="row-act">
+          <button class="btn p sm" @click="createEmailUser()" :disabled="userBusy || !newEmail.email">Tambah email</button>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Akun terdaftar</h2>
         <div class="tbl"><table>
           <thead><tr><th>Username</th><th>Tipe</th><th>Nama</th><th>No HP</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
           <tbody>
             <template x-for="u in users" :key="u.id">
               <tr>
-                <td class="nm mono" x-text="u.username"></td>
+                <td class="nm mono"><span x-text="u.username"></span> <span class="chip" x-show="u.sso_only" title="Masuk lewat Google/Microsoft (tanpa password)">Google</span></td>
                 <td><span class="chip" :class="u.type==='super_admin'?'validated':''" x-text="u.type==='super_admin'?'Super admin':'Admin'"></span></td>
                 <td x-text="u.name||'-'"></td>
                 <td class="mono" x-text="u.hp||'-'"></td>
@@ -596,7 +608,7 @@
                 <td x-text="fmt(u.last_login_at)"></td>
                 <td class="actrow">
                   <button class="btn xs" @click="toggleUserActive(u)" x-text="u.active?'Nonaktifkan':'Aktifkan'"></button>
-                  <button class="btn xs" @click="resetUserPassword(u)">Reset password</button>
+                  <button class="btn xs" x-show="!u.sso_only" @click="resetUserPassword(u)">Reset password</button>
                   <button class="btn xs d" @click="deleteUser(u)">Hapus</button>
                 </td>
               </tr>
