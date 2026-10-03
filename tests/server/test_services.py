@@ -605,36 +605,37 @@ class TestServices(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn("label", r.json())
 
-    def test_sheet_preview_is_cached_then_cleared_on_rescan_replace_delete(self):
-        """GET /api/sheets/{shid}/preview ('Hasil scan') menjalankan pipeline penuh & MENYIMPAN hasilnya
-        di cache disk (server/main.py _scan_cache_path) supaya klik ulang tak perlu memindai ulang dari
-        nol. Cache itu harus ikut terhapus begitu lembarnya mungkin berubah: dipindai ulang, foto diganti,
-        atau lembarnya sendiri dihapus."""
+    def test_scan_result_image_is_saved_at_scan_time_and_refreshed_on_rescan(self):
+        """Gambar 'Hasil scan' DISIMPAN saat pemindaian (awal, pindai ulang, ganti foto) -- admin membukanya
+        langsung tanpa memindai ulang (main._store_overlay). Cache dihapus saat lembar dihapus / sesi 'Sent'."""
         from server.main import _scan_cache_path
         sid = self.submitted_session("ADMCACHE-01")
-        shid = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]["id"]
-        cache_path = _scan_cache_path(shid)
+        item = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"][0]
+        shid, cache_path = item["id"], _scan_cache_path(item["id"])
 
-        self.assertFalse(os.path.exists(cache_path))
+        self.assertTrue(os.path.exists(cache_path))               # sudah ada begitu selesai discan, tanpa perlu dibuka dulu
+        self.assertTrue(item["scan_cached"])
         pv = self.c.get(f"/api/sheets/{shid}/preview")
         self.assertEqual((pv.status_code, pv.headers["content-type"]), (200, "image/jpeg"))
-        self.assertTrue(os.path.exists(cache_path))           # tersimpan setelah dilihat pertama kali
-        cached_bytes = open(cache_path, "rb").read()
-        pv2 = self.c.get(f"/api/sheets/{shid}/preview")
-        self.assertEqual(pv2.content, cached_bytes)            # klik lagi -> dari cache, bukan dipindai ulang
+        saved = open(cache_path, "rb").read()
+        self.assertEqual(pv.content, saved)                       # yang disajikan = berkas tersimpan
 
-        self.c.post(f"/api/admin/sheets/{shid}/rescan", headers=ADM)
-        self.assertFalse(os.path.exists(cache_path))           # "update temporary": cache lama dibuang stlh pindai ulang
-        self.c.get(f"/api/sheets/{shid}/preview")
-        self.assertTrue(os.path.exists(cache_path))            # dibuat ulang begitu diminta lagi
-
-        self.c.post(f"/api/admin/sheets/{shid}/replace", headers=ADM, files={"file": ("baru.pdf", PDF, "application/pdf")})
-        self.assertFalse(os.path.exists(cache_path))           # ganti foto jg membuang cache lama
-
-        self.c.get(f"/api/sheets/{shid}/preview")
+        os.remove(cache_path)                                     # cache hilang -> dibuat ulang saat diminta
+        self.assertEqual(self.c.get(f"/api/sheets/{shid}/preview").status_code, 200)
         self.assertTrue(os.path.exists(cache_path))
+        os.utime(cache_path, (1, 1))                              # tandai lama -> ?refresh=1 harus menulis ulang
+        self.c.get(f"/api/sheets/{shid}/preview?refresh=1")
+        self.assertGreater(os.path.getmtime(cache_path), 100)
+
+        os.remove(cache_path)
+        self.c.post(f"/api/admin/sheets/{shid}/rescan", headers=ADM)
+        self.assertTrue(os.path.exists(cache_path))               # pindai ulang menyimpan gambar baru
+        os.remove(cache_path)
+        self.c.post(f"/api/admin/sheets/{shid}/replace", headers=ADM, files={"file": ("baru.pdf", PDF, "application/pdf")})
+        self.assertTrue(os.path.exists(cache_path))               # ganti foto juga
+
         self.assertEqual(self.c.delete(f"/api/admin/sheets/{shid}", headers=ADM).status_code, 204)
-        self.assertFalse(os.path.exists(cache_path))           # lembar dihapus -> cache ikut dibersihkan
+        self.assertFalse(os.path.exists(cache_path))              # lembar dihapus -> cache ikut dibersihkan
 
     def test_sync_now_clears_scan_cache_once_sent(self):
         sid = self.submitted_session("ADMCACHE-02")

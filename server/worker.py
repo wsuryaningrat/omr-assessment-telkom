@@ -64,7 +64,7 @@ def scan_file(path, name, pengawas, kunci, only_page=None, with_overlay=False, c
         rec, prev = scan_page(img_bgr, doc_name, tpl, pengawas["fakultas"], pengawas["nama"], k_cache, info, with_overlay=with_overlay, calib=calib)
         item = {"page": page, "doc_name": doc_name, "record": rec, "status": prev["status"]}
         if with_overlay and prev.get("overlay") is not None:
-            ok, buf = cv2.imencode(".jpg", prev["overlay"], [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            ok, buf = cv2.imencode(".jpg", prev["overlay"], [int(cv2.IMWRITE_JPEG_QUALITY), 75])
             item["overlay_jpeg"] = buf.tobytes()
         out.append(item)
         del img_bgr, prev

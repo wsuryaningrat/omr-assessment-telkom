@@ -139,7 +139,7 @@ function admin() {
     },
     async openDetail(i) {
       clearTimeout(this._autoT); this._dirtyId = null;
-      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by,
+      this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by, admin_validated: !!i.admin_validated, sesBusy: false,
         items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
         questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false, savedAt: 0, checkedIds: [] };
       try {
@@ -208,6 +208,22 @@ function admin() {
         this.toast(`${d.diantre} lembar diantre utk dipindai ulang` + (d.dilewati ? ` (${d.dilewati} dilewati, foto tak ada)` : ""));
         await this.loadSessions();
       } catch (e) { this.toast(e.message, true); }
+    },
+    // Tandai / batalkan "validated" untuk SESI ini dari dalam popup Detail (sama dgn tombol centang di tabel
+    // Sesi: memvalidasi semua lembar yg terbaca + menilai ulang; mengirim ke Sheet tetap lewat tombol Kirim).
+    async toggleSessionValidated(d) {
+      const want = !d.admin_validated;
+      if (want && !confirm("Tandai sesi ini validated? Semua lembar yang berhasil terbaca akan divalidasi.")) return;
+      d.sesBusy = true;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/validate?value=${want}`, { method: "POST" });
+        d.admin_validated = r.admin_validated; d.admin_validated_by = r.admin_validated_by;
+        this.toast(want ? "Sesi divalidasi" : "Tanda validated dibatalkan");
+        const keep = d.selectedId;
+        await this.loadSessions();
+        if (want) { await this.openDetail(d); const again = this.detail?.items.find(it => it.id === keep); if (again) this.selectDetailSheet(again); }
+      } catch (e) { this.toast(e.message, true); }
+      d.sesBusy = false;
     },
     async validateAllSheets(d) {
       if (!d.items.length) return;
@@ -310,17 +326,20 @@ function admin() {
       const up = () => { this.preview.panning = false; window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
       window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
     },
-    async showDetailPreview(mode) {
-      const x = this.detail?.selectedItem; if (!x || !x.photo_exists) return;
+    // Mode "scan" membuka gambar hasil scan yg SUDAH TERSIMPAN (instan, tanpa memindai ulang); refresh=true
+    // memaksa gambarnya dibuat ulang dari foto sumber (hasil bacaan/nilai lembar tak berubah).
+    async showDetailPreview(mode, refresh = false) {
+      const x = this.detail?.selectedItem; if (!x || (mode === "scan" ? !(x.scan_cached || x.photo_exists) : !x.photo_exists)) return;
       this.detail.previewMode = mode;
       // Kedua mode lewat fetch+blob (bukan <img :src> langsung) supaya ADA status loading yg bisa
       // dikontrol (lihat .loadbar di atas popup) -- "Hasil scan" menjalankan pipeline OMR penuh & bisa
       // makan beberapa detik, jauh lebih lama dari "Foto asli" yg cuma decode gambar.
       this.preview.loading = true;
       try {
-        const url = mode === "scan" ? `/api/sheets/${x.id}/preview?t=${Date.now()}` : `/api/admin/sheets/${x.id}/photo`;
+        const url = mode === "scan" ? `/api/sheets/${x.id}/preview${refresh ? "?refresh=1" : ""}` : `/api/admin/sheets/${x.id}/photo`;
         const r = await this.api(url);
         this._setPreview(URL.createObjectURL(await r.blob()));
+        if (mode === "scan") x.scan_cached = true;
       } catch (e) { this.toast(e.message, true); this.preview.loading = false; }
     },
     async rescanSheet(x) {

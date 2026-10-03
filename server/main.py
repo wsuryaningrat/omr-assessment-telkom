@@ -91,6 +91,18 @@ def _clear_scan_cache(sheet_id: str):
         pass
 
 
+def _store_overlay(sheet_id: str, result: dict):
+    """Simpan gambar 'Hasil scan' dari hasil scan_file (kunci overlay_jpeg) ke cache disk -- dipanggil tiap
+    selesai memindai (awal/pindai ulang/ganti foto) supaya admin langsung membuka hasil tersimpan, tanpa
+    memindai ulang. Gagal menyimpan tak boleh menggagalkan pemindaian."""
+    jpeg = result.get("overlay_jpeg")
+    if jpeg:
+        try:
+            _save_scan_cache(sheet_id, jpeg)
+        except OSError:
+            pass
+
+
 def _delete_sheet_and_cleanup(db, sh):
     """Hapus satu Sheet (LJK) -- SEKALIGUS hapus UploadFile & foto sumbernya dari disk, bila setelah ini
     tak ada Sheet LAIN yg masih memakai berkas itu (satu UploadFile bisa dipakai beberapa Sheet utk PDF
@@ -163,7 +175,7 @@ def _enqueue(file_id):
         args = (f.path, f.name, _pengawas(s), _kunci(db))
         calib = _calib(db)
         db.commit()
-    fut = _submit_scan(*args, calib=calib)
+    fut = _submit_scan(*args, with_overlay=True, calib=calib)
     _FUTURES[file_id] = fut
     fut.add_done_callback(lambda fu, fid=file_id: _on_done(fid, fu))
 
@@ -183,8 +195,11 @@ def _on_done(file_id, fut):
         sess = db.get(ScanSession, f.session_id)
         for r in results:
             seq += 1
-            db.add(Sheet(session_id=f.session_id, file_id=f.id, page=r["page"], seq=seq,
-                         doc_name=r["doc_name"], scan_status=r["status"], record=_apply_identity(r["record"], sess)))
+            sh_new = Sheet(session_id=f.session_id, file_id=f.id, page=r["page"], seq=seq,
+                           doc_name=r["doc_name"], scan_status=r["status"], record=_apply_identity(r["record"], sess))
+            db.add(sh_new)
+            db.flush()
+            _store_overlay(sh_new.id, r)
         f.state = "failed" if err else "done"
         f.error = err
         db.commit()
@@ -209,7 +224,7 @@ def _enqueue_rescan(sheet_id):
         session_id = sh.session_id
     with _rescan_lock:
         _RESCAN_PENDING[session_id] = _RESCAN_PENDING.get(session_id, 0) + 1
-    fut = _submit_scan(*args, calib=calib)
+    fut = _submit_scan(*args, with_overlay=True, calib=calib)
     _RESCAN_FUTURES[sheet_id] = fut
     fut.add_done_callback(lambda fu, sid=sheet_id, ssid=session_id: _on_rescan_done(sid, ssid, fu))
     return True
@@ -235,7 +250,7 @@ def _on_rescan_done(sheet_id, session_id, fut):
             r = results[0]
             sh.doc_name, sh.scan_status, sh.record, sh.validated = r["doc_name"], r["status"], _apply_identity(r["record"], s), False
             db.commit()
-        _clear_scan_cache(sheet_id)
+        _store_overlay(sheet_id, results[0])
     finally:
         with _rescan_lock:
             n = _RESCAN_PENDING.get(session_id, 1) - 1
@@ -767,7 +782,7 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     dest = os.path.join(_class_folder(s), f"{uuid.uuid4().hex[:8]}_{_safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _save_stream(file, dest)
-    fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0, calib=_calib(db))
+    fut = _submit_scan(dest, file.filename, _pengawas(s), _kunci(db), 0, True, calib=_calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -779,11 +794,12 @@ async def replace_photo(shid: str, file: FUploadFile = File(...), db=Depends(get
     sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _apply_identity(res[0]["record"], s), False
     db.commit()
     _clear_scan_cache(shid)
+    _store_overlay(shid, res[0])
     return _sheet_view(sh)
 
 
 @app.get("/api/sheets/{shid}/preview")
-def preview(shid: str, db=Depends(get_db)):
+def preview(shid: str, refresh: bool = False, db=Depends(get_db)):
     """'Hasil scan': gambar hasil preprocessing + bubble terbaca. Dicache di disk (lihat _scan_cache_path)
     krn pipeline penuh dgn overlay bisa makan beberapa detik -- klik ulang biasa cukup disajikan dari cache.
     Cache diperbarui (dihapus lalu dibuat ulang di sini) tiap kali lembar ini dipindai ulang/foto diganti
@@ -791,7 +807,7 @@ def preview(shid: str, db=Depends(get_db)):
     admin sudah tak perlu melihatnya lagi."""
     sh = _sheet_or_404(db, shid)
     cache_path = _scan_cache_path(shid)
-    if os.path.exists(cache_path):
+    if os.path.exists(cache_path) and not refresh:
         with open(cache_path, "rb") as f:
             return Response(f.read(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     s = db.get(ScanSession, sh.session_id)

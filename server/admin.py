@@ -251,6 +251,7 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
     """Detail keterisian tiap lembar (mahasiswa) dlm satu sesi -- utk admin mengecek langsung tanpa perlu
     membuka dashboard pengawas. Admin BOLEH lihat nama mahasiswa & nilai (beda dgn dashboard pengawas yg
     sengaja menyembunyikannya, lihat _sheet_view di server/main.py)."""
+    from server import main as _main
     s = _admin_session_or_404(db, sid)
     items = []
     for sh in s.sheets:
@@ -263,6 +264,7 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
             "label": classify_scan_status({"status": sh.scan_status}, sh.validated),
             "validated": sh.validated,
             "photo_exists": bool(up and up.path and os.path.exists(up.path)),
+            "scan_cached": os.path.exists(_main._scan_cache_path(sh.id)),
             "record": r,   # dipakai form edit di menu Kalibrasi/Detail (NPM/kode soal/fakultas/tiap jawaban) -- lihat admin_edit_sheet
         })
     orphans = [{"id": f.id, "name": f.name, "size": f.size} for f in _orphan_files(db, s)]
@@ -450,6 +452,7 @@ def admin_edit_sheet(shid: str, body: _AdminSheetEditIn, db=Depends(get_db)):
     (sesi yg sudah divalidasi/disubmit tetap bisa dibetulkan kalau ternyata masih ada salah baca). Dipakai
     panel edit 3-kolom di Detail sesi. Menilai ulang otomatis & MEMBATALKAN validasi lembar ini (data
     berubah -> perlu dicek ulang, jangan biarkan status lama menyesatkan)."""
+    from server import main as _main
     sh = db.get(Sheet, shid)
     if sh is None:
         raise HTTPException(404, "Lembar tidak ditemukan")
@@ -462,7 +465,8 @@ def admin_edit_sheet(shid: str, body: _AdminSheetEditIn, db=Depends(get_db)):
             "npm": rec.get("NPM"), "kode_soal": rec.get("Kode Soal"), "fakultas_ljk": rec.get("Fakultas (LJK)"),
             "terisi": sh.record.get("Jawaban Terisi"), "nilai": sh.record.get("Nilai"),
             "label": classify_scan_status({"status": sh.scan_status}, sh.validated), "validated": sh.validated,
-            "photo_exists": bool(up and up.path and os.path.exists(up.path)), "record": sh.record}
+            "photo_exists": bool(up and up.path and os.path.exists(up.path)),
+            "scan_cached": os.path.exists(_main._scan_cache_path(sh.id)), "record": sh.record}
 
 
 class _BulkEditIn(BaseModel):
@@ -553,7 +557,7 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
     up = db.get(UploadFile, sh.file_id)
     if not up or not up.path or not os.path.exists(up.path):
         raise HTTPException(410, "Berkas sumber sudah tak ada (mis. sudah 'Bersihkan foto') -- tak bisa dipindai ulang")
-    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page, calib=_main._calib(db))
+    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page, True, calib=_main._calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -562,7 +566,7 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
         raise HTTPException(422, "Hasil pindai ulang kosong (halaman tak terbaca)")
     sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
     db.commit()
-    _main._clear_scan_cache(shid)
+    _main._store_overlay(shid, res[0])
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
 
@@ -579,7 +583,7 @@ async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db
     dest = os.path.join(_main._class_folder(s), f"{uuid.uuid4().hex[:8]}_{_main._safe_name(file.filename)}")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     size = await _main._save_stream(file, dest)
-    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), 0, calib=_main._calib(db))
+    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), 0, True, calib=_main._calib(db))
     try:
         res = fut.result(timeout=120)
     except Exception as e:  # noqa: BLE001
@@ -590,7 +594,7 @@ async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db
     up.path, up.name, up.size = dest, file.filename, size
     sh.page, sh.doc_name, sh.scan_status, sh.record, sh.validated = 0, res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
     db.commit()
-    _main._clear_scan_cache(shid)
+    _main._store_overlay(shid, res[0])
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
 
