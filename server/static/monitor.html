@@ -36,8 +36,8 @@
         <p class="sub">Pemindaian berjalan di latar belakang — halaman ini bisa ditinggal &amp; akan otomatis diperbarui. Validasi akhir dilakukan admin.</p>
       </div>
       <div class="f">
-        <input type="search" placeholder="Cari pengawas / kelas / prodi / kode soal…" x-model.trim="q">
-        <select x-model="status">
+        <input type="search" placeholder="Cari pengawas / kelas / prodi / kode soal…" x-model.trim="q" @input="page=1">
+        <select x-model="status" @change="page=1">
           <option value="all">Semua status</option>
           <option value="scanning">Scanning</option>
           <option value="perlu_cek">Checking</option>
@@ -48,7 +48,7 @@
     <div class="tbl"><table>
       <thead><tr><th class="sortable" @click="sortBy('nama')" :aria-sort="sortKey==='nama'?(sortDir==='asc'?'ascending':'descending'):'none'">Pengawas <span class="sa" x-text="sortArrow('nama')"></span></th><th class="sortable" @click="sortBy('hari_ujian')" :aria-sort="sortKey==='hari_ujian'?(sortDir==='asc'?'ascending':'descending'):'none'">Ujian <span class="sa" x-text="sortArrow('hari_ujian')"></span></th><th class="sortable" @click="sortBy('created_at')" :aria-sort="sortKey==='created_at'?(sortDir==='asc'?'ascending':'descending'):'none'">Upload at <span class="sa" x-text="sortArrow('created_at')"></span></th><th class="sortable" @click="sortBy('kelas')" :aria-sort="sortKey==='kelas'?(sortDir==='asc'?'ascending':'descending'):'none'">Kelas <span class="sa" x-text="sortArrow('kelas')"></span></th><th class="sortable c" style="width:auto" @click="sortBy('lembar')" :aria-sort="sortKey==='lembar'?(sortDir==='asc'?'ascending':'descending'):'none'">Lembar <span class="sa" x-text="sortArrow('lembar')"></span></th><th class="sortable c" style="width:auto" @click="sortBy('jml_mhs')" :aria-sort="sortKey==='jml_mhs'?(sortDir==='asc'?'ascending':'descending'):'none'">Mahasiswa <span class="sa" x-text="sortArrow('jml_mhs')"></span></th><th class="sortable" @click="sortBy('status')" :aria-sort="sortKey==='status'?(sortDir==='asc'?'ascending':'descending'):'none'">Status <span class="sa" x-text="sortArrow('status')"></span></th></tr></thead>
       <tbody>
-        <template x-for="i in filtered" :key="i.nama + i.kelas + i.created_at">
+        <template x-for="i in paged" :key="i.nama + i.kelas + i.created_at">
           <tr>
             <td><div class="nm" x-text="i.nama"></div></td>
             <td><span x-text="hariLabel(i.hari_ujian)"></span><div class="mute" style="font-size:11.5px" x-text="'#'+stripKode(i.kode_soal)"></div></td>
@@ -64,6 +64,16 @@
     <p class="empty" x-show="!loading && !filtered.length">Belum ada sesi yang cocok.</p>
     <div class="pagebar">
       <span class="mute" x-text="filtered.length+' sesi'"></span>
+      <span class="pgnav">
+        <label class="mute" style="display:flex;align-items:center;gap:6px">Per halaman
+          <select x-model.number="pageSize" @change="page=1" style="height:32px;width:auto">
+            <template x-for="n in pageSizeOptions" :key="n"><option :value="n" x-text="n"></option></template>
+          </select>
+        </label>
+        <button class="btn sm" @click="page--" :disabled="page<=1">←</button>
+        <span class="mute" x-text="page+' / '+pageCount"></span>
+        <button class="btn sm" @click="page++" :disabled="page>=pageCount">→</button>
+      </span>
       <span class="mute" x-text="lastLoad ? 'Diperbarui '+lastLoad : ''"></span>
     </div>
   </section>

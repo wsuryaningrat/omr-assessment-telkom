@@ -102,7 +102,7 @@
 
         <div class="mon-days" role="tablist" aria-label="Pilih hari">
           <template x-for="d in mon.days" :key="d.hari">
-            <button class="mon-day" :class="{on: monDay === d.hari, done: d.selesai === d.total && d.total > 0}" @click="monDay = d.hari; monFilter = 'all'" role="tab" :aria-selected="monDay === d.hari">
+            <button class="mon-day" :class="{on: monDay === d.hari, done: d.selesai === d.total && d.total > 0}" @click="monDay = d.hari; monFilter = 'all'; monPage = 1" role="tab" :aria-selected="monDay === d.hari">
               <span class="hn"><span x-text="d.hari"></span><em x-show="d.hari === mon.hari_ini">Hari ini</em></span>
               <b x-text="pct(d.selesai, d.total) + '%'"></b>
               <span class="mon-bar sm"><i class="ok" :style="'width:' + pct(d.selesai, d.total) + '%'"></i><i class="run" :style="'width:' + pct(d.berjalan, d.total) + '%'"></i></span>
@@ -115,18 +115,18 @@
         <div class="card flush">
           <div class="tools">
             <div class="tt"><h2 x-text="monDayData.hari"></h2><span class="mute" x-text="monDayData.selesai + ' dari ' + monDayData.total + ' kelas selesai (' + pct(monDayData.selesai, monDayData.total) + '%)'"></span></div>
-            <div class="f"><input type="search" placeholder="Cari kelas / pengawas / ruangan…" x-model.trim="monQ"></div>
+            <div class="f"><input type="search" placeholder="Cari kelas / pengawas / ruangan…" x-model.trim="monQ" @input="monPage=1"></div>
           </div>
           <div class="mon-filter">
-            <button :class="{on: monFilter==='all'}" @click="monFilter='all'">Semua <b x-text="monDayData.total"></b></button>
-            <button class="bl" :class="{on: monFilter==='belum'}" @click="monFilter='belum'">Belum <b x-text="monDayData.belum"></b></button>
-            <button class="ru" :class="{on: monFilter==='berjalan'}" @click="monFilter='berjalan'">Checking <b x-text="monDayData.berjalan"></b></button>
-            <button class="ok" :class="{on: monFilter==='selesai'}" @click="monFilter='selesai'">Selesai <b x-text="monDayData.selesai"></b></button>
+            <button :class="{on: monFilter==='all'}" @click="monFilter='all'; monPage=1">Semua <b x-text="monDayData.total"></b></button>
+            <button class="bl" :class="{on: monFilter==='belum'}" @click="monFilter='belum'; monPage=1">Belum <b x-text="monDayData.belum"></b></button>
+            <button class="ru" :class="{on: monFilter==='berjalan'}" @click="monFilter='berjalan'; monPage=1">Checking <b x-text="monDayData.berjalan"></b></button>
+            <button class="ok" :class="{on: monFilter==='selesai'}" @click="monFilter='selesai'; monPage=1">Selesai <b x-text="monDayData.selesai"></b></button>
           </div>
           <div class="tbl"><table>
             <thead><tr><th>Jam</th><th>Ruangan</th><th>Kelas</th><th>Upload at</th><th style="min-width:130px">Lembar</th><th>Status</th></tr></thead>
             <tbody>
-              <template x-for="x in monSlots" :key="x.no + x.kelas">
+              <template x-for="x in monSlotsPaged" :key="x.no + x.kelas">
                 <tr @click="goToSesi(x.kelas)" title="Lihat sesi kelas ini">
                   <td class="mono" x-text="x.jam"></td>
                   <td><div x-text="x.gedung"></div><div class="fl" x-text="x.ruangan"></div></td>
@@ -139,6 +139,19 @@
               <tr x-show="!monSlots.length"><td colspan="6" class="mute" style="text-align:center;padding:24px">Tidak ada kelas yang cocok.</td></tr>
             </tbody>
           </table></div>
+          <div class="pagebar">
+            <span class="mute" x-text="monSlots.length+' kelas'"></span>
+            <span class="pgnav">
+              <label class="mute" style="display:flex;align-items:center;gap:6px">Per halaman
+                <select x-model.number="monPageSize" @change="monPage=1" style="height:32px;width:auto">
+                  <template x-for="n in monPageSizeOptions" :key="n"><option :value="n" x-text="n"></option></template>
+                </select>
+              </label>
+              <button class="btn sm" @click="monPage--" :disabled="monPage<=1">←</button>
+              <span class="mute" x-text="monPage+' / '+monPageCount"></span>
+              <button class="btn sm" @click="monPage++" :disabled="monPage>=monPageCount">→</button>
+            </span>
+          </div>
         </div>
         </template>
 

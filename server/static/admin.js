@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 25, 50, 100],
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all", hari: "", sort: "", dir: "desc" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
@@ -70,6 +70,11 @@ function admin() {
       const d = this.monDayData; if (!d) return [];
       const q = this.monQ.trim().toLowerCase();
       return d.slots.filter(x => (this.monFilter === "all" || x.status === this.monFilter) && (!q || (x.kelas + " " + x.pengawas + " " + x.prodi + " " + x.ruangan + " " + x.gedung).toLowerCase().includes(q)));
+    },
+    get monPageCount() { return Math.max(1, Math.ceil(this.monSlots.length / this.monPageSize)); },
+    get monSlotsPaged() {
+      const p = Math.min(this.monPage, this.monPageCount), start = (p - 1) * this.monPageSize;
+      return this.monSlots.slice(start, start + this.monPageSize);
     },
     pct(n, t) { return t ? Math.min(100, Math.round(n / t * 100)) : 0; },
     monLabel(st) { return { selesai: "Selesai", berjalan: "Checking", belum: "Belum" }[st] || st; },

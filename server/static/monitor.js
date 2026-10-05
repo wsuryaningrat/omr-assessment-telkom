@@ -2,6 +2,7 @@ function monitor() {
   return {
     items: [], q: "", status: "all", sortKey: "", sortDir: "desc", loading: true, lastLoad: "", _poll: null,
     kelas_upload: 0, kelas_total: 0, upload_pct: 0,
+    page: 1, pageSize: 10, pageSizeOptions: [10, 25, 50, 100],
 
     async init() {
       await this.load();
@@ -31,11 +32,17 @@ function monitor() {
       }
       return l;
     },
+    get pageCount() { return Math.max(1, Math.ceil(this.filtered.length / this.pageSize)); },
+    get paged() {
+      const p = Math.min(this.page, this.pageCount), start = (p - 1) * this.pageSize;
+      return this.filtered.slice(start, start + this.pageSize);
+    },
     // Klik judul kolom: naik -> turun -> kembali ke urutan asli (terbaru dulu).
     sortBy(key) {
       if (this.sortKey !== key) { this.sortKey = key; this.sortDir = "asc"; }
       else if (this.sortDir === "asc") this.sortDir = "desc";
       else { this.sortKey = ""; this.sortDir = "desc"; }
+      this.page = 1;
     },
     sortArrow(key) { return this.sortKey === key ? (this.sortDir === "asc" ? "▲" : "▼") : ""; },
     statusLabel(st) { return { scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
