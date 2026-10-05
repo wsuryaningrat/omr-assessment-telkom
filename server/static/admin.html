@@ -256,6 +256,11 @@
         <div class="pagebar">
           <span class="mute" x-text="ses.total+' sesi'"></span>
           <span class="pgnav">
+            <label class="mute" style="display:flex;align-items:center;gap:6px">Per halaman
+              <select x-model.number="ses.size" @change="ses.page=1; loadSessions()" style="height:32px;width:auto">
+                <template x-for="n in sesPageSizeOptions" :key="n"><option :value="n" x-text="n"></option></template>
+              </select>
+            </label>
             <button class="btn sm" @click="ses.page--; loadSessions()" :disabled="ses.page<=1">←</button>
             <span class="mute" x-text="ses.page+' / '+Math.max(1,Math.ceil(ses.total/ses.size))"></span>
             <button class="btn sm" @click="ses.page++; loadSessions()" :disabled="ses.page*ses.size>=ses.total">→</button>

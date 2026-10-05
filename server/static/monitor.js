@@ -2,7 +2,7 @@ function monitor() {
   return {
     items: [], q: "", status: "all", sortKey: "", sortDir: "desc", loading: true, lastLoad: "", _poll: null,
     kelas_upload: 0, kelas_total: 0, upload_pct: 0,
-    page: 1, pageSize: 10, pageSizeOptions: [10, 25, 50, 100],
+    page: 1, pageSize: 10, pageSizeOptions: [10, 20, 30, 50],
 
     async init() {
       await this.load();
