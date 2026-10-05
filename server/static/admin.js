@@ -1,7 +1,7 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "monitoring", superuser: false, busy: false, kelas: "", mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
-    allTabs: [{ id: "monitoring", label: "Monitoring" }, { id: "sesi", label: "Sesi" }, { id: "akun", label: "Akun", superOnly: true }, { id: "ekspor", label: "Ekspor" }],
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false,
+    allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 25, q: "", status: "all", hari: "", sort: "", dir: "desc" }, detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
@@ -45,7 +45,7 @@ function admin() {
     },
     async login(silent = false) {
       this.loginErr = "";
-      try { this.sum = await this.json("/api/admin/summary"); try { this.superuser = !!(await this.json("/api/admin/whoami")).superuser; } catch { this.superuser = false; } this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await this.loadMonitor(); }
+      try { this.sum = await this.json("/api/admin/summary"); try { this.superuser = !!(await this.json("/api/admin/whoami")).superuser; } catch { this.superuser = false; } this.authed = true; try { sessionStorage.setItem("adm_tok", this.token); } catch {} this.startPoll(); await this.loadSessions(); }
       catch (e) { this.authed = false; if (!silent) this.loginErr = "Token tidak valid."; }
     },
     async logout() {

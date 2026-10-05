@@ -494,19 +494,6 @@
     </section>
 
     <!-- ekspor -->
-    <section x-show="tab==='ekspor'">
-      <div class="card">
-        <h2>Ekspor rekap</h2>
-        <p class="sub">Seluruh lembar dari sesi yang sudah disubmit.</p>
-        <div class="grid" style="max-width:520px">
-          <div class="full"><label class="f" for="kelas">Filter kelas (opsional)</label><input id="kelas" x-model.trim="kelas" placeholder="Contoh: IF-47-01"></div>
-        </div>
-        <div class="row-act">
-          <button class="btn p sm" @click="download('/api/admin/export.xlsx?kelas='+encodeURIComponent(kelas),'rekap_ljk.xlsx')">Unduh Excel (.xlsx)</button>
-          <button class="btn sm" @click="download('/api/admin/export.csv?kelas='+encodeURIComponent(kelas),'rekap_ljk.csv')">Unduh CSV</button>
-        </div>
-      </div>
-    </section>
   </div>
   </template>
   <footer class="devby">developed by WHS MathCenter CSWDA Telkom University</footer>
