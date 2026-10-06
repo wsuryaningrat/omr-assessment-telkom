@@ -131,7 +131,7 @@
         <p class="sub">Sistem otomatis mendeteksi marker, merapikan posisi, dan membaca bulatan.</p>
         <div class="drop" :class="{hot: dragging, lock: !formValid}" @dragover.prevent="dragging=true" @dragleave="dragging=false" @drop.prevent="dragging=false; pick($event.dataTransfer.files)">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg></span>
-          <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.summary.lembar || staged.length ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
+          <b x-text="!formValid ? 'Lengkapi data dulu' : (session?.files.total || staged.length ? 'Tambah foto LJK' : 'Ambil foto atau pilih berkas LJK')"></b>
           <p>JPG · PNG · HEIC · PDF — maks. <span x-text="meta.max_upload_mb||10"></span> MB per berkas, boleh banyak sekaligus</p>
           <span class="btn p sm">Pilih berkas dari perangkat</span>
           <input type="file" class="ovl" multiple accept="image/*,.pdf,.heic,.heif" aria-label="Pilih berkas LJK" @click="guardPick($event)" @change="onFiles($event)">
@@ -161,9 +161,9 @@
           <div class="prog"><span><span class="spin"></span> <span x-text="session?.uploading ? 'Menyimpan unggahan…' : 'Memindai LJK…'"></span></span><span x-text="scanDone+' / '+(session?.files.total||0)+' berkas'"></span></div>
           <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
         </div>
-        <div class="row-act" x-show="session?.summary.lembar">
-          <span class="mute"><b x-text="session?.summary.lembar"></b> lembar sudah terbaca</span>
-          <button class="btn p sm" style="margin-left:auto" @click="go(2)">Lanjut ke validasi →</button>
+        <div class="row-act" x-show="session?.files.total">
+          <span class="mute"><b x-text="session?.files.total"></b> berkas sudah diunggah</span>
+          <button class="btn p sm" style="margin-left:auto" @click="go(2)">Lihat ringkasan →</button>
         </div>
     </div>
   </section>
@@ -179,19 +179,10 @@
       <h2>Terima kasih, <span x-text="session?.pengawas?.nama"></span>!</h2>
       <p class="sub">Foto LJK sudah tersimpan aman di server. Anda tidak perlu menunggu atau melakukan apa pun lagi di sini — pemindaian &amp; validasi akhir diproses admin di latar belakang. Boleh langsung tutup halaman ini kapan saja.</p>
       <div class="sumgrid">
-        <div class="sumbox"><small>Foto / lembar terunggah</small><b x-text="session?.summary.lembar||0"></b></div>
+        <div class="sumbox"><small>Foto / lembar terunggah</small><b x-text="session?.files.total||0"></b></div>
         <div class="sumbox"><small>Kelas</small><b class="t" x-text="session?.pengawas?.kelas || '-'"></b></div>
       </div>
       <a class="btn p" style="margin-top:16px" href="/monitor" target="_blank" rel="noopener">Pantau progres di Halaman Monitoring →</a>
-    </div>
-    <div class="card" x-show="session?.scanning" style="padding:12px 16px;margin-top:10px">
-      <div class="prog" style="margin:0 0 6px"><span><span class="spin"></span> Masih memindai berkas berikutnya…</span><span x-text="scanDone+' / '+(session?.files.total||0)"></span></div>
-      <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
-      <ul class="queue" x-show="(session?.files.queue||[]).length">
-        <template x-for="f in (session?.files.queue||[])" :key="f.name">
-          <li><span class="dot" :class="f.state==='processing'?'check':'idle'"></span><span class="fn" x-text="f.name"></span><span class="mute" x-text="f.state==='processing' ? 'memindai…' : 'menunggu antrean'"></span></li>
-        </template>
-      </ul>
     </div>
 
     <template x-for="f in (session?.files.failed||[])" :key="f.name+f.error"><div class="fail" style="margin-top:10px"><b x-text="f.name"></b>: <span x-text="f.error"></span></div></template>
@@ -200,12 +191,12 @@
 </main>
 
 <div class="bottom" x-show="ready && step===1"><div class="in">
-  <span class="hint" x-text="!sid ? formHint : (dirty ? (formValid ? 'Ada perubahan data yang belum disimpan' : formHint) : (session?.summary.lembar ? 'Data tersimpan' : 'Siap — pilih foto LJK'))"></span>
+  <span class="hint" x-text="!sid ? formHint : (dirty ? (formValid ? 'Ada perubahan data yang belum disimpan' : formHint) : (session?.files.total ? 'Data tersimpan' : 'Siap — pilih foto LJK'))"></span>
   <button class="btn" x-show="sid && dirty" @click="saveIdentity()" :disabled="!formValid || busy">Simpan</button>
-  <button class="btn p" x-show="session?.summary.lembar" @click="go(2)" :disabled="dirty">Lihat ringkasan →</button>
+  <button class="btn p" x-show="session?.files.total" @click="go(2)" :disabled="dirty">Lihat ringkasan →</button>
 </div></div>
 <div class="bottom" x-show="ready && step===2"><div class="in">
-  <span class="sum"><b x-text="session?.summary.lembar||0"></b> lembar terunggah — diproses admin</span>
+  <span class="sum"><b x-text="session?.files.total||0"></b> berkas terunggah — diproses admin</span>
   <a class="btn g" href="/monitor" target="_blank" rel="noopener" style="text-decoration:none">Ke Halaman Monitoring →</a>
 </div></div>
 

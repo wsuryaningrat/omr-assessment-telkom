@@ -61,8 +61,11 @@ function ljk() {
       if (!f.hari) return "Pilih hari ujian";
       return "Siap — pilih berkas LJK di atas";
     },
-    get step() { if (this.view) return this.view; return this.session?.summary.lembar ? 2 : 1; },
-    canGo(n) { return this.step !== n && (n === 1 ? !!this.sid : !!this.session?.summary.lembar); },
+    // Pindah ke tahap 2 (ringkasan) begitu UNGGAHAN selesai -- tak perlu menunggu hasil pindai (lihat
+    // uploadStaged): session.files.total > 0 cukup, asal tak ada berkas yg masih menunggu diunggah/dicoba
+    // ulang (staged, mis. yg gagal tadi).
+    get step() { if (this.view) return this.view; return (this.session?.files.total && !this.staged.length) ? 2 : 1; },
+    canGo(n) { return this.step !== n && (n === 1 ? !!this.sid : !!this.session?.files.total); },
     go(n) {
       if (!this.canGo(n)) return;
       if (n === 1) this.loadForm();
@@ -125,7 +128,7 @@ function ljk() {
     },
     forget() { try { localStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
     resetAll() {
-      if (this.session && !this.session.submitted && this.session.summary.lembar && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
+      if (this.session && !this.session.submitted && this.session.files.total && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.clearStaged(); this.up = { done: 0, total: 0 };
       this.form = { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }; this.baseline = ""; this.view = null; scrollTo({ top: 0 });
     },
@@ -227,9 +230,12 @@ function ljk() {
       await Promise.all([worker(), worker(), worker()]);   // 3 unggahan paralel
       this.uploading = false;
       await this.refresh();
-      this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal — yang gagal tetap di daftar, tekan Unggah untuk coba lagi.` : `${ok.length} berkas terunggah — sedang dipindai…`;
+      this.upStatus = fail ? `${ok.length - fail} berkas terunggah, ${fail} gagal — yang gagal tetap di daftar, tekan Unggah untuk coba lagi.` : `${ok.length} berkas berhasil diunggah.`;
       clientLog("upload_done", { ok: ok.length - fail, fail });
-      if (!fail) this.toast(`${ok.length} berkas diunggah`);
+      // Semua berhasil -> langsung ke ringkasan (tahap 2). Pengawas tak perlu menunggu pemindaian --
+      // itu diproses admin di latar belakang (lihat tahap 2 & /monitor). Kalau ada yg gagal, tetap di
+      // tahap 1 supaya berkas gagal (masih di `staged`) kelihatan & bisa dicoba ulang.
+      if (!fail) { this.toast(`${ok.length} berkas diunggah`); this.view = 2; scrollTo({ top: 0 }); }
     },
     removeStagedQuiet(id) {
       const i = this.staged.findIndex(x => x.id === id); if (i < 0) return;
