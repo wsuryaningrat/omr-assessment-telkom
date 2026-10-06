@@ -395,20 +395,6 @@ function admin() {
       } catch (e) { this.toast(e.message, true); x.busy = false; }
       ev.target.value = "";
     },
-    // Putar foto ASLI 90 derajat (searah/lawan jarum jam) lalu pindai ulang -- dipakai saat pengawas
-    // memfoto LJK miring/terbalik sehingga marker tak terdeteksi. PDF tak didukung (lihat admin.py).
-    async rotateSheetPhoto(x, deg) {
-      if (!x || x.busy) return;
-      x.busy = true;
-      const keepId = x.id;
-      try {
-        const d = await this.json(`/api/admin/sheets/${x.id}/rotate?deg=${deg}`, { method: "POST" });
-        this.toast("Foto diputar & dipindai ulang — status: " + d.label);
-        await this.openDetail(this.detail);
-        const again = this.detail?.items.find(it => it.id === keepId);
-        if (again) this.selectDetailSheet(again);
-      } catch (e) { this.toast(e.message, true); x.busy = false; }
-    },
     // Tambah lembar BARU ke sesi ini dari foto yg diunggah admin (mis. pengawas lupa unggah satu lembar
     // mahasiswa) -- beda dari replaceSheetPhoto yg MENGGANTI foto lembar yg sudah ada.
     async addSheetPhoto(d, ev) {
@@ -462,6 +448,16 @@ function admin() {
       if (!ev.target.value) return;
       const next = ev.target.closest(".anscell")?.nextElementSibling?.querySelector("input");
       if (next) { next.focus(); next.select?.(); }
+    },
+    // Kotak jawaban/kuisioner HANYA menerima A/B/C/D -- huruf kecil otomatis jadi kapital, apa pun di
+    // luar itu (huruf lain, angka, simbol) ditolak & kotak dikosongkan lagi (bukan disimpan apa adanya).
+    onAnswerInput(obj, q, ev) {
+      let v = (ev.target.value || "").toUpperCase();
+      if (v && !/^[A-D]$/.test(v)) v = "";
+      ev.target.value = v;
+      obj[q] = v || "BLANK";
+      this.advanceFocus(ev);
+      this.markDirty();
     },
     // Payload edit utk SATU lembar dari editForm saat ini. NPM yg masih diketik setengah jalan (bukan 10
     // digit, bukan kosong, & beda dari nilai tersimpan) SENGAJA tak dikirim -- server menolaknya (422) dan

@@ -228,7 +228,7 @@
                   <button class="ib" :class="{on: i.admin_validated}" x-show="!i.files.orphans && i.status!=='scanning'" @click="validateSession(i.id, !i.admin_validated)" :title="i.admin_validated?'Batalkan validasi':'Tandai validated'" aria-label="Tandai validated">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                   </button>
-                  <button class="ib" :class="{on: i.synced, dim: !i.admin_validated}" x-show="!i.files.orphans && i.status!=='scanning'" :disabled="!!i.syncing" @click="syncSessionNow(i)" :title="!i.admin_validated ? 'Kirim ke Google Sheet (validasi dulu)' : (i.synced ? 'Sudah terkirim — klik utk kirim ulang (perbarui baris NPM yg sama)' : 'Kirim ke Google Sheet (kunci sesi lalu sinkron)')" aria-label="Kirim ke Google Sheet">
+                  <button class="ib" :class="{on: i.synced, dim: !i.admin_validated || !superuser}" x-show="!i.files.orphans && i.status!=='scanning'" :disabled="!!i.syncing || !superuser" @click="syncSessionNow(i)" :title="!superuser ? 'Hanya super_admin yang boleh mengirim ke Google Sheet' : (!i.admin_validated ? 'Kirim ke Google Sheet (validasi dulu)' : (i.synced ? 'Sudah terkirim — klik utk kirim ulang (perbarui baris NPM yg sama)' : 'Kirim ke Google Sheet (kunci sesi lalu sinkron)'))" aria-label="Kirim ke Google Sheet">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                   </button>
                   <button class="ib" x-show="i.lembar>0" @click="rescanAllSheets(i)" title="Pindai ulang semua lembar" aria-label="Pindai ulang semua lembar">
@@ -280,21 +280,21 @@
         <div class="tools" style="flex:0 0 auto">
           <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button class="ib" :class="{on: detail?.admin_validated}" x-show="detail && detail.items.length>0" :disabled="!!detail?.sesBusy" @click="toggleSessionValidated(detail)" :title="detail?.admin_validated ? 'Sesi sudah validated — klik utk batalkan' : 'Validasi sesi ini (tandai validated)'" aria-label="Validasi sesi ini">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+            <button class="ib lg" :class="{on: detail?.admin_validated, 'c-ok': !detail?.admin_validated}" x-show="detail && detail.items.length>0" :disabled="!!detail?.sesBusy" @click="toggleSessionValidated(detail)" :title="detail?.admin_validated ? 'Sesi sudah validated — klik utk batalkan' : 'Validasi sesi ini (tandai validated)'" aria-label="Validasi sesi ini">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
             </button>
-            <button class="ib" x-show="detail && detail.items.length>0" @click="validateAllSheets(detail)" title="Validasi semua lembar" aria-label="Validasi semua lembar">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 6-7"/></svg>
+            <button class="ib lg c-ok" x-show="detail && detail.items.length>0" @click="validateAllSheets(detail)" title="Validasi semua lembar" aria-label="Validasi semua lembar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 6-7"/></svg>
             </button>
-            <button class="ib" x-show="detail && detail.items.length>0" @click="unvalidateAllSheets(detail)" title="Batalkan validasi semua lembar" aria-label="Batalkan validasi semua lembar">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+            <button class="ib lg c-warn" x-show="detail && detail.items.length>0" @click="unvalidateAllSheets(detail)" title="Batalkan validasi semua lembar" aria-label="Batalkan validasi semua lembar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
             </button>
-            <label class="ib" style="cursor:pointer" :class="{dim: detail?.addBusy}" title="Tambah LJK mahasiswa baru (unggah 1 foto -- mis. pengawas lupa unggah satu lembar)" aria-label="Tambah LJK mahasiswa baru">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            <label class="ib lg c-info" style="cursor:pointer" :class="{dim: detail?.addBusy}" title="Tambah LJK mahasiswa baru (unggah 1 foto -- mis. pengawas lupa unggah satu lembar)" aria-label="Tambah LJK mahasiswa baru">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               <input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" :disabled="!!detail?.addBusy" @change="addSheetPhoto(detail, $event)">
             </label>
-            <button class="ib" @click="closeDetail()" title="Tutup" aria-label="Tutup">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            <button class="ib lg p" @click="closeDetail()" title="Tutup" aria-label="Tutup">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
             </button>
           </div>
         </div>
@@ -323,7 +323,7 @@
           <label class="f" style="margin:0">Kode Soal<input x-model.trim="detail.bulkKode" placeholder="mis. 042" style="width:110px"></label>
           <label class="f" style="margin:0">Fakultas
             <select x-model="detail.bulkFakultas" style="width:150px">
-              <option value="">(jangan ubah)</option>
+              <option value="">Fakultas</option>
               <template x-for="f in fakultasOptions" :key="'bulk-'+f"><option :value="f" x-text="f"></option></template>
             </select>
           </label>
@@ -381,12 +381,6 @@
               <button class="ib xs" :disabled="!detail.selectedItem?.photo_exists || !!detail.selectedItem?.busy" @click="rescanSheet(detail.selectedItem)" title="Pindai ulang (baca ulang data lembar dari foto)" aria-label="Pindai ulang">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
               </button>
-              <button class="ib xs" :disabled="!detail.selectedItem?.photo_exists || !!detail.selectedItem?.busy" @click="rotateSheetPhoto(detail.selectedItem, -90)" title="Putar foto 90° kiri" aria-label="Putar foto 90 derajat kiri">
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-1"/></svg>
-              </button>
-              <button class="ib xs" :disabled="!detail.selectedItem?.photo_exists || !!detail.selectedItem?.busy" @click="rotateSheetPhoto(detail.selectedItem, 90)" title="Putar foto 90° kanan" aria-label="Putar foto 90 derajat kanan">
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14 20 9l-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h1"/></svg>
-              </button>
               <label class="ib xs" style="cursor:pointer" title="Ganti foto" aria-label="Ganti foto">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 20h16"/></svg>
                 <input type="file" accept="image/*,.pdf,.heic,.heif" style="display:none" :disabled="!detail.selectedItem" @change="replaceSheetPhoto(detail.selectedItem, $event)">
@@ -434,7 +428,7 @@
                   <template x-for="q in detail.kuisionerNums" :key="'kui-'+q">
                     <label class="anscell" :class="{filled: editForm.kuisioner[q] && editForm.kuisioner[q]!=='BLANK'}">
                       <span x-text="+q"></span>
-                      <input maxlength="1" :value="editForm.kuisioner[q]==='BLANK'?'':editForm.kuisioner[q]" @input="editForm.kuisioner[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event); markDirty()">
+                      <input maxlength="1" :value="editForm.kuisioner[q]==='BLANK'?'':editForm.kuisioner[q]" @input="onAnswerInput(editForm.kuisioner, q, $event)">
                     </label>
                   </template>
                 </div>
@@ -443,7 +437,7 @@
                   <template x-for="q in detail.questionNums" :key="'soal-'+q">
                     <label class="anscell" :class="{filled: editForm.jawaban[q] && editForm.jawaban[q]!=='BLANK'}">
                       <span x-text="+q"></span>
-                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="editForm.jawaban[q]=$event.target.value.toUpperCase()||'BLANK'; advanceFocus($event); markDirty()">
+                      <input maxlength="1" :value="editForm.jawaban[q]==='BLANK'?'':editForm.jawaban[q]" @input="onAnswerInput(editForm.jawaban, q, $event)">
                     </label>
                   </template>
                 </div>

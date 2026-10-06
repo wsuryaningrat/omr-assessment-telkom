@@ -619,37 +619,11 @@ class TestServices(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn("label", r.json())
 
-    def test_admin_rotate_sheet_photo_rejects_pdf_then_rotates_jpeg_even_after_submit(self):
-        # PDF: tak punya "satu foto asli" yg bisa diputar di tempat -- ditolak (lihat admin_rotate_sheet_photo)
-        sid_pdf = self.submitted_session("ADMROT-PDF-01")
-        shid_pdf = self.c.get(f"/api/admin/sessions/{sid_pdf}/sheets", headers=ADM).json()["items"][0]["id"]
-        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid_pdf}/rotate?deg=90", headers=ADM).status_code, 415)
-        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid_pdf}/rotate?deg=45", headers=ADM).status_code, 422)   # sudut tak valid
-
-        # JPEG sungguhan: diputar lalu dipindai ulang, bekerja walau sesi sudah disubmit (admin-only, spt ganti foto)
-        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMROT-JPG-01"}).json()["id"]
-        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("foto.jpeg", JPEG, "image/jpeg"))])
-        t = time.time()
-        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
-            time.sleep(0.4)
-        d = self.c.get(f"/api/sessions/{sid}").json()
-        self.assertTrue(d["sheets"], "foto sampel JPEG harus menghasilkan setidaknya satu lembar")
-        shid = d["sheets"][0]["id"]
-        self.c.post(f"/api/sessions/{sid}/validate-all")
-        self.submit(sid)
-        r = self.c.post(f"/api/admin/sheets/{shid}/rotate?deg=90", headers=ADM)
-        self.assertEqual(r.status_code, 200, r.text)
-        self.assertIn("label", r.json())
-        with SessionLocal() as db:
-            self.assertFalse(db.get(Sheet, shid).validated)   # diputar -> perlu dicek ulang, spt ganti foto/pindai ulang
-        # putar lagi ke arah sebaliknya -- tetap jalan normal (bukan kasus sekali pakai)
-        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid}/rotate?deg=-90", headers=ADM).status_code, 200)
-
     def test_admin_add_sheet_photo_creates_new_sheet_and_counts_toward_lembar(self):
         """Tambah lembar baru dari foto yg diunggah admin (mis. pengawas lupa unggah satu lembar) --
         jumlah "lembar" di tabel Sesi & admin/sessions/{sid}/sheets harus ikut bertambah."""
         sid = self.submitted_session("ADMADD-01", n=1)
-        self.submit(sid)   # bekerja walau sesi sudah disubmit, spt replace/rotate (admin-only)
+        self.submit(sid)   # bekerja walau sesi sudah disubmit, spt replace foto (admin-only)
         before = len(self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"])
         r = self.c.post(f"/api/admin/sessions/{sid}/sheets/add", headers=ADM, files={"file": ("tambahan.jpeg", JPEG, "image/jpeg")})
         self.assertEqual(r.status_code, 200, r.text)
@@ -1269,6 +1243,7 @@ class TestServices(unittest.TestCase):
             self.assertEqual(self.c.get("/api/admin/access-log").status_code, 403)
             self.assertEqual(self.c.post("/api/admin/users", json={"username": "x_y_z", "password": "rahasia123"}).status_code, 403)
             self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}").status_code, 403)   # hapus sesi: super_admin saja
+            self.assertEqual(self.c.post(f"/api/admin/sessions/{sid}/sync-now").status_code, 403)   # "Kirim": super_admin saja
             self.c.post("/auth/logout")
             self.assertEqual(self.c.post("/auth/password", json={"username": "tes_super", "password": "rahasia123"}).status_code, 200)
             self.assertTrue(self.c.get("/api/admin/whoami").json()["superuser"])

@@ -648,62 +648,6 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
 
-@router.post("/sheets/{shid}/rotate")
-def admin_rotate_sheet_photo(shid: str, deg: int = Query(..., description="90 (searah jarum jam) atau -90 (berlawanan)"), db=Depends(get_db)):
-    """Putar foto ASLI lembar ini 90 derajat lalu pindai ulang -- dipakai saat pengawas memfoto LJK
-    miring/terbalik sehingga marker tak terdeteksi (klasifikasi "Gagal"). Berkas DITIMPA DI TEMPAT (path
-    tak berubah, admin_rescan_sheet jg memakai path yg sama) -- bukan ganti foto baru spt admin_replace_sheet_photo.
-    Hanya utk foto (JPG/PNG/HEIC/WEBP) -- PDF tak punya "satu foto asli" yg bisa diputar di tempat (pemindai
-    me-render tiap halamannya langsung dari berkas PDF saat memindai, lihat core/pdf_utils.iter_images_from_file)."""
-    from server import main as _main
-    from PIL import Image, ImageOps
-    if deg not in (90, -90):
-        raise HTTPException(422, "deg harus 90 atau -90")
-    sh = db.get(Sheet, shid)
-    if sh is None:
-        raise HTTPException(404, "Lembar tidak ditemukan")
-    s = db.get(ScanSession, sh.session_id)
-    up = db.get(UploadFile, sh.file_id)
-    if not up or not up.path or not os.path.exists(up.path):
-        raise HTTPException(410, "Berkas sumber sudah tak ada (mis. sudah 'Bersihkan foto')")
-    ext = up.name.rsplit(".", 1)[-1].lower() if "." in up.name else ""
-    if ext == "pdf":
-        raise HTTPException(415, "Rotasi hanya didukung untuk foto (JPG/PNG/HEIC/WEBP), bukan PDF")
-    try:
-        img = Image.open(up.path)
-        img.load()
-        img = ImageOps.exif_transpose(img).convert("RGB")   # samakan dgn orientasi yg dipakai pemindai
-        img = img.rotate(-deg, expand=True)                 # PIL rotate(): sudut positif = berlawanan jarum jam
-        # HEIC/HEIF: PIL (bahkan dgn pillow-heif) umumnya tak bisa MENULIS format ini -- simpan sbg JPEG &
-        # perbarui UploadFile.name (bukan .path) spy pemindaian selanjutnya membaca ekstensi yg BENAR
-        # (worker memilih dekoder dari nama berkas, lihat core/pdf_utils.load_image_with_exif).
-        if ext in ("heic", "heif"):
-            img.save(up.path, format="JPEG", quality=92)
-            up.name = re.sub(r"\.\w+$", ".jpg", up.name)
-        elif ext in ("jpg", "jpeg"):
-            img.save(up.path, format="JPEG", quality=92)
-        else:
-            img.save(up.path, format=ext.upper())
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"Gagal memutar foto: {e}")
-    up.size = os.path.getsize(up.path)
-    db.commit()
-    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page, True, calib=_main._calib(db))
-    try:
-        res = fut.result(timeout=120)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"Foto sudah diputar, tapi gagal memindai ulang: {e}")
-    if not res:
-        raise HTTPException(422, "Foto sudah diputar, tapi hasil pindai ulang kosong (halaman tak terbaca)")
-    sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
-    db.commit()
-    _main._clear_scan_cache(shid)
-    _main._store_overlay(shid, res[0])
-    return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
-
-
 @router.post("/sheets/{shid}/replace")
 async def admin_replace_sheet_photo(shid: str, file: FUploadFile = File(...), db=Depends(get_db)):
     """Ganti foto lembar ini dgn berkas baru dari admin. Sama spt endpoint pengawas (POST
@@ -794,10 +738,12 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
     return {"ok": True, "admin_validated": s.admin_validated, "admin_validated_by": s.admin_validated_by, "submitted": s.submitted}
 
 
-@router.post("/sessions/{sid}/sync-now")
+@router.post("/sessions/{sid}/sync-now", dependencies=[Depends(auth.require_superuser)])
 def admin_sync_session_now(sid: str, db=Depends(get_db)):
     """"Kirim": SATU-SATUNYA jalan sesi terkirim ke Google Sheet sejak "validated" & "sent" dipisah (lihat
     admin_validate_session) -- tombol manual (ikon kirim/upload) di tabel Sesi & popup Detail lembar.
+    HANYA super_admin yg boleh menekan tombol ini (auth.require_superuser) -- admin biasa boleh menandai
+    validated, tapi pengiriman akhir ke Google Sheet produksi dikhususkan ke super_admin.
     HANYA bisa dipanggil setelah admin_validated=True (admin harus SENGAJA menandai validated dulu),
     supaya tak ada sesi yg terkirim tanpa admin benar2 menekan tombol ini. Mengunci sesi dulu bila belum
     (submitted=True, nilai ulang dgn kunci saat ini) lalu langsung sinkron -- aman dipanggil berulang
