@@ -183,7 +183,7 @@
             </select>
             <select x-model="ses.status" @change="ses.page=1; loadSessions()">
               <option value="all">Semua</option>
-              <option value="scanning">Scanning</option><option value="perlu_cek">Checking</option><option value="validated">Validated (admin)</option>
+              <option value="uploading">Mengunggah</option><option value="scanning">Scanning</option><option value="perlu_cek">Checking</option><option value="validated">Validated (admin)</option>
               <option value="submitted">Sudah terkirim</option><option value="open">Belum terkirim</option><option value="unsynced">Belum tersinkron</option>
             </select>
             <button class="ib" @click="loadSessions()" title="Muat ulang" aria-label="Muat ulang">

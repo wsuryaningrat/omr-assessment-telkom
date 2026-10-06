@@ -205,6 +205,7 @@ function ljk() {
           this._replaceExisting = false;
           this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
+          if (r.diganti) this.toast(`Sesi upload lama kelas ini (${r.diganti}) sudah ditimpa`);
         } catch (e) { this.toast(e.message, true); return; }
       }
       const ok = [...this.staged];

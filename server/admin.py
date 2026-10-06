@@ -145,11 +145,15 @@ def _jml_mhs_by_kelas():
 
 
 def _session_status(s: ScanSession) -> str:
-    """scanning (masih ada berkas diproses) -> perlu_cek (selesai discan, belum tervalidasi admin) ->
-    validated (admin sudah menandai selesai dicek). Terpisah dari validasi per-lembar pengawas
-    (Sheet.validated) & submit pengawas (ScanSession.submitted) -- lihat _session_row."""
-    if any(f.state in ("queued", "processing") for f in s.files):
+    """uploading (berkas sudah diterima server tapi masih menunggu jendela tenang unggah, lihat
+    server/main.py _schedule_scan_start -- belum diserahkan ke pool pindai sama sekali) -> scanning (sudah
+    diserahkan, masih ada yg diproses) -> perlu_cek (selesai discan, belum tervalidasi admin) -> validated
+    (admin sudah menandai selesai dicek). Terpisah dari validasi per-lembar pengawas (Sheet.validated) &
+    submit pengawas (ScanSession.submitted) -- lihat _session_row."""
+    if any(f.state == "processing" for f in s.files):
         return "scanning"
+    if any(f.state == "queued" for f in s.files):
+        return "uploading"
     if s.admin_validated:
         return "validated"
     return "perlu_cek"
@@ -185,9 +189,9 @@ def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
     }
 
 
-_DERIVED_STATUSES = ("scanning", "perlu_cek", "validated")
+_DERIVED_STATUSES = ("uploading", "scanning", "perlu_cek", "validated")
 _SORT_KEYS = ("created_at", "nama", "kelas", "lembar", "jml_mhs", "status", "hari_ujian")
-_STATUS_ORDER = {"scanning": 0, "perlu_cek": 1, "validated": 2}
+_STATUS_ORDER = {"uploading": 0, "scanning": 1, "perlu_cek": 2, "validated": 3}
 
 
 def _sort_rows(rows, key, asc):
@@ -645,7 +649,7 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
     auth.require_admin) supaya tampil di detail sesi."""
     s = _admin_session_or_404(db, sid)
     if value:
-        if _session_status(s) == "scanning":
+        if _session_status(s) in ("scanning", "uploading"):
             raise HTTPException(409, "Pemindaian sesi ini masih berjalan")
         if not s.sheets:
             raise HTTPException(409, "Sesi ini belum punya lembar")

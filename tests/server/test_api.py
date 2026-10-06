@@ -44,7 +44,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hp": "12"}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hp": "0712345678"}).status_code, 422)   # bukan seluler (harus 8…)
         for ok in ("081234567890", "+62 812-3456-7890", "6281234567890", "81234567890"):
-            r = self.c.post("/api/sessions", json={**VALID, "hp": ok})
+            r = self.c.post("/api/sessions", json={**VALID, "hp": ok, "kelas": "APIVALIDHP-01"})
             self.assertEqual(r.status_code, 201, ok)
             self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hp"], "+6281234567890", ok)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": "LUAR-TABEL-01", "prodi": " "}).status_code, 422)
@@ -67,7 +67,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(m["hari"][1]["label"], "Selasa, 29 September 2026")
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": ""}).status_code, 422)
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-27"}).status_code, 422)   # di luar 28 Sep-2 Okt
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": ""}).status_code, 201)   # kode soal tak wajib lagi
+        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "", "kelas": "APIVALIDHP-01"}).status_code, 201)   # kode soal tak wajib lagi
         # kelas yg ADA di tabel kelas -> prodi & fakultas diisi server dari tabel, isian klien diabaikan
         r = self.c.post("/api/sessions", json={**VALID, "kelas": "BS1TR-50-REG-01", "prodi": "SALAH", "fakultas": "FIF", "kode_soal": ""})
         self.assertEqual(r.status_code, 201, r.text)
@@ -78,15 +78,15 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 201, r.text)
         self.assertTrue(all(k.get("fakultas") for k in self.c.get("/api/meta").json()["kelas"]))
         self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kode_soal": "x" * 21}).status_code, 422)   # terlalu panjang
-        r = self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA-DI-KUNCI"})   # bebas, tak perlu cocok kunci
+        r = self.c.post("/api/sessions", json={**VALID, "kode_soal": "TIDAK-ADA-DI-KUNCI", "kelas": "APIVALIDHP-01"})   # bebas, tak perlu cocok kunci
         self.assertEqual(r.status_code, 201, r.text)
-        r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-29"})
+        r = self.c.post("/api/sessions", json={**VALID, "hari_ujian": "2026-09-29", "kelas": "APIVALIDHP-01"})
         self.assertEqual(r.status_code, 201, r.text)
         self.assertEqual(self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]["hari_ujian"], "2026-09-29")
 
     def test_pending_counter_returns_to_zero(self):
         from server import main as srv
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIPEND-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
         self.wait(sid)
@@ -119,7 +119,7 @@ class TestAPI(unittest.TestCase):
             self.assertTrue(p[4]["dosen"] and not p[4]["needs_hp"] and p[2]["needs_hp"] and not p[0]["needs_hp"])
             self.assertTrue(not p[3]["dosen"] and p[3]["needs_hp"])   # "Zaki..." -- nim kosong TANPA gelar
             self.assertNotIn("hp", p[0])
-            base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
+            base = {"kelas": "APIPWDD-01", "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
             r = self.c.post("/api/sessions", json={**base, "pengawas_ref": p[1]["id"]})
             self.assertEqual(r.status_code, 201)
             d = self.c.get(f"/api/sessions/{r.json()['id']}").json()["pengawas"]
@@ -147,7 +147,7 @@ class TestAPI(unittest.TestCase):
         _sync_pengawas_contact) -- supaya hp yg baru diisi sendiri (needs_hp) & pengawas manual
         ("Lainnya -- isi sendiri") ikut terdaftar tanpa admin perlu psql manual."""
         from server.db import Pengawas, SessionLocal
-        base = {"kelas": VALID["kelas"], "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
+        base = {"kelas": "APISYNC-01", "prodi": VALID["prodi"], "fakultas": VALID["fakultas"], "hari_ujian": VALID["hari_ujian"], "kode_soal": VALID["kode_soal"]}
         no_hp_id, has_hp_id = "tes_sync_nohp", "tes_sync_hashp"
         with SessionLocal() as db:
             db.add_all([
@@ -196,7 +196,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.get("/api/health").json()["ok"], True)
 
     def test_upload_rejects_bad_type_and_admin_needs_token(self):
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIBADTYPE-01"}).json()["id"]
         r = self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("x.exe", b"MZ", "application/octet-stream"))])
         self.assertEqual(r.status_code, 415)
         self.assertEqual(self.c.get("/api/admin/export.csv").status_code, 401)
@@ -237,7 +237,7 @@ class TestAPI(unittest.TestCase):
         # sesi A: hanya menguji PATCH (tidak pernah disubmit) -- jangan mengubah data lembar yang disubmit,
         # supaya tidak ikut mengotori export.csv yang dipakai tes lain (mis. test_full_flow_matches_golden,
         # yang mengambil baris PERTAMA dan mengasumsikan itu berasal dari LJK.pdf kosong tanpa koreksi manual).
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APICORRECT-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
         d = self.wait(sid)
@@ -263,7 +263,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
         # sesi B: dibiarkan apa adanya lalu disubmit, khusus menguji bahwa koreksi ditolak setelah submit
-        sid2 = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid2 = self.c.post("/api/sessions", json={**VALID, "kelas": "APICORRECT-01"}).json()["id"]
         self.c.post(f"/api/sessions/{sid2}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
         d2 = self.wait(sid2)
         shid2 = d2["sheets"][0]["id"]
@@ -272,7 +272,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.patch(f"/api/sheets/{shid2}", json={"npm": "1032600124"}).status_code, 409)
 
     def test_edit_identity_updates_sheets_and_export(self):
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIEDITINIT-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("LJK.pdf", data, "application/pdf"))])
         self.wait(sid)
@@ -295,7 +295,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.c.patch(f"/api/sessions/{sid}", json=new).status_code, 409)  # sudah disubmit
 
     def test_validate_batch_only_given_ids(self):
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIVALBATCH-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         self.c.post(f"/api/sessions/{sid}/files", files=[("files", (f"b{i}.pdf", data, "application/pdf")) for i in range(4)])
         d = self.wait(sid)
@@ -316,7 +316,7 @@ class TestAPI(unittest.TestCase):
         old = config.MAX_FILES_PER_SESSION
         config.MAX_FILES_PER_SESSION = 2
         try:
-            sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+            sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIFILECAP-01"}).json()["id"]
             data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
             two = [("files", (f"c{i}.pdf", data, "application/pdf")) for i in range(2)]
             self.assertEqual(self.c.post(f"/api/sessions/{sid}/files", files=two).status_code, 202)
@@ -341,7 +341,7 @@ class TestAPI(unittest.TestCase):
             main._CLOG.clear()
 
     def test_many_files_concurrent(self):
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIMANYFILES-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         files = [("files", (f"a{i}.pdf", data, "application/pdf")) for i in range(6)]
         self.assertEqual(self.c.post(f"/api/sessions/{sid}/files", files=files).status_code, 202)
@@ -354,7 +354,7 @@ class TestAPI(unittest.TestCase):
     def test_files_queue_shows_pending_names_then_empties(self):
         """Antrean per-berkas (queued/processing): pengawas bisa lihat berkas MANA yg masih diproses,
         bukan cuma jumlahnya -- penting krn sebagian lembar sulit bisa lama dipindai."""
-        sid = self.c.post("/api/sessions", json=VALID).json()["id"]
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "APIFILESQUEUE-01"}).json()["id"]
         data = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
         files = [("files", (f"q{i}.pdf", data, "application/pdf")) for i in range(6)]
         self.c.post(f"/api/sessions/{sid}/files", files=files)

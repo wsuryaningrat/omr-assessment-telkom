@@ -158,7 +158,7 @@
           <div class="bar"><i :style="`width:${up.total?up.done/up.total*100:0}%`"></i></div>
         </div>
         <div style="margin-top:12px" x-show="session?.scanning">
-          <div class="prog"><span><span class="spin"></span> Memindai LJK…</span><span x-text="scanDone+' / '+(session?.files.total||0)+' berkas'"></span></div>
+          <div class="prog"><span><span class="spin"></span> <span x-text="session?.uploading ? 'Menyimpan unggahan…' : 'Memindai LJK…'"></span></span><span x-text="scanDone+' / '+(session?.files.total||0)+' berkas'"></span></div>
           <div class="bar"><i :style="`width:${scanPct}%`"></i></div>
         </div>
         <div class="row-act" x-show="session?.summary.lembar">

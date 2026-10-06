@@ -105,8 +105,8 @@ function admin() {
       s.page = 1; this.loadSessions();
     },
     sortArrow(key) { return this.ses.sort === key ? (this.ses.dir === "asc" ? "▲" : "▼") : ""; },
-    sesStatusLabel(st) { return { scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
-    sesStatusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
+    sesStatusLabel(st) { return { uploading: "Mengunggah", scanning: "Scanning", perlu_cek: "Checking", validated: "Validated" }[st] || st; },
+    sesStatusChip(st) { return { uploading: "pending", scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
     kirimLabel(i) { if (!i.submitted) return "Belum dikirim"; if (i.synced) return "Sent"; if (i.sync_error) return "Gagal ×" + i.sync_attempts; return "Antre"; },
     kirimChip(i) { if (!i.submitted) return "pending"; if (i.synced) return "validated"; if (i.sync_error) return "warning"; return "pending"; },
     async validateSession(id, value) {

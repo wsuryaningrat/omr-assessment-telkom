@@ -297,26 +297,29 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=lembar&dir=desc", headers=ADM).status_code, 200)
         self.assertEqual(self.c.get("/api/admin/sessions?q=SORTK-&sort=bukan_kolom", headers=ADM).status_code, 200)
 
-    def test_create_session_replace_existing_removes_old_unprotected_sessions(self):
-        """Upload ulang kelas yg sama (replace_existing, setelah konfirmasi pengawas) MENIMPA sesi lama
-        beserta foto & lembarnya -- kecuali sesi yg sudah divalidasi admin / terkirim (dilindungi)."""
+    def test_create_session_always_replaces_old_unprotected_sessions(self):
+        """Membuat sesi baru utk kelas yg sudah ada SELALU menimpa sesi lama yg belum dikunci (apa pun
+        nilai replace_existing -- lapangan itu kini vestigial, lihat create_session), beserta foto &
+        lembarnya -- supaya kelas yg sama tak pernah punya lebih dari satu sesi hidup sekaligus (dulu bug:
+        tanpa replace_existing, create_session tetap membuat sesi BARU tanpa menghapus yg lama sama sekali,
+        jadi satu kelas bisa numpuk banyak sesi dobel). Sesi yg sudah divalidasi admin / terkirim DITOLAK
+        (409) -- hanya admin yg boleh menyentuhnya."""
         kelas = "REPL-01"
         old = self.submitted_session(kelas)                       # belum divalidasi admin -> boleh ditimpa
         with SessionLocal() as db:
             path = db.get(ScanSession, old).files[0].path
         self.assertTrue(os.path.exists(path))
-        r = self.c.post("/api/sessions", json={**VALID, "kelas": kelas, "replace_existing": True})
+        r = self.c.post("/api/sessions", json={**VALID, "kelas": kelas})
         self.assertEqual((r.status_code, r.json()["diganti"]), (201, 1))
         self.assertEqual(self.c.get(f"/api/sessions/{old}").status_code, 404)
         self.assertFalse(os.path.exists(path))
-        # sesi tervalidasi admin TIDAK ikut terhapus
+        # sesi tervalidasi admin: upload baru utk kelas itu DITOLAK, bukan diam2 menimpa / numpuk dobel
         kept = self.submitted_session("REPL-02")
         self.c.post(f"/api/admin/sessions/{kept}/validate", headers=ADM)
-        r2 = self.c.post("/api/sessions", json={**VALID, "kelas": "REPL-02", "replace_existing": True})
-        self.assertEqual(r2.json()["diganti"], 0)
+        r2 = self.c.post("/api/sessions", json={**VALID, "kelas": "REPL-02"})
+        self.assertEqual(r2.status_code, 409, r2.text)
         self.assertEqual(self.c.get(f"/api/sessions/{kept}").status_code, 200)
-        # tanpa flag: tak ada yg dihapus
-        self.assertEqual(self.c.post("/api/sessions", json={**VALID, "kelas": "REPL-02"}).json()["diganti"], 0)
+        self.assertEqual(self.c.get("/api/admin/sessions?q=REPL-02", headers=ADM).json()["total"], 1)
 
     def test_admin_sessions_filters_by_hari_ujian(self):
         a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMHARI-A", "hari_ujian": "2026-09-29"}).json()["id"]
@@ -459,9 +462,19 @@ class TestServices(unittest.TestCase):
 
     def test_admin_delete_session_keeps_other_sessions_photos_in_shared_class_folder(self):
         # Dua sesi kelas SAMA (fakultas/prodi/kelas sama) -> folder foto DIBAGI (lihat _class_folder).
-        # Hapus satu sesi tak boleh ikut menghapus foto sesi lain di kelas yg sama.
-        a = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMDEL-SHARED"}).json()["id"]
-        b = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMDEL-SHARED"}).json()["id"]
+        # Hapus satu sesi tak boleh ikut menghapus foto sesi lain di kelas yg sama. Sejak create_session
+        # SELALU menimpa sesi lama kelas yg sama (satu kelas = satu sesi hidup, lihat
+        # test_create_session_always_replaces_old_unprotected_sessions), dua sesi hidup sekelas tak lagi
+        # bisa dibuat lewat endpoint publik -- jadi di sini keduanya disisipkan langsung ke DB (spt data
+        # lama dari sblm aturan itu ada) murni utk menguji isolasi hapus-berkas di folder yg dibagi.
+        with SessionLocal() as db:
+            sa = ScanSession(nama_pengawas=VALID["nama_pengawas"], hp="+6281234567890", ruangan="",
+                              kelas="ADMDEL-SHARED", fakultas=VALID["fakultas"], prodi=VALID["prodi"])
+            sb = ScanSession(nama_pengawas=VALID["nama_pengawas"], hp="+6281234567890", ruangan="",
+                              kelas="ADMDEL-SHARED", fakultas=VALID["fakultas"], prodi=VALID["prodi"])
+            db.add_all([sa, sb])
+            db.commit()
+            a, b = sa.id, sb.id
         self.c.post(f"/api/sessions/{a}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
         self.c.post(f"/api/sessions/{b}/files", files=[("files", ("l.pdf", PDF, "application/pdf"))])
         t = time.time()

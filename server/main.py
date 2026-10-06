@@ -30,6 +30,41 @@ _RESCAN_FUTURES = {}    # sheet_id -> Future, khusus pindai-ulang massal (lihat 
 _RESCAN_PENDING = {}    # session_id -> jumlah lembar yg masih diantre/diproses pindai-ulang massal (utk progres di UI)
 _rescan_lock = threading.Lock()
 
+# Berkas yg baru diunggah TIDAK langsung diserahkan ke pool pindai -- ditunggu dulu sampai unggahan sesi
+# ini "tenang" (tak ada berkas baru masuk lagi selama UPLOAD_SETTLE_S) supaya pemindaian baru mulai setelah
+# SEMUA foto pengawas benar2 selesai terkirim (status sesi "uploading" -> "scanning"), bukan mencicil per
+# berkas spt dulu (lihat upload_files). session_id -> threading.Timer.
+_UPLOAD_TIMERS = {}
+_upload_timers_lock = threading.Lock()
+UPLOAD_SETTLE_S = 3.0
+
+
+def _schedule_scan_start(session_id):
+    with _upload_timers_lock:
+        old = _UPLOAD_TIMERS.get(session_id)
+        if old is not None:
+            old.cancel()
+        t = threading.Timer(UPLOAD_SETTLE_S, _start_scanning_session, args=(session_id,))
+        t.daemon = True
+        _UPLOAD_TIMERS[session_id] = t
+        t.start()
+
+
+def _cancel_upload_timer(session_id):
+    with _upload_timers_lock:
+        t = _UPLOAD_TIMERS.pop(session_id, None)
+    if t is not None:
+        t.cancel()
+
+
+def _start_scanning_session(session_id):
+    with _upload_timers_lock:
+        _UPLOAD_TIMERS.pop(session_id, None)
+    with SessionLocal() as db:
+        ids = list(db.scalars(select(UploadFile.id).where(UploadFile.session_id == session_id, UploadFile.state == "queued")))
+    for fid in ids:
+        _enqueue(fid)
+
 
 def _submit_scan(*args, **kwargs):
     with _pending.get_lock():
@@ -170,12 +205,25 @@ def _apply_identity(record: dict, s: ScanSession) -> dict:
 def _enqueue(file_id):
     with SessionLocal() as db:
         f = db.get(UploadFile, file_id)
+        if f is None:  # sesi/berkas terhapus sblm sempat diantre (lihat _start_scanning_session)
+            return
         s = db.get(ScanSession, f.session_id)
+        if s is None:
+            return
         f.state = "processing"
         args = (f.path, f.name, _pengawas(s), _kunci(db))
         calib = _calib(db)
         db.commit()
-    fut = _submit_scan(*args, with_overlay=True, calib=calib)
+    try:
+        fut = _submit_scan(*args, with_overlay=True, calib=calib)
+    except Exception as e:  # noqa: BLE001 — pool gagal menerima tugas TIDAK boleh meninggalkan berkas
+        # macet selamanya di 'processing' tanpa future yg bisa dibatalkan/dipantau (lihat cancel_pending_files).
+        with SessionLocal() as db:
+            f = db.get(UploadFile, file_id)
+            if f is not None:
+                f.state, f.error = "failed", f"Gagal mengantre pemindaian: {type(e).__name__}: {e}"
+                db.commit()
+        return
     _FUTURES[file_id] = fut
     fut.add_done_callback(lambda fu, fid=file_id: _on_done(fid, fu))
 
@@ -269,13 +317,19 @@ def cancel_pending_files(db, s: ScanSession) -> dict:
     dan tak ada cara aman menghentikannya di tengah jalan tanpa mematikan proses worker (bisa mengganggu sesi
     LAIN yg berbagi pool yg sama) -- dibiarkan selesai secara alami, hasilnya tetap masuk normal lewat
     _on_done (aman meski sesi ini kelak dihapus, lihat guard `f is None` di atas).
+
+    Berkas 'queued' TANPA future terlacak (masih menunggu jendela tenang unggah di _UPLOAD_TIMERS, ATAU
+    yatim krn _submit_scan pernah gagal sblm ada penjagaan di _enqueue) PASTI bisa dihentikan -- tak ada
+    apa pun yg benar2 berjalan utknya, jadi SELALU dipaksa 'failed' (bkn dihitung 'masih_berjalan', yg
+    dulu membuat tombol "Paksa berhenti" terlihat tak bekerja utk kasus ini).
     Kembalikan {"dibatalkan": n, "masih_berjalan": n}."""
+    _cancel_upload_timer(s.id)
     cancelled = still_running = 0
     for f in s.files:
         if f.state not in ("queued", "processing"):
             continue
         fut = _FUTURES.get(f.id)
-        if fut is not None and fut.cancel():
+        if fut is None or fut.cancel():
             _FUTURES.pop(f.id, None)
             f.state = "failed"
             f.error = "Dibatalkan oleh admin"
@@ -410,7 +464,7 @@ class SessionIn(BaseModel):
     fakultas: str = ""
     kode_soal: str = ""
     hari_ujian: str = ""
-    replace_existing: bool = False   # hanya dipakai saat BUAT sesi: ganti sesi lama kelas yg sama (lihat create_session)
+    replace_existing: bool = False   # tak lagi dipakai server (lihat create_session) -- dipertahankan agar klien lama yg masih mengirimnya tak error
 
 
 def _sync_pengawas_contact(ref_id: str, nama: str, hp: str):
@@ -487,23 +541,28 @@ def _resolve_identity(body: SessionIn, db):
 
 @app.post("/api/sessions", status_code=201)
 def create_session(body: SessionIn, db=Depends(get_db)):
+    """Satu kelas (fakultas+prodi+kelas) HANYA boleh punya SATU sesi upload yang hidup pada satu waktu --
+    membuat sesi baru utk kelas yg sudah ada SELALU menimpa (hapus) sesi lama yg belum dikunci, apa pun
+    nilai `replace_existing` (lapangan itu dipertahankan hanya utk kompatibilitas klien lama; keputusan
+    sebenarnya kini murni di server supaya tidak lagi bergantung pada FE memanggil /api/kelas-check lebih
+    dulu -- cek itu dulu bisa lolos krn hanya melihat sesi yg SUDAH punya berkas, jadi sesi lama yg kosong
+    (gagal diunggah/ditinggal pengawas) tidak terdeteksi & sesi baru numpuk jadi dobel utk kelas yg sama,
+    salah satunya kebagian lembar & sisanya kosong -- persis gejala yg dilaporkan.
+    Sesi yg SUDAH divalidasi admin / sudah disubmit SENGAJA ditolak (409): endpoint ini publik, jadi hanya
+    admin yg boleh menyentuh sesi semacam itu (hapus manual dulu bila benar2 perlu upload ulang)."""
     nama, hp, fakultas, kode_soal, hari_ujian = _resolve_identity(body, db)
+    existing = db.scalars(select(ScanSession).where(ScanSession.fakultas == fakultas, ScanSession.prodi == body.prodi.strip(),
+                                                      ScanSession.kelas == body.kelas.strip())).all()
+    if any(o.admin_validated or o.submitted for o in existing):
+        raise HTTPException(409, "Kelas ini sudah divalidasi/disubmit admin — tidak bisa membuat sesi upload baru. Hubungi admin bila perlu mengunggah ulang.")
     replaced = 0
-    if body.replace_existing:
-        # Pengawas sudah mengonfirmasi "Upload ulang akan menimpa sesi upload sebelumnya": hapus sesi LAMA
-        # fakultas/prodi/kelas yg sama (beserta lembar & fotonya). Endpoint ini publik, jadi sesi yg SUDAH
-        # divalidasi admin / sudah terkirim ke Sheet SENGAJA tak disentuh -- hanya admin yg boleh menghapusnya.
-        old = db.scalars(select(ScanSession).where(ScanSession.fakultas == fakultas, ScanSession.prodi == body.prodi.strip(),
-                                                   ScanSession.kelas == body.kelas.strip())).all()
-        for o in old:
-            if o.admin_validated or o.submitted:
-                continue
-            cancel_pending_files(db, o)
-            services.remove_session_files(o)
-            db.delete(o)
-            replaced += 1
-        if replaced:
-            db.commit()
+    for o in existing:
+        cancel_pending_files(db, o)
+        services.remove_session_files(o)
+        db.delete(o)
+        replaced += 1
+    if replaced:
+        db.commit()
     s = ScanSession(nama_pengawas=nama, hp=hp, ruangan="", kelas=body.kelas.strip(), fakultas=fakultas, prodi=body.prodi.strip(),
                      kode_soal=kode_soal, hari_ujian=hari_ujian)
     db.add(s)
@@ -551,7 +610,9 @@ def _sheet_view(sh: Sheet):
 def get_session(sid: str, db=Depends(get_db)):
     s = _session_or_404(db, sid)
     files = s.files
-    pending = sum(1 for f in files if f.state in ("queued", "processing"))
+    n_uploading = sum(1 for f in files if f.state == "queued")
+    n_processing = sum(1 for f in files if f.state == "processing")
+    pending = n_uploading + n_processing
     sheets = [_sheet_view(x) for x in s.sheets]
     # Antrean per-berkas (queued/processing): pemindaian sebagian foto (mis. registrasi lembar sulit) bisa
     # sampai beberapa menit, jadi pengawas perlu tahu berkas MANA yang masih diproses, bukan cuma jumlahnya.
@@ -561,7 +622,12 @@ def get_session(sid: str, db=Depends(get_db)):
         "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
         "files": {"total": len(files), "pending": pending, "queue": queue, "failed": [
             {"name": f.name, "error": f.error} for f in files if f.state == "failed"]},
+        # "scanning" tetap berarti "belum tuntas sepenuhnya" (dipakai poll()/submit() sisi pengawas & tes) --
+        # "uploading" lapangan TAMBAHAN: true selama berkas masih menunggu jendela tenang unggah (lihat
+        # _schedule_scan_start), SEBELUM benar2 diserahkan ke pool pindai (n_processing). Dipakai FE
+        # membedakan "sedang mengunggah" dari "sedang dipindai" tanpa mengubah arti "scanning" yg sudah ada.
         "scanning": pending > 0,
+        "uploading": n_uploading > 0,
         "sheets": sheets,
         "summary": {"lembar": len(sheets), "ok": sum(1 for x in sheets if x["label"] == "OK"),
                     "perlu_validasi": sum(1 for x in sheets if x["label"] == "Perlu Validasi"),
@@ -649,8 +715,11 @@ async def upload_files(sid: str, files: list[FUploadFile] = File(...), db=Depend
         rec.size = await _save_stream(up, rec.path)
         db.add(rec)
         db.commit()
-        _enqueue(rec.id)
         ids.append(rec.id)
+    # Pemindaian BARU diserahkan ke pool setelah unggahan sesi ini "tenang" (lihat _schedule_scan_start) --
+    # bukan per berkas spt dulu -- supaya tak mencicil mulai memindai sebagian foto sementara pengawas masih
+    # mengunggah sisanya (status sesi "uploading" sampai jendela tenang itu lewat, baru jadi "scanning").
+    _schedule_scan_start(s.id)
     return {"queued": ids}
 
 
