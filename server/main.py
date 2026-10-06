@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
 from scanner.service import classify_scan_status, load_default_template
-from server import refdata, admin, auth, config, plotting, services, worker
+from server import refdata, admin, attendance, auth, config, plotting, services, worker
 from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -641,13 +641,17 @@ def monitor_sesi(db=Depends(get_db)):
     bisa memantau progres scan tanpa perlu login. Sengaja TIDAK menyertakan nomor HP pengawas (data pribadi)
     atau apa pun soal mahasiswa (NPM/nama/jawaban) -- hanya status proses per sesi, sama spt yg admin lihat
     di tab Sesi tapi tanpa detail sensitif & tanpa aksi kelola."""
-    rows = db.scalars(select(ScanSession).order_by(ScanSession.created_at.desc()))
+    rows = list(db.scalars(select(ScanSession).order_by(ScanSession.created_at.desc())))
     items = []
     by_kelas_lembar = {}
     try:
         jml_mhs_map = admin._jml_mhs_by_kelas()   # jumlah mahasiswa per kelas dari jadwal plotting (data jadwal, bukan data peserta)
     except Exception:  # noqa: BLE001
         jml_mhs_map = {}
+    try:
+        hadir_map = attendance.hadir_counts({s.kelas for s in rows})
+    except Exception:  # noqa: BLE001
+        hadir_map = {}
     for s in rows:
         n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
         status = "scanning" if n_pending else ("validated" if s.admin_validated else "perlu_cek")
@@ -657,6 +661,7 @@ def monitor_sesi(db=Depends(get_db)):
             "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
             "lembar": n_files, "status": status,
             "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
+            "hadir": hadir_map.get(s.kelas),
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
         key = (s.kelas or "").strip().lower()

@@ -62,3 +62,10 @@ PLOTTING_SHEET_URL = os.environ.get("PLOTTING_SHEET_URL", f"https://docs.google.
 PLOTTING_TTL_S = int(os.environ.get("PLOTTING_TTL_S", "300"))
 # Hanya sesi yang dibuat pada/setelah waktu ini dihitung di dashboard (mencegah data uji ikut). Default = SYNC_SINCE.
 MONITOR_SINCE = os.environ.get("MONITOR_SINCE", "") or SYNC_SINCE
+
+# ---- Kolom "Hadir": Google Sheet presensi publik, SATU TAB PER KELAS (nama tab = nilai "Kelas"), dibaca
+# via gviz by-name (tak perlu tahu gid tiap tab) -- lihat server/attendance.py. Kosongkan (default) utk nonaktifkan;
+# isi ATTENDANCE_SHEET_ID di env produksi utk mengaktifkan (jangan di-hardcode disini -- lihat GSHEET_URL di atas).
+ATTENDANCE_SHEET_ID = os.environ.get("ATTENDANCE_SHEET_ID", "")
+ATTENDANCE_RANGE = os.environ.get("ATTENDANCE_RANGE", "D4:D200")
+ATTENDANCE_TTL_S = int(os.environ.get("ATTENDANCE_TTL_S", "60"))
