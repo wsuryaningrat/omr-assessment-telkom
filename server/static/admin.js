@@ -146,7 +146,7 @@ function admin() {
     async openDetail(i) {
       clearTimeout(this._autoT); this._dirtyId = null;
       this.detail = { id: i.id, nama: i.nama, kelas: i.kelas, prodi: i.prodi, admin_validated_by: i.admin_validated_by, admin_validated: !!i.admin_validated, sesBusy: false,
-        items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original",
+        items: [], orphans: [], loading: true, selectedId: null, selectedItem: null, previewMode: "original", sortByNpm: false, addBusy: false,
         questionNums: [], kuisionerNums: [], bulkKode: "", bulkFakultas: "", bulkBusy: false, saving: false, savedAt: 0, checkedIds: [] };
       try {
         const d = await this.json(`/api/admin/sessions/${i.id}/sheets`);
@@ -279,6 +279,23 @@ function admin() {
         await this.loadSessions();   // kolom "Lembar" di tabel Sesi ikut diperbarui
       } catch (e) { this.toast(e.message, true); }
     },
+    // Daftar lembar (kolom kiri popup Detail), opsional diurutkan menurut NIM (toggle detail.sortByNpm) --
+    // default tetap urutan `seq` (urutan unggah/scan asli).
+    get detailSortedItems() {
+      const items = this.detail?.items || [];
+      if (!this.detail?.sortByNpm) return items;
+      return [...items].sort((a, b) => (a.record?.NPM || "").localeCompare(b.record?.NPM || "", undefined, { numeric: true }));
+    },
+    // NIM yg muncul di LEBIH DARI SATU lembar dlm sesi ini -- dipakai menandai merah di daftar kiri &
+    // peringatan duplikasi di atas popup Detail (lihat admin.html).
+    get detailDupNpms() {
+      const counts = {};
+      for (const it of (this.detail?.items || [])) {
+        const npm = (it.record?.NPM || "").toString();
+        if (npm) counts[npm] = (counts[npm] || 0) + 1;
+      }
+      return new Set(Object.keys(counts).filter(k => counts[k] > 1));
+    },
     // Ringkasan keterisian satu lembar utk ditampilkan di daftar lembar (kolom kiri popup Detail) --
     // dipakai jg utk tanda peringatan NPM ganjil/jawaban byk kosong, supaya admin tak perlu buka tiap
     // lembar satu2 utk tahu mana yg patut dicek lebih dulu.
@@ -302,7 +319,8 @@ function admin() {
       // keterisian keseluruhan. kui.length===0 (sesi tanpa kuisioner sama sekali) sengaja TAK kena ini.
       const kuiWarn = kui.length > 0 && kuiFilled < 7;
       const warn = npmWarn || rate < 0.4 || kuiWarn;
-      return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn, npmWarn, kuiWarn };
+      const dup = !!npm && this.detailDupNpms.has(npm);
+      return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn: warn || dup, npmWarn, kuiWarn, dup };
     },
     closeDetail() { this.flushAutoSave(); this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
@@ -375,6 +393,35 @@ function admin() {
         const again = this.detail?.items.find(it => it.id === keepId);
         if (again) this.selectDetailSheet(again);
       } catch (e) { this.toast(e.message, true); x.busy = false; }
+      ev.target.value = "";
+    },
+    // Putar foto ASLI 90 derajat (searah/lawan jarum jam) lalu pindai ulang -- dipakai saat pengawas
+    // memfoto LJK miring/terbalik sehingga marker tak terdeteksi. PDF tak didukung (lihat admin.py).
+    async rotateSheetPhoto(x, deg) {
+      if (!x || x.busy) return;
+      x.busy = true;
+      const keepId = x.id;
+      try {
+        const d = await this.json(`/api/admin/sheets/${x.id}/rotate?deg=${deg}`, { method: "POST" });
+        this.toast("Foto diputar & dipindai ulang — status: " + d.label);
+        await this.openDetail(this.detail);
+        const again = this.detail?.items.find(it => it.id === keepId);
+        if (again) this.selectDetailSheet(again);
+      } catch (e) { this.toast(e.message, true); x.busy = false; }
+    },
+    // Tambah lembar BARU ke sesi ini dari foto yg diunggah admin (mis. pengawas lupa unggah satu lembar
+    // mahasiswa) -- beda dari replaceSheetPhoto yg MENGGANTI foto lembar yg sudah ada.
+    async addSheetPhoto(d, ev) {
+      const f = ev.target.files && ev.target.files[0]; if (!f || !d) return;
+      const fd = new FormData(); fd.append("file", f, f.name);
+      d.addBusy = true;
+      try {
+        const r = await this.json(`/api/admin/sessions/${d.id}/sheets/add`, { method: "POST", body: fd });
+        this.toast(`${r.lembar} lembar baru ditambahkan — status: ${r.label}`);
+        await this.openDetail(d);
+        await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
+      d.addBusy = false;
       ev.target.value = "";
     },
     // Hapus SATU lembar dari popup Detail (mis. salah foto/bukan LJK/duplikat halaman) -- lihat

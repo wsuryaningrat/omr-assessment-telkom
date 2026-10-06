@@ -23,6 +23,7 @@ ADM = {"X-Admin-Token": "rahasia"}
 VALID = {"nama_pengawas": "Budi Santoso", "hp": "081234567890", "ruangan": "TULT 0603", "kelas": "BS1SI-50-REG-01",
          "prodi": "S1 Sistem Informasi", "fakultas": "FIF", "hari_ujian": "2026-09-28", "kode_soal": "A"}
 PDF = open(os.path.join(ROOT, "LJK.pdf"), "rb").read()
+JPEG = open(os.path.join(ROOT, "sample foto", "dari pak bagas.jpeg"), "rb").read()
 
 
 class FakeSheets:
@@ -617,6 +618,48 @@ class TestServices(unittest.TestCase):
         r = self.c.post(f"/api/admin/sheets/{shid}/replace", headers=ADM, files={"file": ("baru.pdf", PDF, "application/pdf")})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertIn("label", r.json())
+
+    def test_admin_rotate_sheet_photo_rejects_pdf_then_rotates_jpeg_even_after_submit(self):
+        # PDF: tak punya "satu foto asli" yg bisa diputar di tempat -- ditolak (lihat admin_rotate_sheet_photo)
+        sid_pdf = self.submitted_session("ADMROT-PDF-01")
+        shid_pdf = self.c.get(f"/api/admin/sessions/{sid_pdf}/sheets", headers=ADM).json()["items"][0]["id"]
+        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid_pdf}/rotate?deg=90", headers=ADM).status_code, 415)
+        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid_pdf}/rotate?deg=45", headers=ADM).status_code, 422)   # sudut tak valid
+
+        # JPEG sungguhan: diputar lalu dipindai ulang, bekerja walau sesi sudah disubmit (admin-only, spt ganti foto)
+        sid = self.c.post("/api/sessions", json={**VALID, "kelas": "ADMROT-JPG-01"}).json()["id"]
+        self.c.post(f"/api/sessions/{sid}/files", files=[("files", ("foto.jpeg", JPEG, "image/jpeg"))])
+        t = time.time()
+        while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
+            time.sleep(0.4)
+        d = self.c.get(f"/api/sessions/{sid}").json()
+        self.assertTrue(d["sheets"], "foto sampel JPEG harus menghasilkan setidaknya satu lembar")
+        shid = d["sheets"][0]["id"]
+        self.c.post(f"/api/sessions/{sid}/validate-all")
+        self.submit(sid)
+        r = self.c.post(f"/api/admin/sheets/{shid}/rotate?deg=90", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn("label", r.json())
+        with SessionLocal() as db:
+            self.assertFalse(db.get(Sheet, shid).validated)   # diputar -> perlu dicek ulang, spt ganti foto/pindai ulang
+        # putar lagi ke arah sebaliknya -- tetap jalan normal (bukan kasus sekali pakai)
+        self.assertEqual(self.c.post(f"/api/admin/sheets/{shid}/rotate?deg=-90", headers=ADM).status_code, 200)
+
+    def test_admin_add_sheet_photo_creates_new_sheet_and_counts_toward_lembar(self):
+        """Tambah lembar baru dari foto yg diunggah admin (mis. pengawas lupa unggah satu lembar) --
+        jumlah "lembar" di tabel Sesi & admin/sessions/{sid}/sheets harus ikut bertambah."""
+        sid = self.submitted_session("ADMADD-01", n=1)
+        self.submit(sid)   # bekerja walau sesi sudah disubmit, spt replace/rotate (admin-only)
+        before = len(self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"])
+        r = self.c.post(f"/api/admin/sessions/{sid}/sheets/add", headers=ADM, files={"file": ("tambahan.jpeg", JPEG, "image/jpeg")})
+        self.assertEqual(r.status_code, 200, r.text)
+        added = r.json()["lembar"]
+        self.assertGreaterEqual(added, 1)
+        after_items = self.c.get(f"/api/admin/sessions/{sid}/sheets", headers=ADM).json()["items"]
+        self.assertEqual(len(after_items), before + added)
+        row = next(x for x in self.c.get("/api/admin/sessions?q=ADMADD-01", headers=ADM).json()["items"] if x["id"] == sid)
+        self.assertEqual(row["lembar"], len(after_items))
+        self.assertEqual(row["files"]["total"], 2)   # 1 dari submitted_session + 1 dari tambahan ini
 
     def test_scan_result_image_is_saved_at_scan_time_and_refreshed_on_rescan(self):
         """Gambar 'Hasil scan' DISIMPAN saat pemindaian (awal, pindai ulang, ganti foto) -- admin membukanya

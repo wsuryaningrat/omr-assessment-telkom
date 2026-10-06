@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile a
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
@@ -159,12 +160,30 @@ def _session_status(s: ScanSession) -> str:
     return "perlu_cek"
 
 
-def _session_row(db, s: ScanSession, jml_mhs_map: dict) -> dict:
+def _orphan_counts(db, session_ids):
+    """Peta session_id -> jumlah berkas 'hilang senyap' (lihat _orphan_files) utk SEKUMPULAN sesi sekaligus,
+    lewat SATU query agregat -- bukan satu query per berkas per sesi spt _orphan_files dipanggil langsung
+    dlm perulangan. Daftar sesi (GET /api/admin/sessions) memanggil _session_row utk SEMUA baris yg cocok
+    filter tiap kali dimuat/dipoling; dgn banyak admin dibuka bersamaan itu jadi query N+1 yg berat & bikin
+    tabel Sesi lambat tepat saat banyak admin memvalidasi bersamaan -- lihat _session_row."""
+    if not session_ids:
+        return {}
+    rows = db.execute(
+        select(UploadFile.session_id, func.count(UploadFile.id))
+        .select_from(UploadFile)
+        .outerjoin(Sheet, Sheet.file_id == UploadFile.id)
+        .where(UploadFile.session_id.in_(session_ids), UploadFile.state == "done", Sheet.id.is_(None))
+        .group_by(UploadFile.session_id)
+    )
+    return {sid: n for sid, n in rows}
+
+
+def _session_row(db, s: ScanSession, jml_mhs_map: dict, orphan_count: int | None = None) -> dict:
     from server import main as _main
     n_files = len(s.files)
     n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
     n_failed = sum(1 for f in s.files if f.state == "failed")
-    n_orphans = len(_orphan_files(db, s))
+    n_orphans = len(_orphan_files(db, s)) if orphan_count is None else orphan_count
     n_rescanning = _main._RESCAN_PENDING.get(s.id, 0)
     # "dibersihkan" hanya berarti sesuatu bila sesi PERNAH punya berkas -- sesi baru yg belum punya berkas
     # sama sekali tidak dianggap "sudah dibersihkan". Foto kini dibagi per Fakultas/Prodi/Kelas (lihat
@@ -230,16 +249,26 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
         # scanning/perlu_cek/validated butuh f.state per berkas & s.admin_validated, dan kolom turunan
         # (lembar/mhs/status) tak ada di SQL -- jadi disaring, diurutkan, & dipaginasi di Python. Jumlah sesi
         # total (bukan per kelas ujian) di alat ini kecil, jadi memuat semua baris yg cocok `q` sekali aman.
-        all_rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()))
-        items_all = [_session_row(db, s, jml_mhs_map) for s in all_rows if status not in _DERIVED_STATUSES or _session_status(s) == status]
+        # selectinload(files/sheets) + _orphan_counts BATCH: tanpa ini, tiap baris memicu query LAZY-LOAD
+        # terpisah utk files & sheets, PLUS satu query per berkas utk cek orphan (lihat _orphan_counts) --
+        # N+1 yg baru kerasa lambat saat daftar sesi dimuat/dipoling banyak admin bersamaan.
+        all_rows = db.scalars(select(ScanSession).where(*cond)
+                               .options(selectinload(ScanSession.files), selectinload(ScanSession.sheets))
+                               .order_by(ScanSession.created_at.desc())).all()
+        orphans = _orphan_counts(db, [s.id for s in all_rows])
+        items_all = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0)) for s in all_rows
+                     if status not in _DERIVED_STATUSES or _session_status(s) == status]
         if sort in _SORT_KEYS:
             items_all = _sort_rows(items_all, sort, dir == "asc")
         total = len(items_all)
         items = items_all[(page - 1) * size: (page - 1) * size + size]
     else:
         total = db.scalar(select(func.count()).select_from(ScanSession).where(*cond)) or 0
-        rows = db.scalars(select(ScanSession).where(*cond).order_by(ScanSession.created_at.desc()).offset((page - 1) * size).limit(size))
-        items = [_session_row(db, s, jml_mhs_map) for s in rows]
+        rows = db.scalars(select(ScanSession).where(*cond)
+                           .options(selectinload(ScanSession.files), selectinload(ScanSession.sheets))
+                           .order_by(ScanSession.created_at.desc()).offset((page - 1) * size).limit(size)).all()
+        orphans = _orphan_counts(db, [s.id for s in rows])
+        items = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0)) for s in rows]
     return {"total": total, "page": page, "size": size, "items": items}
 
 
@@ -273,6 +302,51 @@ def admin_session_sheets(sid: str, db=Depends(get_db)):
         })
     orphans = [{"id": f.id, "name": f.name, "size": f.size} for f in _orphan_files(db, s)]
     return {"items": items, "orphan_files": orphans}
+
+
+@router.post("/sessions/{sid}/sheets/add")
+async def admin_add_sheet_photo(sid: str, file: FUploadFile = File(...), db=Depends(get_db)):
+    """Tambah lembar BARU ke sesi ini dari foto yg diunggah admin -- dipakai saat pengawas lupa mengunggah
+    satu lembar mahasiswa (bukan mengganti foto lembar yg sudah ada, lihat admin_replace_sheet_photo).
+    Dipindai LANGSUNG (sinkron, blocking spt endpoint ganti-foto admin lain), bukan lewat antrean/jendela
+    tenang biasa (lihat server/main.py upload_files), supaya admin langsung tahu hasilnya di popup Detail.
+    Jumlah "lembar" sesi (tabel Sesi, ekspor, dsb) otomatis ikut bertambah krn hanya menghitung baris Sheet,
+    apa pun asal/jalur pembuatannya -- tak ada penghitungan terpisah yg perlu disentuh. Mendukung PDF
+    multi-halaman jg (tiap halaman -> satu Sheet), spt jalur unggah pengawas biasa."""
+    from server import main as _main
+    s = _admin_session_or_404(db, sid)
+    _main._check_ext(file.filename or "")
+    folder = _main._class_folder(s)
+    os.makedirs(folder, exist_ok=True)
+    dest = os.path.join(folder, f"{uuid.uuid4().hex[:8]}_{_main._safe_name(file.filename)}")
+    size = await _main._save_stream(file, dest)
+    rec = UploadFile(session_id=s.id, name=file.filename or "berkas", size=size, path=dest, state="processing")
+    db.add(rec)
+    db.commit()
+    fut = _main._submit_scan(dest, file.filename, _main._pengawas(s), _main._kunci(db), with_overlay=True, calib=_main._calib(db))
+    try:
+        res = fut.result(timeout=120)
+    except Exception as e:  # noqa: BLE001
+        rec.state, rec.error = "failed", f"{type(e).__name__}: {e}"
+        db.commit()
+        raise HTTPException(422, f"Gagal memindai foto baru: {e}")
+    if not res:
+        rec.state, rec.error = "failed", "Halaman tak terbaca"
+        db.commit()
+        raise HTTPException(422, "Foto tidak berisi halaman yang terbaca")
+    seq_base = db.scalar(select(func.count()).select_from(Sheet).where(Sheet.session_id == s.id)) or 0
+    created = []
+    for i, r in enumerate(res):
+        sh = Sheet(session_id=s.id, file_id=rec.id, page=r["page"], seq=seq_base + i + 1,
+                   doc_name=r["doc_name"], scan_status=r["status"], record=_main._apply_identity(r["record"], s))
+        db.add(sh)
+        db.flush()
+        _main._store_overlay(sh.id, r)
+        created.append(sh)
+    rec.state = "done"
+    db.commit()
+    return {"ok": True, "lembar": len(created), "sheet_ids": [x.id for x in created],
+            "label": classify_scan_status({"status": created[0].scan_status}, False)}
 
 
 def _orphan_files(db, s: ScanSession):
@@ -570,6 +644,62 @@ def admin_rescan_sheet(shid: str, db=Depends(get_db)):
         raise HTTPException(422, "Hasil pindai ulang kosong (halaman tak terbaca)")
     sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
     db.commit()
+    _main._store_overlay(shid, res[0])
+    return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
+
+
+@router.post("/sheets/{shid}/rotate")
+def admin_rotate_sheet_photo(shid: str, deg: int = Query(..., description="90 (searah jarum jam) atau -90 (berlawanan)"), db=Depends(get_db)):
+    """Putar foto ASLI lembar ini 90 derajat lalu pindai ulang -- dipakai saat pengawas memfoto LJK
+    miring/terbalik sehingga marker tak terdeteksi (klasifikasi "Gagal"). Berkas DITIMPA DI TEMPAT (path
+    tak berubah, admin_rescan_sheet jg memakai path yg sama) -- bukan ganti foto baru spt admin_replace_sheet_photo.
+    Hanya utk foto (JPG/PNG/HEIC/WEBP) -- PDF tak punya "satu foto asli" yg bisa diputar di tempat (pemindai
+    me-render tiap halamannya langsung dari berkas PDF saat memindai, lihat core/pdf_utils.iter_images_from_file)."""
+    from server import main as _main
+    from PIL import Image, ImageOps
+    if deg not in (90, -90):
+        raise HTTPException(422, "deg harus 90 atau -90")
+    sh = db.get(Sheet, shid)
+    if sh is None:
+        raise HTTPException(404, "Lembar tidak ditemukan")
+    s = db.get(ScanSession, sh.session_id)
+    up = db.get(UploadFile, sh.file_id)
+    if not up or not up.path or not os.path.exists(up.path):
+        raise HTTPException(410, "Berkas sumber sudah tak ada (mis. sudah 'Bersihkan foto')")
+    ext = up.name.rsplit(".", 1)[-1].lower() if "." in up.name else ""
+    if ext == "pdf":
+        raise HTTPException(415, "Rotasi hanya didukung untuk foto (JPG/PNG/HEIC/WEBP), bukan PDF")
+    try:
+        img = Image.open(up.path)
+        img.load()
+        img = ImageOps.exif_transpose(img).convert("RGB")   # samakan dgn orientasi yg dipakai pemindai
+        img = img.rotate(-deg, expand=True)                 # PIL rotate(): sudut positif = berlawanan jarum jam
+        # HEIC/HEIF: PIL (bahkan dgn pillow-heif) umumnya tak bisa MENULIS format ini -- simpan sbg JPEG &
+        # perbarui UploadFile.name (bukan .path) spy pemindaian selanjutnya membaca ekstensi yg BENAR
+        # (worker memilih dekoder dari nama berkas, lihat core/pdf_utils.load_image_with_exif).
+        if ext in ("heic", "heif"):
+            img.save(up.path, format="JPEG", quality=92)
+            up.name = re.sub(r"\.\w+$", ".jpg", up.name)
+        elif ext in ("jpg", "jpeg"):
+            img.save(up.path, format="JPEG", quality=92)
+        else:
+            img.save(up.path, format=ext.upper())
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Gagal memutar foto: {e}")
+    up.size = os.path.getsize(up.path)
+    db.commit()
+    fut = _main._submit_scan(up.path, up.name, _main._pengawas(s), _main._kunci(db), sh.page, True, calib=_main._calib(db))
+    try:
+        res = fut.result(timeout=120)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"Foto sudah diputar, tapi gagal memindai ulang: {e}")
+    if not res:
+        raise HTTPException(422, "Foto sudah diputar, tapi hasil pindai ulang kosong (halaman tak terbaca)")
+    sh.doc_name, sh.scan_status, sh.record, sh.validated = res[0]["doc_name"], res[0]["status"], _main._apply_identity(res[0]["record"], s), False
+    db.commit()
+    _main._clear_scan_cache(shid)
     _main._store_overlay(shid, res[0])
     return {"ok": True, "label": classify_scan_status({"status": sh.scan_status}, sh.validated)}
 
