@@ -736,9 +736,29 @@ def admin_validate_session(sid: str, value: bool = True, db=Depends(get_db), adm
             raise HTTPException(409, "Pemindaian sesi ini masih berjalan")
         if not s.sheets:
             raise HTTPException(409, "Sesi ini belum punya lembar")
-        for sh in s.sheets:
-            if classify_scan_status({"status": sh.scan_status}, False) != "Gagal":
-                sh.validated = True
+        candidates = [sh for sh in s.sheets if classify_scan_status({"status": sh.scan_status}, False) != "Gagal"]
+        # QA sebelum validasi: kode soal wajib 3 digit & fakultas wajib terisi di tiap lembar, DAN keduanya
+        # harus seragam dlm satu sesi/kelas (kelas yg sama semestinya 1 kode soal & 1 fakultas) -- salah
+        # satunya longgar berarti ada salah baca/salah pilih yg mestinya dibetulkan dulu lewat Detail sesi,
+        # bukan ikut tervalidasi & terkirim ke Sheet. Blank ("") dikeluarkan dari cek keseragaman krn sudah
+        # kehitung sbg masalah tersendiri (bad_kode/bad_fak) & supaya pesannya tak menyebut "" sbg varian.
+        bad_kode = sum(1 for sh in candidates if not re.fullmatch(r"\d{3}", ((sh.record or {}).get("Kode Soal") or "").strip()))
+        bad_fak = sum(1 for sh in candidates if not ((sh.record or {}).get("Fakultas (LJK)") or "").strip())
+        kode_set = {((sh.record or {}).get("Kode Soal") or "").strip() for sh in candidates} - {""}
+        fak_set = {((sh.record or {}).get("Fakultas (LJK)") or "").strip() for sh in candidates} - {""}
+        problems = []
+        if bad_kode:
+            problems.append(f"{bad_kode} lembar kode soal bukan 3 digit")
+        if bad_fak:
+            problems.append(f"{bad_fak} lembar fakultas kosong")
+        if len(kode_set) > 1:
+            problems.append("kode soal tidak seragam (" + ", ".join(sorted(kode_set)) + ")")
+        if len(fak_set) > 1:
+            problems.append("fakultas tidak seragam (" + ", ".join(sorted(fak_set)) + ")")
+        if problems:
+            raise HTTPException(409, "Perbaiki dulu lewat Detail sesi sebelum validasi -- " + "; ".join(problems))
+        for sh in candidates:
+            sh.validated = True
         services.regrade_session(db, s)
     s.admin_validated = value
     s.admin_validated_at = dt.datetime.now(dt.timezone.utc) if value else None
