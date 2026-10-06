@@ -518,7 +518,14 @@ def _find_dark_square_candidates(roi_gray, min_side_frac=0.04, max_side_frac=0.3
             if not (0.45 <= ar <= 2.2):
                 continue
             fill = area / float(max(bw * bh, 1))
-            if fill < 0.25:
+            # Marker sudut yg tipis/tak merata (fotokopi, toner hemat -- bukan dicetak hitam pekat
+            # penuh) menghasilkan mask Otsu/adaptive yg lebih berlubang/jarang drpd cetakan tebal,
+            # jadi ambang 0.25 lama bisa membuang kandidat yg sebenarnya marker asli SEBELUM sempat
+            # dicoba decode ArUco sesungguhnya (fungsi ini cuma mencari KANDIDAT awal, bukan pemutus
+            # akhir -- lihat _aruco_decode_patch; kandidat yg bukan marker tetap gagal di sana).
+            # Diverifikasi tak mengubah hasil tes golden/alignment yg sudah ada (lihat
+            # tests/test_alignment_engine.py & tests/regression/test_scan_regression.py).
+            if fill < 0.18:
                 continue
             # Score: larger, squarer, more filled, and nearer to origin is better.
             dist_to_corner = float(np.hypot(bx, by))
