@@ -26,6 +26,12 @@ function admin() {
     },
     get fakultasOptions() { return this.meta.fakultas || []; },
     toast(text, bad = false) { this.msg = { text, bad, show: true }; clearTimeout(this._t); this._t = setTimeout(() => (this.msg.show = false), bad ? 3500 : 2200); },
+    // Klik nilai kelas di tabel Sesi -> salin ke clipboard (mis. utk ditempel saat mencari kelas yg sama di tempat lain).
+    async copyKelas(val) {
+      if (!val || val === "-") return;
+      try { await navigator.clipboard.writeText(val); this.toast(`Kelas "${val}" disalin`); }
+      catch { this.toast("Gagal menyalin ke clipboard", true); }
+    },
     async api(path, opt = {}) {
       const h = { ...(opt.headers || {}) }; if (this.token) h["X-Admin-Token"] = this.token;
       const r = await fetch(path, { ...opt, headers: h, credentials: "same-origin" });

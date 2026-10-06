@@ -3,6 +3,7 @@ function monitor() {
     items: [], q: "", status: "all", sortKey: "", sortDir: "desc", loading: true, lastLoad: "", _poll: null,
     kelas_upload: 0, kelas_total: 0, upload_pct: 0,
     page: 1, pageSize: 10, pageSizeOptions: [10, 20, 30, 50],
+    msg: { text: "", bad: false, show: false }, _t: null,
 
     async init() {
       await this.load();
@@ -49,5 +50,12 @@ function monitor() {
     statusChip(st) { return { scanning: "scanning", perlu_cek: "check", validated: "validated" }[st] || ""; },
     hariLabel(v) { if (!v) return "-"; const d = new Date(v + "T00:00:00"); return isNaN(d) ? v : d.toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" }); },
     whenLabel(iso) { if (!iso) return "-"; try { return new Date(iso).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch { return "-"; } },
+    toast(text, bad = false) { this.msg = { text, bad, show: true }; clearTimeout(this._t); this._t = setTimeout(() => (this.msg.show = false), bad ? 3500 : 2200); },
+    // Klik nilai kelas di tabel -> salin ke clipboard.
+    async copyKelas(val) {
+      if (!val || val === "-") return;
+      try { await navigator.clipboard.writeText(val); this.toast(`Kelas "${val}" disalin`); }
+      catch { this.toast("Gagal menyalin ke clipboard", true); }
+    },
   };
 }
