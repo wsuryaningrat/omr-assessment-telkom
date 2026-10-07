@@ -80,15 +80,19 @@
         <h2>Data Ujian &amp; Peserta</h2>
         <p class="sub" x-text="sid ? 'Bisa diubah kapan saja sebelum submit — semua lembar ikut diperbarui.' : 'Cukup pilih kelas — program studi & fakultas terisi otomatis.'"></p>
         <div class="grid">
-          <div class="full">
+          <div class="full" @click.outside="kelasOpen=false">
             <label class="f" for="kl">Kelas <span class="mute" x-text="'(' + kelasOptions.length + ' kelas)'"></span></label>
-            <div class="selbox">
-              <span class="face" :class="{ph: !form.kelas}" x-text="form.kelas === 'manual' ? 'Lainnya — isi sendiri' : (form.kelas || 'Pilih kelas')"></span>
-              <select autocomplete="off" id="kl" x-model="form.kelas" aria-label="Kelas mahasiswa">
-                <option value="">Pilih kelas</option>
-                <template x-for="k in kelasOptions" :key="k.kelas"><option :value="k.kelas" x-text="k.kelas + ' — ' + k.prodi"></option></template>
-                <option value="manual">Lainnya — isi sendiri</option>
-              </select>
+            <div class="selbox selsearch" :class="{open: kelasOpen}" id="kl" tabindex="0" role="combobox" aria-label="Kelas mahasiswa" aria-haspopup="listbox" :aria-expanded="kelasOpen"
+                 @click="openKelas()" @focus="openKelas()" @keydown.enter.prevent="openKelas()" @keydown.escape="kelasOpen=false">
+              <span class="face" x-show="!kelasOpen" :class="{ph: !form.kelas}" x-text="form.kelas === 'manual' ? 'Lainnya — isi sendiri' : (form.kelas || 'Pilih kelas')"></span>
+              <input x-show="kelasOpen" x-ref="klq" x-model="kelasQuery" @click.stop autocomplete="off" placeholder="Cari kelas…" aria-label="Cari kelas">
+              <div class="selsearch-pop" x-show="kelasOpen" x-cloak @click.stop role="listbox">
+                <template x-for="k in kelasFiltered" :key="k.kelas">
+                  <button type="button" class="opt" :class="{sel: form.kelas === k.kelas}" @click="pickKelas(k.kelas)" x-text="k.kelas + ' — ' + k.prodi"></button>
+                </template>
+                <p class="mute" style="padding:8px 10px;font-size:13px;margin:0" x-show="!kelasFiltered.length">Tidak ada kelas yang cocok</p>
+                <button type="button" class="opt manual" :class="{sel: form.kelas === 'manual'}" @click="pickKelas('manual')">Lainnya — isi sendiri</button>
+              </div>
             </div>
             <p class="mute" style="margin-top:6px;font-size:13px" x-show="kelasInfo">
               <b x-text="kelasInfo?.prodi"></b><span x-show="kelasInfo?.fakultas"> · Fakultas <b x-text="kelasInfo?.fakultas"></b></span>

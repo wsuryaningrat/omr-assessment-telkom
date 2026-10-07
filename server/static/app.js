@@ -23,7 +23,7 @@ function ljk() {
     meta: {}, form: { ref: "", nama: "", hp: "", kelas: "", kelasManual: "", prodi: "", prodiManual: "", fakultas: "", hari: "", kodeSoal: "" }, view: null, baseline: "",
     ready: false, sid: null, session: null, online: true, dragging: false, busy: false,
     upErr: "", upStatus: "", staged: [], _stagedSeq: 0, _replaceExisting: false, uploading: false, dlg: null, _dlgRes: null, up: { done: 0, total: 0 }, msg: { text: "", bad: false, show: false }, _dlgAt: 0,
-    _poll: null, _toast: null,
+    _poll: null, _toast: null, kelasOpen: false, kelasQuery: "",
 
     async init() {
       try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.online = false; this.toast("Server tidak terjangkau", true); }
@@ -47,6 +47,14 @@ function ljk() {
     get fakultasFinal() { return this.kelasInfo ? (this.kelasInfo.fakultas || "") : (this.form.kelas === "manual" ? this.form.fakultas : ""); },
     get kelasFinal() { return this.form.kelas === "manual" ? this.form.kelasManual.trim() : this.form.kelas; },
     get kelasOptions() { return this.meta.kelas || []; },
+    // Dropdown kelas BISA DICARI (banyak kelas, native <select> tak punya kotak cari) -- lihat ljk.html
+    // .selsearch: kelasOpen/kelasQuery murni state UI, pemilihan tetap lewat form.kelas spt sebelumnya.
+    get kelasFiltered() {
+      const q = this.kelasQuery.trim().toLowerCase();
+      return q ? this.kelasOptions.filter(k => (k.kelas + " " + k.prodi).toLowerCase().includes(q)) : this.kelasOptions;
+    },
+    openKelas() { if (this.kelasOpen) return; this.kelasOpen = true; this.kelasQuery = ""; this.$nextTick(() => this.$refs.klq?.focus()); },
+    pickKelas(v) { this.form.kelas = v; this.kelasOpen = false; this.kelasQuery = ""; },
     onPengawas() { if (!this.showHp) this.form.hp = ""; if (!this.manual) this.form.nama = ""; },
     get phoneOk() { return PHONE(this.form.hp); },
     cleanHp() { this.form.hp = hpLocal(this.form.hp).slice(0, 12); },
