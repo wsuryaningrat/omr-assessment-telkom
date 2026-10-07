@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 from core.evaluator import parse_kunci_jawaban_raw_rows
 from core.pdf_utils import iter_images_from_file
 from scanner.service import CALIB_MAX_OFFSET, apply_field_calib, classify_scan_status, load_default_template
-from server import attendance, auth, config, plotting, services, sheets
+from server import auth, config, plotting, services, sheets
 from server.db import AdminAccessLog, AdminUser, Kunci, ScanSession, Sheet, SessionLocal, TemplateCalib, UploadFile
 
 
@@ -178,7 +178,7 @@ def _orphan_counts(db, session_ids):
     return {sid: n for sid, n in rows}
 
 
-def _session_row(db, s: ScanSession, jml_mhs_map: dict, orphan_count: int | None = None, hadir_map: dict | None = None) -> dict:
+def _session_row(db, s: ScanSession, jml_mhs_map: dict, orphan_count: int | None = None) -> dict:
     from server import main as _main
     n_files = len(s.files)
     n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
@@ -194,7 +194,6 @@ def _session_row(db, s: ScanSession, jml_mhs_map: dict, orphan_count: int | None
         "prodi": s.prodi, "fakultas": s.fakultas, "lembar": len(s.sheets),
         "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
         "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
-        "hadir": (hadir_map or {}).get(s.kelas),
         "validated": sum(1 for x in s.sheets if x.validated), "submitted": s.submitted,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
@@ -257,11 +256,7 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
                                .options(selectinload(ScanSession.files), selectinload(ScanSession.sheets))
                                .order_by(ScanSession.created_at.desc())).all()
         orphans = _orphan_counts(db, [s.id for s in all_rows])
-        try:
-            hadir_map = attendance.hadir_counts({s.kelas for s in all_rows})
-        except Exception:  # noqa: BLE001 -- kolom tambahan, tak boleh menggagalkan tabel Sesi
-            hadir_map = {}
-        items_all = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0), hadir_map) for s in all_rows
+        items_all = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0)) for s in all_rows
                      if status not in _DERIVED_STATUSES or _session_status(s) == status]
         if sort in _SORT_KEYS:
             items_all = _sort_rows(items_all, sort, dir == "asc")
@@ -273,11 +268,7 @@ def sessions(page: int = Query(1, ge=1), size: int = Query(25, ge=1, le=100), q:
                            .options(selectinload(ScanSession.files), selectinload(ScanSession.sheets))
                            .order_by(ScanSession.created_at.desc()).offset((page - 1) * size).limit(size)).all()
         orphans = _orphan_counts(db, [s.id for s in rows])
-        try:
-            hadir_map = attendance.hadir_counts({s.kelas for s in rows})
-        except Exception:  # noqa: BLE001 -- kolom tambahan, tak boleh menggagalkan tabel Sesi
-            hadir_map = {}
-        items = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0), hadir_map) for s in rows]
+        items = [_session_row(db, s, jml_mhs_map, orphans.get(s.id, 0)) for s in rows]
     return {"total": total, "page": page, "size": size, "items": items}
 
 

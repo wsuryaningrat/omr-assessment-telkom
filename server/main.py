@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
 from scanner.service import classify_scan_status, load_default_template
-from server import refdata, admin, attendance, auth, config, plotting, services, worker
+from server import refdata, admin, auth, config, plotting, services, worker
 from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -548,13 +548,18 @@ def create_session(body: SessionIn, db=Depends(get_db)):
     dulu -- cek itu dulu bisa lolos krn hanya melihat sesi yg SUDAH punya berkas, jadi sesi lama yg kosong
     (gagal diunggah/ditinggal pengawas) tidak terdeteksi & sesi baru numpuk jadi dobel utk kelas yg sama,
     salah satunya kebagian lembar & sisanya kosong -- persis gejala yg dilaporkan.
-    Sesi yg SUDAH divalidasi admin / sudah disubmit SENGAJA ditolak (409): endpoint ini publik, jadi hanya
-    admin yg boleh menyentuh sesi semacam itu (hapus manual dulu bila benar2 perlu upload ulang)."""
+    Sesi yg SUDAH divalidasi ADMIN (ScanSession.admin_validated) SENGAJA ditolak (409): endpoint ini
+    publik, jadi hanya admin yg boleh menyentuh sesi semacam itu (hapus manual dulu bila benar2 perlu
+    upload ulang). `submitted` SENDIRIAN (pengawas menekan "Kirim"/"Submit" lewat /ljk, tanpa admin
+    sempat memvalidasi) TIDAK memblokir -- itu baru tanda "pengawas selesai", bukan tanda admin sudah
+    memeriksa (keduanya sengaja dipisah sejak admin_validated vs submitted dibedakan, lihat
+    admin.admin_validate_session), jadi kelas yg terlanjur submit tapi hasil bacanya salah (misal pojok
+    LJK tak terdeteksi) tetap bisa diunggah ulang sendiri oleh pengawas tanpa menunggu admin turun tangan."""
     nama, hp, fakultas, kode_soal, hari_ujian = _resolve_identity(body, db)
     existing = db.scalars(select(ScanSession).where(ScanSession.fakultas == fakultas, ScanSession.prodi == body.prodi.strip(),
                                                       ScanSession.kelas == body.kelas.strip())).all()
-    if any(o.admin_validated or o.submitted for o in existing):
-        raise HTTPException(409, "Kelas ini sudah divalidasi/disubmit admin — tidak bisa membuat sesi upload baru. Hubungi admin bila perlu mengunggah ulang.")
+    if any(o.admin_validated for o in existing):
+        raise HTTPException(409, "Kelas ini sudah divalidasi admin — tidak bisa membuat sesi upload baru. Hubungi admin bila perlu mengunggah ulang.")
     replaced = 0
     for o in existing:
         cancel_pending_files(db, o)
@@ -648,10 +653,6 @@ def monitor_sesi(db=Depends(get_db)):
         jml_mhs_map = admin._jml_mhs_by_kelas()   # jumlah mahasiswa per kelas dari jadwal plotting (data jadwal, bukan data peserta)
     except Exception:  # noqa: BLE001
         jml_mhs_map = {}
-    try:
-        hadir_map = attendance.hadir_counts({s.kelas for s in rows})
-    except Exception:  # noqa: BLE001
-        hadir_map = {}
     for s in rows:
         n_pending = sum(1 for f in s.files if f.state in ("queued", "processing"))
         status = "scanning" if n_pending else ("validated" if s.admin_validated else "perlu_cek")
@@ -661,7 +662,6 @@ def monitor_sesi(db=Depends(get_db)):
             "kode_soal": s.kode_soal, "hari_ujian": s.hari_ujian,
             "lembar": n_files, "status": status,
             "jml_mhs": jml_mhs_map.get((s.kelas or "").strip().lower()),
-            "hadir": hadir_map.get(s.kelas),
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
         key = (s.kelas or "").strip().lower()
