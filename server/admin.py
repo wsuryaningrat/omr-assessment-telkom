@@ -49,8 +49,9 @@ def summary(db=Depends(get_db)):
 
 
 def _nilai_stats(vals: list) -> dict:
-    """{min, max, avg, count} dari daftar nilai numerik -- count BEDA dari total_ljk (lihat admin_stats):
-    cuma lembar yg nilainya kebaca angka (bukan "-"/gagal) yg masuk sini."""
+    """{min, max, avg, count} dari daftar nilai numerik -- count dipakai jg sbg pembilang "sudah bernilai"
+    dari antara lembar TERKIRIM (lihat admin_stats); SELALU <= terkirim pada baris yg sama (bisa < kalau
+    lembar tervalidasi tapi kuncinya blm tersedia saat itu, jadi Nilai masih "-")."""
     if not vals:
         return {"min": None, "max": None, "avg": None, "count": 0}
     return {"min": min(vals), "max": max(vals), "avg": round(sum(vals) / len(vals), 1), "count": len(vals)}
@@ -58,29 +59,40 @@ def _nilai_stats(vals: list) -> dict:
 
 @router.get("/stats")
 def admin_stats(db=Depends(get_db)):
-    """Statistik sederhana utk tab Summary: total LJK masuk (jumlah lembar hasil scan, APAPUN statusnya --
-    termasuk yg gagal terbaca, krn tetap terhitung "masuk") & nilai min/maks/rata-rata, overall & per
-    fakultas. Nilai dibaca dari Sheet.record["Nilai"] -- string "-" (belum dinilai/gagal) dikeluarkan dari
-    min/maks/rata-rata (tak ikut pembagi) tapi lembarnya tetap terhitung di total_ljk. Dihitung di Python,
+    """Statistik sederhana utk tab Summary: total LJK masuk (jumlah lembar hasil scan APAPUN statusnya --
+    termasuk yg gagal terbaca/belum dicek admin) VS jumlah yg sudah TERKIRIM (Sheet.validated=True -- lembar
+    yg admin SUDAH tandai valid, lewat tombol centang per-lembar atau "Validasi semua"/"Tandai validated"),
+    & nilai min/maks/rata-rata, overall & per fakultas. Nilai HANYA dihitung dari lembar TERKIRIM (bukan
+    semua lembar spt sebelumnya) supaya agregat nilai & jumlah lembar yg mendasarinya TALLY -- lembar yg
+    belum divalidasi admin tak ikut nilai rata2 krn datanya belum tentu final (msh bisa dikoreksi/discan
+    ulang). `count` di tiap baris = brp dari `terkirim` yg nilainya kebaca angka (biasanya SAMA dgn
+    `terkirim` krn lembar "Gagal" tak bisa divalidasi -- lihat scanner.service.classify_scan_status; beda
+    hanya kalau kunci jawaban blm ada saat lembar itu divalidasi, Nilai-nya masih "-"). Dihitung di Python,
     bukan operator JSON SQL, supaya jalan sama di SQLite (tes) & Postgres (produksi) sekaligus -- lihat jg
     diskusi performa di commit ini: aman krn jumlah baris `sheet` di skala aplikasi ini kecil (ribuan,
     bukan jutaan); kalau nanti perlu dipanggil sangat sering/data membesar, pindah ke kolom `nilai`
     ternormalisasi + index, bukan query JSON yg dioptimalkan."""
-    rows = db.execute(select(ScanSession.fakultas, Sheet.record).select_from(Sheet)
+    rows = db.execute(select(ScanSession.fakultas, Sheet.record, Sheet.validated).select_from(Sheet)
                        .join(ScanSession, ScanSession.id == Sheet.session_id)).all()
     counts: dict[str, int] = {}
+    terkirim: dict[str, int] = {}
     buckets: dict[str, list] = {}
-    for fakultas, record in rows:
+    for fakultas, record, validated in rows:
         key = (fakultas or "").strip() or "(tanpa fakultas)"
         counts[key] = counts.get(key, 0) + 1
+        if not validated:
+            continue
+        terkirim[key] = terkirim.get(key, 0) + 1
         try:
             nilai = float(str((record or {}).get("Nilai", "")).strip())
         except (TypeError, ValueError):
             continue
         buckets.setdefault(key, []).append(nilai)
-    per_fakultas = [{"fakultas": k, "total_ljk": counts[k], **_nilai_stats(buckets.get(k, []))} for k in sorted(counts)]
+    per_fakultas = [{"fakultas": k, "total_ljk": counts[k], "terkirim": terkirim.get(k, 0), **_nilai_stats(buckets.get(k, []))}
+                     for k in sorted(counts)]
     all_vals = [v for vs in buckets.values() for v in vs]
-    return {"overall": {"total_ljk": sum(counts.values()), **_nilai_stats(all_vals)}, "per_fakultas": per_fakultas}
+    return {"overall": {"total_ljk": sum(counts.values()), "terkirim": sum(terkirim.values()), **_nilai_stats(all_vals)},
+            "per_fakultas": per_fakultas}
 
 
 @router.get("/monitor")

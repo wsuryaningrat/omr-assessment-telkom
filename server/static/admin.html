@@ -103,19 +103,21 @@
         <template x-if="stats">
         <div class="card" style="margin-top:14px">
           <h2 style="margin:0 0 10px">Statistik nilai</h2>
-          <div class="stats">
+          <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
             <div class="stat"><small>Total LJK masuk</small><b x-text="stats.overall.total_ljk"></b></div>
+            <div class="stat" title="Lembar yg SUDAH divalidasi admin (centang per-lembar / Validasi semua) -- dasar perhitungan nilai di kanan"><small>Terkirim (divalidasi)</small><b x-text="stats.overall.terkirim"></b></div>
             <div class="stat"><small>Nilai min</small><b x-text="stats.overall.min ?? '-'"></b></div>
             <div class="stat"><small>Nilai maks</small><b x-text="stats.overall.max ?? '-'"></b></div>
             <div class="stat"><small>Nilai rata-rata</small><b x-text="stats.overall.avg ?? '-'"></b></div>
           </div>
           <div class="tbl" style="margin-top:14px"><table>
-            <thead><tr><th>Fakultas</th><th class="c" style="width:auto">Total LJK</th><th class="c" style="width:auto">Min</th><th class="c" style="width:auto">Maks</th><th class="c" style="width:auto">Rata-rata</th></tr></thead>
+            <thead><tr><th>Fakultas</th><th class="c" style="width:auto">Total LJK</th><th class="c" style="width:auto" title="Lembar yg sudah divalidasi admin">Terkirim</th><th class="c" style="width:auto">Min</th><th class="c" style="width:auto">Maks</th><th class="c" style="width:auto">Rata-rata</th></tr></thead>
             <tbody>
               <template x-for="f in stats.per_fakultas" :key="f.fakultas">
                 <tr>
                   <td x-text="f.fakultas"></td>
                   <td class="c mono" style="width:auto" x-text="f.total_ljk"></td>
+                  <td class="c mono" style="width:auto" x-text="f.terkirim"></td>
                   <td class="c mono" style="width:auto" x-text="f.min ?? '-'"></td>
                   <td class="c mono" style="width:auto" x-text="f.max ?? '-'"></td>
                   <td class="c mono" style="width:auto" x-text="f.avg ?? '-'"></td>
@@ -123,7 +125,7 @@
               </template>
             </tbody>
           </table></div>
-          <p class="mute" style="font-size:12px;margin-top:8px">Min/maks/rata-rata dihitung dari lembar yg sudah ternilai saja -- lembar gagal terbaca/belum ternilai tetap dihitung di "Total LJK".</p>
+          <p class="mute" style="font-size:12px;margin-top:8px">"Terkirim" = lembar yg sudah divalidasi admin. Min/maks/rata-rata dihitung HANYA dari lembar terkirim yg bernilai (lihat kolom Terkirim di atas) -- lembar gagal terbaca/belum divalidasi tetap dihitung di "Total LJK" tapi tak ikut nilai.</p>
         </div>
         </template>
 
