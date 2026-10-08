@@ -1041,6 +1041,45 @@ def export_xlsx(kelas: str = "", sid: str = "", db=Depends(get_db)):
                     headers={"Content-Disposition": "attachment; filename=rekap_ljk.xlsx"})
 
 
+_STATUS_LABEL = {"uploading": "Mengunggah", "scanning": "Scanning", "perlu_cek": "Checking", "validated": "Validated"}
+
+
+@router.get("/export-status.xlsx", dependencies=[Depends(auth.require_superuser)])
+def export_status_xlsx(db=Depends(get_db)):
+    """Excel SATU BARIS PER KELAS (ScanSession) -- status validasi + ringkasan, utk admin cocokkan manual
+    thd data lain (mis. Google Sheet rekap/jadwal plotting) saat angka di dashboard kelihatan beda (lihat
+    diskusi "49 vs 45 kelas" & "1905 vs 1670 lembar" -- tabel ini kasih daftar MENTAH per kelas spy bisa
+    ditelusuri satu-satu, bukan cuma angka agregat). super_admin saja, sama spt /stats -- data operasional
+    lintas kelas/fakultas."""
+    from openpyxl import Workbook
+    jml_mhs_map = _jml_mhs_by_kelas()
+    rows = db.scalars(select(ScanSession).options(selectinload(ScanSession.files))
+                       .order_by(ScanSession.fakultas, ScanSession.kelas, ScanSession.created_at)).all()
+    cols = ["Kelas", "Fakultas", "Program Studi", "Pengawas", "No HP Pengawas", "Jumlah LJK Terupload",
+            "Jumlah Mahasiswa (jadwal)", "Status", "Divalidasi Oleh", "Sudah Dikirim ke Sheet", "Tersinkron",
+            "Waktu Upload", "Waktu Dikirim"]
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Status kelas"
+    ws.append(cols)
+    for s in rows:
+        ws.append([
+            s.kelas, s.fakultas, s.prodi, s.nama_pengawas, s.hp or "",
+            len(s.files), jml_mhs_map.get((s.kelas or "").strip().lower(), ""),
+            _STATUS_LABEL.get(_session_status(s), _session_status(s)),
+            s.admin_validated_by or "", "Ya" if s.submitted else "Tidak", "Ya" if s.synced_at else "Tidak",
+            s.created_at.isoformat(sep=" ", timespec="minutes") if s.created_at else "",
+            s.submitted_at.isoformat(sep=" ", timespec="minutes") if s.submitted_at else "",
+        ])
+    for i, c in enumerate(cols, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(max(len(str(c)) + 2, 10), 28)
+    ws.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=status_kelas.xlsx"})
+
+
 # ---------------------------------------------------------------- kalibrasi template
 def _calib_template():
     tpl = load_default_template()
