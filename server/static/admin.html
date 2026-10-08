@@ -278,7 +278,7 @@
       <div class="card" style="max-width:1360px;width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column">
         <div class="loadbar" x-show="preview.loading" x-cloak></div>
         <div class="tools" style="flex:0 0 auto">
-          <div class="tt"><h2>Detail lembar</h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
+          <div class="tt"><h2>Detail lembar <span class="mute" style="font-weight:400" x-show="detail" x-text="'(' + (detail?.items.length ?? 0) + ' lembar)'"></span></h2><p class="sub" x-text="detail && [detail.nama, detail.kelas, detail.prodi, (detail.admin_validated_by ? 'divalidasi oleh '+detail.admin_validated_by : '')].filter(Boolean).join(' · ')"></p></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="ib lg" :class="{on: detail?.admin_validated, 'c-ok': !detail?.admin_validated}" x-show="detail && detail.items.length>0" :disabled="!!detail?.sesBusy" @click="toggleSessionValidated(detail)" :title="detail?.admin_validated ? 'Sesi sudah validated — klik utk batalkan' : 'Validasi sesi ini (tandai validated)'" aria-label="Validasi sesi ini">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
