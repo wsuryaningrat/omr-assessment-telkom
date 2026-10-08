@@ -1208,6 +1208,7 @@ class _AdminUserPatchIn(BaseModel):
     name: str | None = None
     hp: str | None = None
     active: bool | None = None
+    type: str | None = None
 
 
 class _AdminEmailIn(BaseModel):
@@ -1231,9 +1232,19 @@ def admin_create_email_user(body: _AdminEmailIn, db=Depends(get_db), admin=Depen
     return _user_view(u)
 
 
+def _other_active_superusers(db, exclude_id: str) -> int:
+    """Jumlah super_admin AKTIF selain `exclude_id` -- dipakai mencegah akun super_admin TERAKHIR
+    diturunkan/dinonaktifkan/dihapus tanpa sengaja (anti-terkunci dari menu Akun sendiri; psql manual
+    tetap jalur darurat kalau ini sampai lolos)."""
+    return db.scalar(select(func.count()).select_from(AdminUser)
+                      .where(AdminUser.type == "super_admin", AdminUser.active.is_(True), AdminUser.id != exclude_id)) or 0
+
+
 @router.patch("/users/{uid}", dependencies=[Depends(auth.require_superuser)])
 def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
-    """Reset password, ubah nama, dan/atau nonaktifkan (active=false) -- tanpa menghapus riwayat akunnya."""
+    """Reset password, ubah nama, tipe (admin/super_admin), dan/atau nonaktifkan (active=false) -- tanpa
+    menghapus riwayat akunnya. Menurunkan tipe atau menonaktifkan super_admin TERAKHIR ditolak (409) --
+    jadikan akun lain super_admin dulu, baru akun ini boleh diturunkan/dinonaktifkan."""
     u = db.get(AdminUser, uid)
     if u is None:
         raise HTTPException(404, "Akun tidak ditemukan")
@@ -1247,7 +1258,16 @@ def admin_update_user(uid: str, body: _AdminUserPatchIn, db=Depends(get_db)):
         u.name = body.name.strip()
     if body.hp is not None:
         u.hp = body.hp.strip()
+    if body.type is not None:
+        t = body.type.strip()
+        if t not in ("admin", "super_admin"):
+            raise HTTPException(422, "Tipe harus 'admin' atau 'super_admin'")
+        if u.type == "super_admin" and t != "super_admin" and not _other_active_superusers(db, u.id):
+            raise HTTPException(409, "Tidak bisa menurunkan super_admin terakhir -- jadikan akun lain super_admin dulu")
+        u.type = t
     if body.active is not None:
+        if u.active and not body.active and u.type == "super_admin" and not _other_active_superusers(db, u.id):
+            raise HTTPException(409, "Tidak bisa menonaktifkan super_admin terakhir -- jadikan akun lain super_admin dulu")
         u.active = body.active
     db.commit()
     return _user_view(u)
@@ -1258,6 +1278,8 @@ def admin_delete_user(uid: str, db=Depends(get_db)):
     u = db.get(AdminUser, uid)
     if u is None:
         raise HTTPException(404, "Akun tidak ditemukan")
+    if u.type == "super_admin" and not _other_active_superusers(db, u.id):
+        raise HTTPException(409, "Tidak bisa menghapus super_admin terakhir -- jadikan akun lain super_admin dulu")
     db.delete(u)
     db.commit()
 

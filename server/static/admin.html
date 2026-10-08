@@ -451,34 +451,36 @@
 
     <!-- akun -->
     <section x-show="tab==='akun'">
-      <div class="card">
-        <h2>Tambah akun admin</h2>
-        <p class="sub">Akun di sini aktif seketika (tak perlu redeploy) & masuk lewat halaman login dgn username+password, sama spt akun bawaan.</p>
-        <div class="grid" style="max-width:520px">
-          <div><label class="f" for="nuUser">Username</label><input id="nuUser" x-model.trim="newUser.username" autocomplete="off" placeholder="mis. budi"></div>
-          <div><label class="f" for="nuPw">Password</label><input id="nuPw" type="password" x-model="newUser.password" autocomplete="new-password" placeholder="minimal 8 karakter"></div>
-          <div><label class="f" for="nuName">Nama (opsional)</label><input id="nuName" x-model.trim="newUser.name" placeholder="Nama tampilan, mis. Budi Santoso"></div>
-          <div><label class="f" for="nuHp">No HP (opsional)</label><input id="nuHp" x-model.trim="newUser.hp" placeholder="mis. 081234567890"></div>
+      <div class="two split">
+        <div class="card">
+          <h2>Tambah akun password</h2>
+          <p class="sub">Akun di sini aktif seketika (tak perlu redeploy) & masuk lewat halaman login dgn username+password, sama spt akun bawaan.</p>
+          <div class="grid">
+            <div><label class="f" for="nuUser">Username</label><input id="nuUser" x-model.trim="newUser.username" autocomplete="off" placeholder="mis. budi"></div>
+            <div><label class="f" for="nuPw">Password</label><input id="nuPw" type="password" x-model="newUser.password" autocomplete="new-password" placeholder="minimal 8 karakter"></div>
+            <div><label class="f" for="nuName">Nama (opsional)</label><input id="nuName" x-model.trim="newUser.name" placeholder="Nama tampilan, mis. Budi Santoso"></div>
+            <div><label class="f" for="nuHp">No HP (opsional)</label><input id="nuHp" x-model.trim="newUser.hp" placeholder="mis. 081234567890"></div>
+          </div>
+          <div class="row-act">
+            <button class="btn p sm" @click="createUser()" :disabled="userBusy || !newUser.username || !newUser.password">Buat akun</button>
+          </div>
         </div>
-        <div class="row-act">
-          <button class="btn p sm" @click="createUser()" :disabled="userBusy || !newUser.username || !newUser.password">Buat akun</button>
+
+        <div class="card">
+          <h2>Tambah akun Gmail / Google</h2>
+          <p class="sub">Email yang didaftarkan di sini boleh masuk admin lewat tombol "Masuk dengan Google" — aktif seketika, tanpa restart. Tipe akun (admin/super admin) diatur dari tabel di bawah setelah akunnya muncul.</p>
+          <div class="grid">
+            <div><label class="f" for="neEmail">Email Gmail</label><input id="neEmail" type="email" x-model.trim="newEmail.email" autocomplete="off" placeholder="mis. budi@gmail.com" @keydown.enter="createEmailUser()"></div>
+            <div><label class="f" for="neName">Nama (opsional)</label><input id="neName" x-model.trim="newEmail.name" placeholder="Nama tampilan"></div>
+          </div>
+          <div class="row-act">
+            <button class="btn p sm" @click="createEmailUser()" :disabled="userBusy || !newEmail.email">Tambah email</button>
+          </div>
         </div>
       </div>
 
       <div class="card">
-        <h2>Tambah akun Gmail / Google</h2>
-        <p class="sub">Email yang didaftarkan di sini boleh masuk admin lewat tombol "Masuk dengan Google" — aktif seketika, tanpa restart. Selalu berstatus admin biasa.</p>
-        <div class="grid" style="max-width:520px">
-          <div><label class="f" for="neEmail">Email Gmail</label><input id="neEmail" type="email" x-model.trim="newEmail.email" autocomplete="off" placeholder="mis. budi@gmail.com" @keydown.enter="createEmailUser()"></div>
-          <div><label class="f" for="neName">Nama (opsional)</label><input id="neName" x-model.trim="newEmail.name" placeholder="Nama tampilan"></div>
-        </div>
-        <div class="row-act">
-          <button class="btn p sm" @click="createEmailUser()" :disabled="userBusy || !newEmail.email">Tambah email</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Akun terdaftar</h2>
+        <h2>Akun terdaftar <span class="mute" style="font-weight:400" x-text="'(' + users.length + ')'"></span></h2>
         <div class="tbl"><table>
           <thead><tr><th>Username</th><th>Tipe</th><th>Nama</th><th>No HP</th><th>Status</th><th>Dibuat oleh</th><th>Login terakhir</th><th></th></tr></thead>
           <tbody>
@@ -491,10 +493,22 @@
                 <td><span class="chip" :class="u.active?'validated':'warning'" x-text="u.active?'Aktif':'Nonaktif'"></span></td>
                 <td x-text="u.created_by||'-'"></td>
                 <td x-text="fmt(u.last_login_at)"></td>
-                <td class="actrow">
-                  <button class="btn xs" @click="toggleUserActive(u)" x-text="u.active?'Nonaktifkan':'Aktifkan'"></button>
-                  <button class="btn xs" x-show="!u.sso_only" @click="resetUserPassword(u)">Reset password</button>
-                  <button class="btn xs d" @click="deleteUser(u)">Hapus</button>
+                <td class="actrow" style="flex-wrap:nowrap" x-data="{menuOpen:false}">
+                  <button class="ib" :class="{on: u.type==='super_admin'}" @click="toggleUserType(u)" :title="u.type==='super_admin' ? 'Turunkan jadi admin biasa' : 'Jadikan super admin'" aria-label="Ubah tipe akun">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/></svg>
+                  </button>
+                  <button class="ib" :class="{on: u.active}" @click="toggleUserActive(u)" :title="u.active ? 'Nonaktifkan akun' : 'Aktifkan akun'" aria-label="Ubah status aktif">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></svg>
+                  </button>
+                  <div class="rowmenu" @click.outside="menuOpen=false">
+                    <button class="ib" @click="menuOpen=!menuOpen" aria-label="Aksi lain" title="Aksi lain">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+                    </button>
+                    <div class="rowmenu-pop" x-show="menuOpen" x-cloak x-transition.opacity>
+                      <button x-show="!u.sso_only" @click="menuOpen=false; resetUserPassword(u)">Reset password</button>
+                      <button class="d" @click="menuOpen=false; deleteUser(u)">Hapus akun</button>
+                    </div>
+                  </div>
                 </td>
               </tr>
             </template>
@@ -505,11 +519,11 @@
 
       <div class="card">
         <h2>Riwayat akses</h2>
-        <p class="sub">100 percobaan masuk admin terakhir -- lintas Google, Microsoft, & username+password (login lewat token API tak dicatat di sini).</p>
+        <p class="sub">Percobaan masuk admin -- lintas Google, Microsoft, & username+password (login lewat token API tak dicatat di sini).</p>
         <div class="tbl"><table>
           <thead><tr><th>Waktu</th><th>Identitas</th><th>Cara masuk</th><th>Hasil</th><th>IP</th></tr></thead>
           <tbody>
-            <template x-for="a in accessLog" :key="a.id">
+            <template x-for="a in accessLogPaged" :key="a.id">
               <tr>
                 <td x-text="fmt(a.at)"></td>
                 <td class="mono" x-text="a.identity"></td>
@@ -521,6 +535,19 @@
           </tbody>
         </table></div>
         <p class="empty" x-show="!accessLog.length">Belum ada riwayat akses.</p>
+        <div class="pagebar" x-show="accessLog.length">
+          <span class="mute" x-text="accessLog.length+' percobaan'"></span>
+          <span class="pgnav">
+            <label class="mute" style="display:flex;align-items:center;gap:6px">Per halaman
+              <select x-model.number="accessPageSize" @change="accessPage=1" style="height:32px;width:auto">
+                <template x-for="n in sesPageSizeOptions" :key="n"><option :value="n" x-text="n"></option></template>
+              </select>
+            </label>
+            <button class="btn sm" @click="accessPage--" :disabled="accessPage<=1">←</button>
+            <span class="mute" x-text="accessPage+' / '+Math.max(1,Math.ceil(accessLog.length/accessPageSize))"></span>
+            <button class="btn sm" @click="accessPage++" :disabled="accessPage*accessPageSize>=accessLog.length">→</button>
+          </span>
+        </div>
       </div>
     </section>
 

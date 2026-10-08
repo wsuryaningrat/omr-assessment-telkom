@@ -46,8 +46,9 @@ CLIENTLOG_PER_MIN = int(os.environ.get("CLIENTLOG_PER_MIN", "60"))            # 
 
 # ---- Login admin username+password (hash PBKDF2, format "iter:salt_hex:hash_hex"; buat dengan `python -m server.auth hash`)
 ADMIN_USER = os.environ.get("ADMIN_USER", "").strip()
-# Satu-satunya username bertipe super_admin (tabel admin_user, kolom type): boleh membuka menu Akun &
-# menghapus sesi terunggah. Akun lain bertipe "admin" (default). Lihat db._sync_admin_types & auth.is_superuser.
+# Akun pemilik bawaan (jaring pengaman): dijadikan super_admin OTOMATIS hanya bila belum ada super_admin
+# sama sekali di tabel admin_user (mis. database baru). Akun LAIN (termasuk login Google/Microsoft) juga
+# bisa dijadikan super_admin lewat tab Akun atau manual di DB -- lihat db._sync_admin_types & auth.is_superuser.
 SUPER_ADMIN_USERNAME = os.environ.get("SUPER_ADMIN_USERNAME", "wsningrat").strip()
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "").strip()
 # Akun password TAMBAHAN (selain ADMIN_USER/ADMIN_PASSWORD_HASH di atas) -- format "user1:iter:salt:hash,user2:iter:salt:hash"

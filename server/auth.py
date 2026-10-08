@@ -182,15 +182,21 @@ def require_admin(request: Request, x_admin_token: str = Header(default="")):
 
 
 def is_superuser(admin: dict) -> bool:
-    """Super admin: login password dgn akun admin_user bertipe "super_admin" (dan username-nya memang
-    config.SUPER_ADMIN_USERNAME), atau pakai ADMIN_TOKEN (rahasia operator server, identitas "token").
-    Admin biasa -- termasuk login Google/Microsoft -- tak punya akses menu Akun / hapus sesi."""
+    """Super admin: akun admin_user AKTIF bertipe "super_admin" -- SIAPA PUN cara masuknya (password,
+    Google, ATAU Microsoft; `via` TIDAK LAGI dibedakan, lihat changelog di bawah), identitasnya dicocokkan
+    ke AdminUser.username (= email utk akun SSO, = username pilihan sendiri utk akun password). Atau pakai
+    ADMIN_TOKEN (rahasia operator server, identitas "token"). Admin biasa tak punya akses menu Akun / hapus
+    sesi. BISA ADA LEBIH DARI SATU super_admin -- dikelola lewat tab Akun (admin_update_user) atau langsung
+    di DB (kolom admin_user.type), lihat juga db._sync_admin_types.
+    (Sebelumnya HANYA username config.SUPER_ADMIN_USERNAME via login password yg bisa jadi super_admin --
+    promosi lewat SQL manual ke akun lain, termasuk akun Google, tak pernah berefek & malah ditimpa balik
+    ke "admin" tiap restart server; itu bug yg diperbaiki di sini, bukan perilaku yg disengaja.)"""
     if not admin:
         return False
     ident = str(admin.get("email") or "").strip()
     if ident == "token":
         return True
-    if admin.get("via") != "password" or ident != config.SUPER_ADMIN_USERNAME:
+    if not ident:
         return False
     try:
         from server.db import AdminUser, SessionLocal

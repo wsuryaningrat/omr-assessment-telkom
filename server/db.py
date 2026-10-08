@@ -129,8 +129,10 @@ class AdminUser(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_login_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # "admin" (default, akun biasa) atau "super_admin" (HANYA username config.SUPER_ADMIN_USERNAME = wsningrat:
-    # boleh membuka menu Akun & menghapus sesi). Dijaga tiap startup oleh _sync_admin_types().
+    # "admin" (default, akun biasa) atau "super_admin" (boleh membuka menu Akun & menghapus sesi). BISA LEBIH
+    # DARI SATU akun, diubah lewat tab Akun (admin.admin_update_user) atau manual di DB -- lihat auth.is_superuser.
+    # _sync_admin_types() tiap startup HANYA jaring pengaman: jadikan config.SUPER_ADMIN_USERNAME super_admin
+    # lagi bila TAK ADA super_admin sama sekali, tak pernah menimpa balik akun yg sudah dipromosikan manual.
     type: Mapped[str] = mapped_column(String(20), default="admin", server_default="admin")
 
 
@@ -234,16 +236,23 @@ def _seed_env_admin_emails():
 
 
 def _sync_admin_types():
-    """Jaga aturan tipe akun tiap startup: super_admin HANYA utk config.SUPER_ADMIN_USERNAME (wsningrat);
-    akun lain apa pun nilai type-nya (mis. diubah manual lewat psql) dikembalikan ke "admin"."""
+    """Anti-terkunci tiap startup: kalau TAK ADA akun super_admin SAMA SEKALI (mis. database baru, atau
+    satu-satunya super_admin keliru dihapus/dinonaktifkan), jadikan config.SUPER_ADMIN_USERNAME (wsningrat,
+    kalau akunnya ada) super_admin lagi sbg jaring pengaman. Kalau SUDAH ada >=1 akun super_admin (dibuat
+    lewat tab Akun, atau diubah manual lewat psql, mis. menjadikan akun Google/Microsoft super_admin juga),
+    TIDAK disentuh -- lihat auth.is_superuser yg sekarang membaca kolom type APA ADANYA utk akun manapun,
+    bukan cuma SUPER_ADMIN_USERNAME. (Dulu fungsi ini SELALU memaksa balik ke "admin" kecuali
+    SUPER_ADMIN_USERNAME persis, jadi promosi manual lewat SQL ke akun lain hilang lagi tiap restart --
+    itu bug, bukan perilaku yg disengaja; lihat auth.is_superuser utk detail.)"""
     from server import config
     try:
         with SessionLocal() as db:
-            for u in db.query(AdminUser):
-                want = "super_admin" if u.username == config.SUPER_ADMIN_USERNAME else "admin"
-                if u.type != want:
-                    u.type = want
-            db.commit()
+            if db.query(AdminUser).filter(AdminUser.type == "super_admin").first() is not None:
+                return
+            u = db.query(AdminUser).filter(AdminUser.username == config.SUPER_ADMIN_USERNAME).first()
+            if u is not None:
+                u.type = "super_admin"
+                db.commit()
     except Exception:  # noqa: BLE001 -- tak boleh menggagalkan startup
         pass
 

@@ -5,7 +5,7 @@ function admin() {
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
-    users: [], newUser: { username: "", password: "", name: "", hp: "" }, newEmail: { email: "", name: "" }, userBusy: false, accessLog: [],
+    users: [], newUser: { username: "", password: "", name: "", hp: "" }, newEmail: { email: "", name: "" }, userBusy: false, accessLog: [], accessPage: 1, accessPageSize: 20,
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
     msg: { text: "", bad: false, show: false }, _t: null, _poll: null,
 
@@ -670,7 +670,14 @@ function admin() {
     // di deploy/.env yg butuh redeploy & sengaja tak ditampilkan/dikelola dari UI ini.
     async loadUsers() {
       try { this.users = await this.json("/api/admin/users"); } catch (e) { this.toast(e.message, true); }
-      try { this.accessLog = await this.json("/api/admin/access-log"); } catch { /* riwayat akses opsional, jangan ganggu tab kalau gagal */ }
+      // limit=500 (maksimum endpoint): paginasi "Riwayat akses" di bawah dilakukan di SISI KLIEN atas
+      // array ini (lihat accessLogPaged) -- cukup krn dibatasi 500 baris, tak perlu bolak-balik ke server.
+      try { this.accessLog = await this.json("/api/admin/access-log?limit=500"); this.accessPage = 1; } catch { /* riwayat akses opsional, jangan ganggu tab kalau gagal */ }
+    },
+    // Potongan accessLog utk halaman saat ini (lihat .pagebar di tab Akun bag. "Riwayat akses").
+    get accessLogPaged() {
+      const start = (this.accessPage - 1) * this.accessPageSize;
+      return this.accessLog.slice(start, start + this.accessPageSize);
     },
     async createEmailUser() {
       const f = this.newEmail;
@@ -699,6 +706,17 @@ function admin() {
     },
     async toggleUserActive(u) {
       try { await this.json(`/api/admin/users/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !u.active }) }); this.toast(u.active ? "Akun dinonaktifkan" : "Akun diaktifkan lagi"); await this.loadUsers(); }
+      catch (e) { this.toast(e.message, true); }
+    },
+    // Jadikan/turunkan super admin (boleh membuka tab ini & menghapus sesi) -- server menolak (409) kalau
+    // ini akan menurunkan satu-satunya super_admin aktif yg tersisa (lihat admin._other_active_superusers).
+    async toggleUserType(u) {
+      const want = u.type === "super_admin" ? "admin" : "super_admin";
+      const msg = want === "super_admin"
+        ? `Jadikan "${u.username}" super admin? Akun ini akan bisa membuka tab Akun & menghapus sesi.`
+        : `Turunkan "${u.username}" jadi admin biasa?`;
+      if (!confirm(msg)) return;
+      try { await this.json(`/api/admin/users/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: want }) }); this.toast(want === "super_admin" ? "Dijadikan super admin" : "Diturunkan jadi admin biasa"); await this.loadUsers(); }
       catch (e) { this.toast(e.message, true); }
     },
     async resetUserPassword(u) {

@@ -1217,8 +1217,12 @@ class TestServices(unittest.TestCase):
         self.assertEqual(self.c.post("/auth/password", json={"username": "tes_login1", "password": "rahasia123"}).status_code, 401)
 
     def test_only_super_admin_can_use_akun_menu_and_delete_sessions(self):
-        """admin_user.type: "admin" (default) atau "super_admin" (HANYA config.SUPER_ADMIN_USERNAME). Hanya
-        super_admin boleh menu Akun & menghapus sesi; admin biasa tetap bisa menu lain."""
+        """admin_user.type: "admin" (default) atau "super_admin". Hanya super_admin boleh menu Akun &
+        menghapus sesi; admin biasa tetap bisa menu lain. Promosi manual lewat DB/tab Akun ke akun MANAPUN
+        (bukan cuma config.SUPER_ADMIN_USERNAME) PERSISTEN lewat _sync_admin_types() selama sudah ada
+        >=1 super_admin -- itu yg dulu jadi bug (reverted paksa tiap restart server, lihat
+        auth.is_superuser & db._sync_admin_types); _other_active_superusers mencegah super_admin
+        TERAKHIR yg aktif diturunkan (anti-terkunci)."""
         auth._FAILS.clear()
         for u in ("tes_biasa", "tes_super"):
             r = self.c.post("/api/admin/users", json={"username": u, "password": "rahasia123", "name": u}, headers=ADM)
@@ -1226,10 +1230,10 @@ class TestServices(unittest.TestCase):
         old = config.SUPER_ADMIN_USERNAME
         config.SUPER_ADMIN_USERNAME = "tes_super"
         try:
-            with SessionLocal() as db:   # tes_biasa DIPAKSA super_admin lewat DB -> startup-sync harus mengembalikannya
-                db.query(AdminUser).filter(AdminUser.username == "tes_biasa").update({"type": "super_admin"})
+            with SessionLocal() as db:   # promosikan tes_super manual (spt lewat psql/tab Akun)
+                db.query(AdminUser).filter(AdminUser.username == "tes_super").update({"type": "super_admin"})
                 db.commit()
-            dbmod._sync_admin_types()
+            dbmod._sync_admin_types()    # sudah ada 1 super_admin -> sync TAK menyentuh apa pun
             with SessionLocal() as db:
                 types = {u.username: u.type for u in db.query(AdminUser).filter(AdminUser.username.in_(["tes_biasa", "tes_super"]))}
             self.assertEqual(types, {"tes_biasa": "admin", "tes_super": "super_admin"})
@@ -1253,6 +1257,23 @@ class TestServices(unittest.TestCase):
             self.assertEqual(self.c.delete(f"/api/admin/sessions/{sid}").status_code, 204)
             self.c.post("/auth/logout")
             self.assertTrue(self.c.get("/api/admin/whoami", headers=ADM).json()["superuser"])   # ADMIN_TOKEN = operator
+
+            # Promosikan tes_biasa jadi super_admin lewat tab Akun (PATCH type) -- berlaku seketika & tak
+            # ditimpa balik oleh sync berikutnya (beda dari perilaku lama).
+            uid_biasa = next(u["id"] for u in self.c.get("/api/admin/users", headers=ADM).json() if u["username"] == "tes_biasa")
+            r = self.c.patch(f"/api/admin/users/{uid_biasa}", json={"type": "super_admin"}, headers=ADM)
+            self.assertEqual(r.status_code, 200, r.text)
+            dbmod._sync_admin_types()
+            with SessionLocal() as db:
+                self.assertEqual(db.query(AdminUser).filter(AdminUser.username == "tes_biasa").first().type, "super_admin")
+            self.assertEqual(self.c.post("/auth/password", json={"username": "tes_biasa", "password": "rahasia123"}).status_code, 200)
+            self.assertTrue(self.c.get("/api/admin/whoami").json()["superuser"])   # sekarang super_admin jg, walau bukan SUPER_ADMIN_USERNAME
+            self.c.post("/auth/logout")
+
+            # Anti-terkunci: tak boleh menurunkan super_admin TERAKHIR yg masih aktif.
+            uid_super = next(u["id"] for u in self.c.get("/api/admin/users", headers=ADM).json() if u["username"] == "tes_super")
+            self.assertEqual(self.c.patch(f"/api/admin/users/{uid_super}", json={"type": "admin"}, headers=ADM).status_code, 200)   # tes_biasa msh super_admin, boleh
+            self.assertEqual(self.c.patch(f"/api/admin/users/{uid_biasa}", json={"type": "admin"}, headers=ADM).status_code, 409)   # tes_biasa satu2nya yg tersisa -> ditolak
         finally:
             config.SUPER_ADMIN_USERNAME = old
             self.c.post("/auth/logout")
