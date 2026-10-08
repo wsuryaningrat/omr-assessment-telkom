@@ -100,9 +100,9 @@
           </div>
         </div>
 
-        <template x-if="stats">
+        <template x-if="stats && superuser">
         <div class="card" style="margin-top:14px">
-          <h2 style="margin:0 0 10px">Statistik nilai</h2>
+          <h2 style="margin:0 0 10px">Statistik nilai <span class="mute" style="font-weight:400;font-size:12px">(khusus super admin)</span></h2>
           <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
             <div class="stat"><small>Total LJK masuk</small><b x-text="stats.overall.total_ljk"></b></div>
             <div class="stat" title="Lembar yg SUDAH divalidasi admin (centang per-lembar / Validasi semua) -- dasar perhitungan nilai di kanan"><small>Terkirim (divalidasi)</small><b x-text="stats.overall.terkirim"></b></div>

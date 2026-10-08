@@ -72,8 +72,10 @@ function admin() {
       this.monBusy = false;
     },
     // Statistik "LJK masuk" & nilai min/maks/rata-rata (overall & per fakultas) di atas tab Summary --
-    // dimuat bareng loadMonitor() (lihat go() & tombol "Muat ulang"), opsional (jangan ganggu tab kalau gagal).
+    // KHUSUS super_admin (endpoint menolak 403 utk admin biasa, lihat admin.admin_stats) -- dimuat bareng
+    // loadMonitor() (lihat go() & tombol "Muat ulang"), opsional (jangan ganggu tab kalau gagal).
     async loadStats() {
+      if (!this.superuser) return;
       try { this.stats = await this.json("/api/admin/stats"); } catch { /* opsional */ }
     },
     get monDayData() { return (this.mon?.days || []).find(x => x.hari === this.monDay) || null; },

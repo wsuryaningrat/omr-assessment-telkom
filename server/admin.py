@@ -57,9 +57,10 @@ def _nilai_stats(vals: list) -> dict:
     return {"min": min(vals), "max": max(vals), "avg": round(sum(vals) / len(vals), 1), "count": len(vals)}
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(auth.require_superuser)])
 def admin_stats(db=Depends(get_db)):
-    """Statistik sederhana utk tab Summary: total LJK masuk (jumlah lembar hasil scan APAPUN statusnya --
+    """Statistik sederhana -- super_admin SAJA (lihat Sesi/Akun: nilai per fakultas data sensitif, admin
+    biasa tak perlu lihat). Total LJK masuk (jumlah lembar hasil scan APAPUN statusnya --
     termasuk yg gagal terbaca/belum dicek admin) VS jumlah yg sudah TERKIRIM (Sheet.validated=True -- lembar
     yg admin SUDAH tandai valid, lewat tombol centang per-lembar atau "Validasi semua"/"Tandai validated"),
     & nilai min/maks/rata-rata, overall & per fakultas. Nilai HANYA dihitung dari lembar TERKIRIM (bukan
