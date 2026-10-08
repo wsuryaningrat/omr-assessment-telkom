@@ -852,6 +852,42 @@ def admin_sync_session_now(sid: str, db=Depends(get_db)):
     return res
 
 
+@router.post("/sessions/send-all-validated", dependencies=[Depends(auth.require_superuser)])
+def admin_send_all_validated(db=Depends(get_db)):
+    """"Kirim semua tervalidasi" (tab Summary, super_admin): kunci (submit) & kirim SEKALIGUS semua sesi
+    yg SUDAH divalidasi admin tapi BELUM PERNAH dikirim (submitted=False) -- utk sesi yg nyangkut
+    tervalidasi krn admin lupa/belum sempat menekan "Kirim" satu-satu di tabel Sesi (lihat diskusi gap
+    jumlah lembar tervalidasi vs baris yg nyata ada di Google Sheet). Sesi yg SUDAH pernah dikirim TIDAK
+    disentuh di sini -- pakai "Kirim ulang semua" (admin_resend_all) utk menyegarkan yg itu. Satu
+    permintaan Google Sheets utk SEMUA sesi sekaligus (services.sync_sessions_bulk), bukan satu per sesi."""
+    targets = list(db.scalars(select(ScanSession).where(ScanSession.admin_validated.is_(True), ScanSession.submitted.is_(False))
+                               .options(selectinload(ScanSession.sheets))))
+    for s in targets:
+        services.regrade_session(db, s)
+        s.submitted, s.submitted_at = True, dt.datetime.now(dt.timezone.utc)
+    if targets:
+        db.commit()
+    res = services.sync_sessions_bulk(db, targets)
+    if not res["configured"]:
+        raise HTTPException(409, "Google Sheet belum dikonfigurasi")
+    return {"total": len(targets), **res}
+
+
+@router.post("/sessions/resend-all", dependencies=[Depends(auth.require_superuser)])
+def admin_resend_all(db=Depends(get_db)):
+    """"Kirim ulang semua" (tab Summary, super_admin): sinkron ULANG SEMUA sesi yg SUDAH pernah dikirim
+    (submitted=True) ke Google Sheet -- mis. stlh kunci jawaban/koreksi massal berubah & Sheet perlu
+    disegarkan semuanya sekaligus, drpd menekan "Kirim" satu-satu per sesi. Aman dipanggil berulang kali
+    (upsert per NPM, lihat services.sync_sessions_bulk) & TIDAK menilai ulang (sama spt sync-now per-sesi:
+    regrade cuma terjadi sekali, saat pertama kali submitted -- di sini datanya dikirim apa adanya)."""
+    targets = list(db.scalars(select(ScanSession).where(ScanSession.submitted.is_(True))
+                               .options(selectinload(ScanSession.sheets))))
+    res = services.sync_sessions_bulk(db, targets)
+    if not res["configured"]:
+        raise HTTPException(409, "Google Sheet belum dikonfigurasi")
+    return {"total": len(targets), **res}
+
+
 @router.post("/sessions/{sid}/stop")
 def admin_stop_session(sid: str, db=Depends(get_db)):
     """Hentikan pemindaian sesi yg masih berjalan (upaya terbaik -- lihat cancel_pending_files di

@@ -100,6 +100,11 @@ class TestServices(unittest.TestCase):
         while time.time() - t < 120 and self.c.get(f"/api/sessions/{sid}").json()["scanning"]:
             time.sleep(0.4)
         self.c.post(f"/api/sessions/{sid}/validate-all")
+        # LJK.pdf (lembar kosong/ambigu dipakai di seluruh tes ini) kebaca kode soal garbled & fakultas
+        # "MULTIPLE" -- tak lolos cek keseragaman/3-digit di admin_validate_session (lihat test di bawah
+        # khusus utk cek itu sendiri). Dibetulkan sekali di sini spy BANYAK tes lain yg cuma butuh "sesi
+        # siap divalidasi admin" (bukan sedang menguji OCR mentah) tak ikut gagal krn validasi itu.
+        self.c.post(f"/api/admin/sessions/{sid}/bulk-edit", json={"kode_soal": "999", "fakultas_ljk": VALID["fakultas"]}, headers=ADM)
         return sid
 
     def submit(self, sid):
@@ -1078,6 +1083,65 @@ class TestServices(unittest.TestCase):
         r = self.c.post(f"/api/admin/sessions/{sid2}/sync-now", headers=ADM)
         self.assertEqual(r.status_code, 409)
         self.assertIn("429", r.json()["detail"])
+
+    def test_send_all_validated_locks_and_syncs_unsent_sessions_in_one_batch(self):
+        """"Kirim semua tervalidasi" (tab Summary, super_admin): sesi yg SUDAH admin_validated tapi BELUM
+        pernah disubmit/dikirim -- dikunci (submitted=True) & dikirim SEKALIGUS dlm SATU panggilan Google
+        Sheets (bukan satu per sesi, lihat services.sync_sessions_bulk), persis spt menekan "Kirim" di
+        tiap sesi itu satu-satu tapi lebih cepat & hemat kuota."""
+        sid1 = self.submitted_session("BULKSEND-01")
+        sid2 = self.submitted_session("BULKSEND-02")
+        self.c.post(f"/api/admin/sessions/{sid1}/validate", headers=ADM)
+        self.c.post(f"/api/admin/sessions/{sid2}/validate", headers=ADM)
+        # sesi ke-3: BELUM divalidasi -- harus diabaikan, tak ikut terkunci/terkirim.
+        sid3 = self.c.post("/api/sessions", json={**VALID, "kelas": "BULKSEND-03"}).json()["id"]
+        self.fake.calls.clear()
+
+        r = self.c.post("/api/admin/sessions/send-all-validated", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        # "total" global (bisa ikut sesi admin_validated-tapi-belum-dikirim dari tes LAIN di kelas yg sama,
+        # lihat drain()), jadi dicek RELATIF -- bukti aksi ini bekerja benar: sid1/sid2 BENAR2 terkunci &
+        # terkirim, sid3 (belum divalidasi) sama sekali tidak, & semua yg diproses berhasil (tak ada gagal).
+        self.assertGreaterEqual(d["total"], 2)
+        self.assertEqual(d["gagal"], 0)
+        self.assertEqual(d["terkirim"], d["total"])
+        self.assertEqual(len(self.fake.calls), 1)   # SATU permintaan utk SEMUA sesi, brp pun jumlahnya
+
+        for sid in (sid1, sid2):
+            info = self.c.get(f"/api/sessions/{sid}").json()
+            self.assertTrue(info["submitted"])
+        self.assertFalse(self.c.get(f"/api/sessions/{sid3}").json()["submitted"])
+
+    def test_resend_all_refreshes_already_sent_sessions_in_one_batch(self):
+        """"Kirim ulang semua": sesi yg SUDAH pernah dikirim disinkron ULANG sekaligus (mis. stlh koreksi
+        data) -- sesi yg masih tervalidasi tapi belum pernah dikirim TIDAK ikut (itu tugas "Kirim semua
+        tervalidasi"), supaya dua tombol ini saling melengkapi tanpa tumpang tindih."""
+        sid1 = self.submitted_session("BULKRESEND-01")
+        self.c.post(f"/api/admin/sessions/{sid1}/validate", headers=ADM)
+        self.c.post(f"/api/admin/sessions/{sid1}/sync-now", headers=ADM)   # sudah terkirim sekali
+        shid = self.c.get(f"/api/admin/sessions/{sid1}/sheets", headers=ADM).json()["items"][0]["id"]
+        self.c.patch(f"/api/admin/sheets/{shid}", json={"npm": "5551234567"}, headers=ADM)
+
+        sid2 = self.submitted_session("BULKRESEND-02")
+        self.c.post(f"/api/admin/sessions/{sid2}/validate", headers=ADM)   # tervalidasi tp BELUM dikirim
+        self.fake.calls.clear()
+
+        r = self.c.post("/api/admin/sessions/resend-all", headers=ADM)
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        # "total" global (mencakup sesi submitted=True dari tes LAIN di kelas yg sama -- lihat drain()),
+        # jadi dicek RELATIF (semua berhasil, bukan dihitung ulang), bukan sama dgn 1 persis; yg jadi
+        # bukti aksi ini bekerja benar adalah koreksi sid1 BENAR2 terkirim & sid2 (belum pernah dikirim) TIDAK.
+        self.assertGreaterEqual(d["total"], 1)
+        self.assertEqual(d["terkirim"], d["total"])
+        self.assertEqual(len(self.fake.calls), 1)   # tetap SATU permintaan, brp pun jumlah sesinya
+        self.assertEqual(self.fake.rows_by_npm["5551234567"]["NPM"], "5551234567")   # koreksi ikut terkirim
+        self.assertFalse(self.c.get(f"/api/sessions/{sid2}").json()["submitted"])   # sid2 tak disentuh
+
+    def test_bulk_sync_endpoints_require_superuser(self):
+        self.assertEqual(self.c.post("/api/admin/sessions/send-all-validated").status_code, 401)
+        self.assertEqual(self.c.post("/api/admin/sessions/resend-all").status_code, 401)
 
     # ---------------------------------------------------------------- akun admin (tab Akun)
     def test_admin_user_crud_lifecycle(self):

@@ -91,15 +91,23 @@ class GSheetsClient:
                         existing_row.setdefault(row[key_idx], i)
             updated = 0
             to_append = []
+            to_update = []   # {"range": "A<row>", "values": [[...]]} per baris yg sudah ada -- lihat di bawah
             for r in records:
                 key_val = str(r.get(key_col, "") or "").strip()
                 row_vals = [("" if r.get(c) is None else str(r.get(c))) for c in cols]
                 row_num = existing_row.get(key_val) if key_val else None
                 if row_num:
-                    ws.update(values=[row_vals], range_name=f"A{row_num}")
+                    to_update.append({"range": f"A{row_num}", "values": [row_vals]})
                     updated += 1
                 else:
                     to_append.append(row_vals)
+            if to_update:
+                # SATU permintaan utk SEMUA baris yg diperbarui (ws.batch_update), bukan satu ws.update per
+                # baris -- krn "Kirim semua tervalidasi"/"Kirim ulang semua" (admin.py, tombol super_admin)
+                # bisa mencakup ratusan/ribuan baris sekaligus; ws.update per baris di situ akan kena limit
+                # kuota tulis Google Sheets API (bbrp lusin per menit) & bisa makan waktu berjam-jam/gagal
+                # di tengah jalan. batch_update menyelesaikannya dlm 1 permintaan API apa pun jumlah barisnya.
+                ws.batch_update(to_update, value_input_option="USER_ENTERED")
             if to_append:
                 ws.append_rows(to_append, value_input_option="USER_ENTERED")
             return {"updated": updated, "appended": len(to_append)}

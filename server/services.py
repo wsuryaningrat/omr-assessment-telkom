@@ -153,6 +153,56 @@ def sync_session_now(db, s: ScanSession) -> dict:
     return {"ok": True, "updated": res["updated"], "appended": res["appended"]}
 
 
+def sync_sessions_bulk(db, sessions: list) -> dict:
+    """Kirim/kirim-ulang BANYAK sesi sekaligus DALAM SATU permintaan Google Sheets (upsert per NPM) --
+    dipakai tombol super_admin "Kirim semua tervalidasi" & "Kirim ulang semua" di tab Summary. Beda dari
+    memanggil sync_session_now() satu-satu dlm loop: records dari SEMUA sesi digabung jadi SATU panggilan
+    client.upsert_records (lihat jg sheets.GSheetsClient.upsert_records yg kini pakai ws.batch_update utk
+    baris yg diperbarui, bukan satu ws.update per baris) -- penting krn ini bisa mencakup ratusan/ribuan
+    baris sekaligus; tanpa ini kena limit kuota tulis API & bisa gagal/sangat lambat di tengah jalan.
+    Batch gagal -> jatuh ke per-sesi spy satu sesi bermasalah tak menahan sisanya (sama pola dgn
+    sync_pending_once/sync_session_now)."""
+    client = sheets.get_client()
+    if client is None:
+        return {"configured": False, "terkirim": 0, "gagal": 0, "errors": []}
+    if not sessions:
+        return {"configured": True, "terkirim": 0, "gagal": 0, "errors": []}
+    ok_ids = set()
+
+    def _ship(group):
+        recs = [dict(sh.record) for s in group for sh in s.sheets]
+        client.upsert_records(recs, key_col="NPM")
+        for s in group:
+            s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
+            clear_scan_cache_for_session(s)
+            ok_ids.add(s.id)
+
+    def _fail(s, e):
+        s.sync_attempts = (s.sync_attempts or 0) + 1
+        s.sync_error = f"{type(e).__name__}: {e}"[:500]
+        s.sync_next = _now() + _backoff(s.sync_attempts)
+
+    errors = []
+    try:
+        _ship(sessions)
+    except Exception as e:  # noqa: BLE001
+        if len(sessions) == 1:
+            _fail(sessions[0], e)
+            errors.append({"kelas": sessions[0].kelas, "error": sessions[0].sync_error})
+        else:
+            for s in sessions:
+                try:
+                    _ship([s])
+                except Exception as e2:  # noqa: BLE001
+                    _fail(s, e2)
+                    errors.append({"kelas": s.kelas, "error": s.sync_error})
+    db.commit()
+    STATE["sync_last"] = _now().isoformat()
+    if errors:
+        STATE["sync_last_error"] = errors[-1]["error"]
+    return {"configured": True, "terkirim": len(ok_ids), "gagal": len(sessions) - len(ok_ids), "errors": errors[:20]}
+
+
 # --------------------------------------------------------------------------- kunci jawaban
 def upsert_kunci(db, name: str, data: dict, source: str):
     norm = {str(int(q)): str(a).strip() for q, a in data.items()}

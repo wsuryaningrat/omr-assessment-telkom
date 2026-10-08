@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null,
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
@@ -145,6 +145,35 @@ function admin() {
         await this.loadSessions();
       } catch (e) { this.toast(e.message, true); }
       i.syncing = false;
+    },
+    // Dua aksi massal super_admin (tab Summary, kartu Statistik nilai) -- lihat admin.admin_send_all_validated
+    // & admin.admin_resend_all: pelengkap tombol Kirim per-sesi, utk kelas yg nyangkut tervalidasi tapi
+    // belum pernah dikirim satu-satu, atau menyegarkan SEMUA yg sudah terkirim sekaligus stlh koreksi massal.
+    _bulkSendToast(d) {
+      const parts = [`${d.terkirim} sesi terkirim`];
+      if (d.gagal) parts.push(`${d.gagal} gagal`);
+      this.toast(`${d.total} sesi diproses — ${parts.join(", ")}` + (d.gagal ? ` (lihat konsol utk detail)` : ""), !!d.gagal);
+      if (d.errors?.length) console.warn("Gagal kirim:", d.errors);
+    },
+    async sendAllValidated() {
+      if (!confirm('Kirim SEMUA sesi yg sudah divalidasi tapi belum pernah dikirim ke Google Sheet? Sesi yg sudah pernah dikirim tak disentuh (pakai "Kirim ulang semua" utk itu).')) return;
+      this.bulkSendBusy = true;
+      try {
+        const d = await this.json("/api/admin/sessions/send-all-validated", { method: "POST" });
+        this._bulkSendToast(d);
+        await this.loadStats(); await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
+      this.bulkSendBusy = false;
+    },
+    async resendAll() {
+      if (!confirm("Kirim ULANG SEMUA sesi yg sudah pernah dikirim ke Google Sheet (menyegarkan datanya)? Bisa makan waktu kalau jumlahnya banyak.")) return;
+      this.bulkSendBusy = true;
+      try {
+        const d = await this.json("/api/admin/sessions/resend-all", { method: "POST" });
+        this._bulkSendToast(d);
+        await this.loadStats(); await this.loadSessions();
+      } catch (e) { this.toast(e.message, true); }
+      this.bulkSendBusy = false;
     },
     async deleteSession(id) {
       if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;

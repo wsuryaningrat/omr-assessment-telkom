@@ -129,6 +129,11 @@
             </tbody>
           </table></div>
           <p class="mute" style="font-size:12px;margin-top:8px">"Terkirim" = lembar yg sudah divalidasi admin, DIDEDUP per NPM (NPM sama di >1 lembar -- mis. dikoreksi ulang -- cuma yg PALING BARU dihitung, persis spt yg akan tersisa di Google Sheet stlh "Kirim"). Min/maks/rata-rata dihitung HANYA dari lembar terkirim yg bernilai -- lembar gagal terbaca/belum divalidasi tetap dihitung di "Total LJK" tapi tak ikut nilai.</p>
+          <div class="row-act" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+            <button class="btn sm p" @click="sendAllValidated()" :disabled="bulkSendBusy">Kirim semua tervalidasi</button>
+            <button class="btn sm" @click="resendAll()" :disabled="bulkSendBusy">Kirim ulang semua (resync)</button>
+            <span class="mute" style="font-size:12px" x-show="bulkSendBusy">Mengirim ke Google Sheet, mohon tunggu…</span>
+          </div>
         </div>
         </template>
 
