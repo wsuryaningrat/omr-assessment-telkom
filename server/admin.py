@@ -60,29 +60,51 @@ def _nilai_stats(vals: list) -> dict:
 @router.get("/stats", dependencies=[Depends(auth.require_superuser)])
 def admin_stats(db=Depends(get_db)):
     """Statistik sederhana -- super_admin SAJA (lihat Sesi/Akun: nilai per fakultas data sensitif, admin
-    biasa tak perlu lihat). Total LJK masuk (jumlah lembar hasil scan APAPUN statusnya --
-    termasuk yg gagal terbaca/belum dicek admin) VS jumlah yg sudah TERKIRIM (Sheet.validated=True -- lembar
-    yg admin SUDAH tandai valid, lewat tombol centang per-lembar atau "Validasi semua"/"Tandai validated"),
-    & nilai min/maks/rata-rata, overall & per fakultas. Nilai HANYA dihitung dari lembar TERKIRIM (bukan
-    semua lembar spt sebelumnya) supaya agregat nilai & jumlah lembar yg mendasarinya TALLY -- lembar yg
-    belum divalidasi admin tak ikut nilai rata2 krn datanya belum tentu final (msh bisa dikoreksi/discan
-    ulang). `count` di tiap baris = brp dari `terkirim` yg nilainya kebaca angka (biasanya SAMA dgn
-    `terkirim` krn lembar "Gagal" tak bisa divalidasi -- lihat scanner.service.classify_scan_status; beda
-    hanya kalau kunci jawaban blm ada saat lembar itu divalidasi, Nilai-nya masih "-"). Dihitung di Python,
-    bukan operator JSON SQL, supaya jalan sama di SQLite (tes) & Postgres (produksi) sekaligus -- lihat jg
-    diskusi performa di commit ini: aman krn jumlah baris `sheet` di skala aplikasi ini kecil (ribuan,
-    bukan jutaan); kalau nanti perlu dipanggil sangat sering/data membesar, pindah ke kolom `nilai`
-    ternormalisasi + index, bukan query JSON yg dioptimalkan."""
-    rows = db.execute(select(ScanSession.fakultas, Sheet.record, Sheet.validated).select_from(Sheet)
-                       .join(ScanSession, ScanSession.id == Sheet.session_id)).all()
+    biasa tak perlu lihat). Total LJK masuk (jumlah lembar hasil scan APAPUN statusnya -- termasuk yg
+    gagal terbaca/belum dicek admin) VS jumlah yg sudah TERKIRIM, & nilai min/maks/rata-rata, overall &
+    per fakultas.
+
+    "Terkirim" = lembar VALIDATED, DIDEDUP PER NPM (ambil yg PALING BARU, ScanSession.created_at terbesar,
+    kalau NPM yg sama muncul di >1 lembar tervalidasi) -- PERSIS logic upsert_records(key_col="NPM") di
+    services.sync_session_now yg dipakai saat admin menekan "Kirim" ke Google Sheet (NPM sama -> baris yg
+    sama ikut tertimpa, bukan nambah baris baru; satu worksheet rekap utk SEMUA fakultas, jadi dedup NPM
+    dilakukan GLOBAL dulu baru dikelompokkan per fakultas, bukan dedup per-fakultas sendiri2). Tanpa ini,
+    "terkirim" di sini bisa jauh lebih besar drpd jumlah baris yg BENAR2 akan ada di Sheet (lembar
+    duplikat/dikoreksi ulang ikut kehitung berkali-lipat) -- itulah sebab awal laporan: 1905 tervalidasi
+    tapi cuma 1670 baris di Sheet. Nilai HANYA dihitung dari lembar terkirim (stlh dedup) supaya agregat
+    nilai & jumlah lembar yg mendasarinya TALLY -- lembar blm divalidasi admin tak ikut nilai rata2 krn
+    datanya belum tentu final (msh bisa dikoreksi/discan ulang). `count` di tiap baris = brp dari
+    `terkirim` yg nilainya kebaca angka (biasanya SAMA dgn `terkirim` krn lembar "Gagal" tak bisa
+    divalidasi -- lihat scanner.service.classify_scan_status; beda hanya kalau kunci jawaban blm ada saat
+    lembar itu divalidasi, Nilai-nya masih "-"). Dihitung di Python, bukan operator JSON SQL, supaya jalan
+    sama di SQLite (tes) & Postgres (produksi) sekaligus -- lihat jg diskusi performa di commit sebelumnya:
+    aman krn jumlah baris `sheet` di skala aplikasi ini kecil (ribuan, bukan jutaan); kalau nanti perlu
+    dipanggil sangat sering/data membesar, pindah ke kolom `nilai` ternormalisasi + index, bukan query
+    JSON yg dioptimalkan."""
+    rows = db.execute(select(ScanSession.fakultas, ScanSession.created_at, Sheet.record, Sheet.validated)
+                       .select_from(Sheet).join(ScanSession, ScanSession.id == Sheet.session_id)).all()
     counts: dict[str, int] = {}
-    terkirim: dict[str, int] = {}
-    buckets: dict[str, list] = {}
-    for fakultas, record, validated in rows:
+    # Dedup GLOBAL per NPM (lintas fakultas -- satu worksheet rekap, lihat docstring) sblm dikelompokkan
+    # per fakultas: simpan hanya record TERBARU (created_at terbesar) per NPM di antara lembar validated.
+    # Lembar tanpa NPM (semestinya tak terjadi pada lembar yg sudah divalidasi, tp dijaga) diberi kunci
+    # unik sendiri2 supaya tak saling menimpa satu sama lain.
+    latest_by_npm: dict[str, tuple] = {}
+    no_npm_seq = 0
+    for fakultas, created_at, record, validated in rows:
         key = (fakultas or "").strip() or "(tanpa fakultas)"
         counts[key] = counts.get(key, 0) + 1
         if not validated:
             continue
+        npm = str((record or {}).get("NPM") or "").strip()
+        if not npm:
+            no_npm_seq += 1
+            npm = f"__no_npm_{no_npm_seq}"
+        prev = latest_by_npm.get(npm)
+        if prev is None or (created_at or dt.datetime.min) >= prev[0]:
+            latest_by_npm[npm] = (created_at or dt.datetime.min, key, record)
+    terkirim: dict[str, int] = {}
+    buckets: dict[str, list] = {}
+    for _, key, record in latest_by_npm.values():
         terkirim[key] = terkirim.get(key, 0) + 1
         try:
             nilai = float(str((record or {}).get("Nilai", "")).strip())
