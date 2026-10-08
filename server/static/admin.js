@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50],
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
@@ -58,7 +58,7 @@ function admin() {
       clearInterval(this._poll); this.authed = false; this.token = ""; try { sessionStorage.removeItem("adm_tok"); } catch {}
       if (this.me.authed) { try { await fetch("/auth/logout", { method: "POST" }); } catch {} this.me.authed = false; }
     },
-    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") this.loadMonitor(); }, 30000); },
+    startPoll() { clearInterval(this._poll); this._poll = setInterval(() => { if (!this.authed) return; if (this.tab === "sesi") this.loadSessions(); }, 5000); clearInterval(this._monPoll); this._monPoll = setInterval(() => { if (this.authed && this.tab === "monitoring") { this.loadMonitor(); this.loadStats(); } }, 30000); },
     async loadMonitor(refresh = false) {
       this.monBusy = true;
       try {
@@ -70,6 +70,11 @@ function admin() {
         }
       } catch (e) { this.toast(e.message, true); }
       this.monBusy = false;
+    },
+    // Statistik "LJK masuk" & nilai min/maks/rata-rata (overall & per fakultas) di atas tab Summary --
+    // dimuat bareng loadMonitor() (lihat go() & tombol "Muat ulang"), opsional (jangan ganggu tab kalau gagal).
+    async loadStats() {
+      try { this.stats = await this.json("/api/admin/stats"); } catch { /* opsional */ }
     },
     get monDayData() { return (this.mon?.days || []).find(x => x.hari === this.monDay) || null; },
     get monSlots() {
@@ -94,7 +99,7 @@ function admin() {
     // Ringkas nama pengawas jadi 2 kata pertama di tabel Sesi (nama lengkap tetap ada di title/tooltip)
     // -- nama panjang (mis. gelar dosen) bikin baris melebar & bikin kolom lain tak sejajar.
     shortName(nama) { return (nama || "").trim().split(/\s+/).slice(0, 2).join(" "); },
-    async go(t) { if (t === "akun" && !this.superuser) return; this.tab = t; if (t === "monitoring") await this.loadMonitor(); if (t === "sesi") await this.loadSessions(); if (t === "akun") await this.loadUsers(); },
+    async go(t) { if (t === "akun" && !this.superuser) return; this.tab = t; if (t === "monitoring") { await this.loadMonitor(); await this.loadStats(); } if (t === "sesi") await this.loadSessions(); if (t === "akun") await this.loadUsers(); },
     async goToSesi(kelas) { this.tab = "sesi"; this.ses.status = "all"; this.ses.q = kelas || ""; this.ses.page = 1; await this.loadSessions(); },
     async loadSummary() { try { this.sum = await this.json("/api/admin/summary"); } catch {} },
     async loadSessions() {

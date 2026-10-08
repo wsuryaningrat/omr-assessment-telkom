@@ -80,7 +80,7 @@
           </div>
           <div class="row-act" style="margin:0">
             <a class="btn sm" :href="mon.plot_url" target="_blank" rel="noopener" style="text-decoration:none">Excel plotting pengawas ↗</a>
-            <button class="btn sm" @click="loadMonitor(true)" :disabled="monBusy" x-text="monBusy ? 'Memuat…' : 'Muat ulang'"></button>
+            <button class="btn sm" @click="loadMonitor(true); loadStats()" :disabled="monBusy" x-text="monBusy ? 'Memuat…' : 'Muat ulang'"></button>
           </div>
         </div>
         <div class="fail" x-show="mon.plotting_error" style="margin-bottom:10px">Jadwal plotting memakai data tersimpan karena gagal mengambil yang terbaru (<span x-text="mon.plotting_error"></span>). Pastikan spreadsheet masih dibagikan &ldquo;siapa saja dengan tautan&rdquo;.</div>
@@ -99,6 +99,33 @@
             <div class="mon-leg"><span><i class="d ok"></i>Selesai <b x-text="mon.overall.selesai"></b></span><span><i class="d run"></i>Checking <b x-text="mon.overall.berjalan"></b></span></div>
           </div>
         </div>
+
+        <template x-if="stats">
+        <div class="card" style="margin-top:14px">
+          <h2 style="margin:0 0 10px">Statistik nilai</h2>
+          <div class="stats">
+            <div class="stat"><small>Total LJK masuk</small><b x-text="stats.overall.total_ljk"></b></div>
+            <div class="stat"><small>Nilai min</small><b x-text="stats.overall.min ?? '-'"></b></div>
+            <div class="stat"><small>Nilai maks</small><b x-text="stats.overall.max ?? '-'"></b></div>
+            <div class="stat"><small>Nilai rata-rata</small><b x-text="stats.overall.avg ?? '-'"></b></div>
+          </div>
+          <div class="tbl" style="margin-top:14px"><table>
+            <thead><tr><th>Fakultas</th><th class="c" style="width:auto">Total LJK</th><th class="c" style="width:auto">Min</th><th class="c" style="width:auto">Maks</th><th class="c" style="width:auto">Rata-rata</th></tr></thead>
+            <tbody>
+              <template x-for="f in stats.per_fakultas" :key="f.fakultas">
+                <tr>
+                  <td x-text="f.fakultas"></td>
+                  <td class="c mono" style="width:auto" x-text="f.total_ljk"></td>
+                  <td class="c mono" style="width:auto" x-text="f.min ?? '-'"></td>
+                  <td class="c mono" style="width:auto" x-text="f.max ?? '-'"></td>
+                  <td class="c mono" style="width:auto" x-text="f.avg ?? '-'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table></div>
+          <p class="mute" style="font-size:12px;margin-top:8px">Min/maks/rata-rata dihitung dari lembar yg sudah ternilai saja -- lembar gagal terbaca/belum ternilai tetap dihitung di "Total LJK".</p>
+        </div>
+        </template>
 
         <div class="mon-days" role="tablist" aria-label="Pilih hari">
           <template x-for="d in mon.days" :key="d.hari">
