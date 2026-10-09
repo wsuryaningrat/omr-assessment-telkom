@@ -27,7 +27,13 @@ function ljk() {
 
     async init() {
       try { this.meta = await (await fetch("/api/meta")).json(); } catch { this.online = false; this.toast("Server tidak terjangkau", true); }
-      try { this.sid = localStorage.getItem("ljk_sid"); } catch {}
+      // sessionStorage (BUKAN localStorage) SENGAJA: localStorage dibagi antar SEMUA tab origin yg sama,
+      // jadi kalau pengawas buka 2 tab /ljk utk 2 kelas berbeda hampir bersamaan, tab yg belakangan akan
+      // membaca sid milik tab lain & diam-diam melanjutkan sesi (kelas) yg SALAH -- foto kelas kedua ikut
+      // nyasar ke sesi kelas pertama (gejala: "Lembar" tabel Sesi benar tapi Detail sesi lebih banyak dari
+      // seharusnya, kelas lain malah kurang). sessionStorage scope-nya PER TAB -- reload di tab yg sama
+      // tetap resume sesi spt biasa, tapi tab baru SELALU mulai bersih, tak pernah mewarisi sid tab lain.
+      try { this.sid = sessionStorage.getItem("ljk_sid"); } catch {}
       if (this.sid) { await this.refresh(true); this.loadForm(); }
       this.ready = true;
     },
@@ -134,7 +140,7 @@ function ljk() {
         if (!this.session?.scanning) { clearInterval(this._poll); this._poll = null; }
       }, 1000);
     },
-    forget() { try { localStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
+    forget() { try { sessionStorage.removeItem("ljk_sid"); } catch {} this.sid = null; this.session = null; },
     resetAll() {
       if (this.session && !this.session.submitted && this.session.files.total && !confirm("Mulai evaluasi baru? Data yang belum disubmit akan ditinggalkan.")) return;
       clearInterval(this._poll); this._poll = null; this.forget(); this.clearStaged(); this.up = { done: 0, total: 0 };
@@ -214,7 +220,7 @@ function ljk() {
           const body = this._replaceExisting ? JSON.stringify({ ...JSON.parse(this.identityBody()), replace_existing: true }) : this.identityBody();
           const r = await this.api("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body });
           this._replaceExisting = false;
-          this.sid = r.id; this.baseline = JSON.stringify(this.form); try { localStorage.setItem("ljk_sid", this.sid); } catch {}
+          this.sid = r.id; this.baseline = JSON.stringify(this.form); try { sessionStorage.setItem("ljk_sid", this.sid); } catch {}
           await this.refresh();
           if (r.diganti) this.toast(`Sesi upload lama kelas ini (${r.diganti}) sudah ditimpa`);
         } catch (e) { this.toast(e.message, true); return; }
