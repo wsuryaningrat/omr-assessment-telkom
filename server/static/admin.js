@@ -364,6 +364,29 @@ function admin() {
       const dup = !!npm && this.detailDupNpms.has(npm);
       return { npm, kuiFilled, kuiTotal: kui.length, soalFilled, soalTotal: soal.length, warn: warn || dup, npmWarn, kuiWarn, dup };
     },
+    // Kode Soal/Fakultas (LJK) tak seragam ATAU tak valid (bukan 3 digit / kosong) di antara lembar sesi
+    // ini -- peringatan DI POPUP (bukan cuma nolak pas tombol "Tandai validated" diklik, lihat
+    // admin.admin_validate_session yg menolak persis kombinasi yg sama) spy admin lihat masalahnya lebih
+    // dulu sebelum sempat mencoba validasi. Lembar "Gagal" dikecualikan (sama spt endpoint: itu tak ikut
+    // divalidasi sama sekali, jadi isi kode soal/fakultasnya tak relevan dicek di sini).
+    get detailKodeFakWarn() {
+      const items = (this.detail?.items || []).filter(x => x.label !== "Gagal");
+      const kodeSet = new Set(), fakSet = new Set();
+      let badKode = 0, badFak = 0;
+      for (const it of items) {
+        const rec = it.record || {};
+        const kode = (rec["Kode Soal"] || "").toString().trim();
+        const fak = (rec["Fakultas (LJK)"] || "").toString().trim();
+        if (!/^\d{3}$/.test(kode)) badKode++; else kodeSet.add(kode);
+        if (!fak) badFak++; else fakSet.add(fak);
+      }
+      const problems = [];
+      if (badKode) problems.push(`${badKode} lembar kode soal bukan 3 digit`);
+      if (badFak) problems.push(`${badFak} lembar fakultas kosong`);
+      if (kodeSet.size > 1) problems.push(`kode soal tidak seragam (${[...kodeSet].sort().join(", ")})`);
+      if (fakSet.size > 1) problems.push(`fakultas tidak seragam (${[...fakSet].sort().join(", ")})`);
+      return problems;
+    },
     closeDetail() { this.flushAutoSave(); this._setPreview(""); this.detail = null; },
     _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
     // Zoom/geser foto di kolom preview Detail sesi -- scroll utk zoom, seret utk geser saat diperbesar,

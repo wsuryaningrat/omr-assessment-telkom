@@ -342,6 +342,10 @@
           ⚠ <b x-text="detailDupNpms.size"></b> NIM terdeteksi duplikat (muncul di lebih dari satu lembar) — ditandai merah di daftar kiri. Periksa, mungkin salah baca OCR atau lembar yang benar-benar terduplikasi.
         </div>
 
+        <div class="fail" x-show="detail && !detail.loading && detailKodeFakWarn.length" style="flex:0 0 auto">
+          ⚠ Kode soal/fakultas bermasalah: <span x-text="detailKodeFakWarn.join('; ')"></span>. Perbaiki dulu lewat kolom edit di kanan (atau "Terapkan ke SEMUA lembar" di atas) — sesi tidak bisa ditandai validated sebelum ini beres.
+        </div>
+
         <div class="card" x-show="detail && !detail.loading && (detail?.orphans||[]).length" style="margin:0 0 10px;background:var(--bad-bg);border-color:var(--bad-line);flex:0 1 auto;max-height:220px;display:flex;flex-direction:column;overflow:hidden">
           <b style="color:var(--bad);flex:0 0 auto">⚠ <span x-text="(detail?.orphans||[]).length"></span> berkas tercatat "selesai" tapi tak menghasilkan lembar sama sekali</b>
           <p class="sub" style="margin:4px 0 10px;flex:0 0 auto">Foto sudah diterima & tersimpan aman, tapi pemindaiannya terputus (mis. server sempat di-restart di tengah proses) sehingga tak pernah jadi data. Klik untuk memindai ulang -- foto asli tak perlu diunggah lagi.</p>
@@ -460,7 +464,7 @@
                     <p class="mute" style="font-size:11px;margin-top:4px" x-show="detail.selectedItem?.fakultas_ljk && !fakultasOptions.includes(detail.selectedItem?.fakultas_ljk)">Hasil baca asli: <b x-text="detail.selectedItem?.fakultas_ljk"></b> (tak dikenal -- pilih yg benar di atas)</p>
                   </div>
                 </div>
-                <label class="f" style="margin-top:12px;display:block" x-show="detail.kuisionerNums.length">Kuisioner (<span x-text="detail.kuisionerNums.length"></span> soal)</label>
+                <label class="f" style="margin-top:6px;display:block" x-show="detail.kuisionerNums.length">Kuisioner (<span x-text="detail.kuisionerNums.length"></span> soal)</label>
                 <div class="ansgrid" x-show="detail.kuisionerNums.length">
                   <template x-for="q in detail.kuisionerNums" :key="'kui-'+q">
                     <label class="anscell" :class="{filled: editForm.kuisioner[q] && editForm.kuisioner[q]!=='BLANK'}">
@@ -469,7 +473,7 @@
                     </label>
                   </template>
                 </div>
-                <label class="f" style="margin-top:12px;display:block">Jawaban (<span x-text="detail.questionNums.length"></span> soal)</label>
+                <label class="f" style="margin-top:6px;display:block">Jawaban (<span x-text="detail.questionNums.length"></span> soal)</label>
                 <div class="ansgrid">
                   <template x-for="q in detail.questionNums" :key="'soal-'+q">
                     <label class="anscell" :class="{filled: editForm.jawaban[q] && editForm.jawaban[q]!=='BLANK'}">
