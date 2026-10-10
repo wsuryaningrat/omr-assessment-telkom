@@ -288,7 +288,7 @@ def _sort_rows(rows, key, asc):
     apa pun arahnya, supaya tak menutupi data nyata di puncak daftar."""
     def val(r):
         if key == "lembar":
-            return r["files"]["total"]
+            return r["lembar"]
         if key == "status":
             return _STATUS_ORDER.get(r["status"], 9)
         v = r.get(key)

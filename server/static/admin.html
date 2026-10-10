@@ -248,7 +248,7 @@
                   <div class="nm" :title="i.nama" x-text="shortName(i.nama)"></div>
                 </div></td>
                 <td :class="{copyable: i.kelas}" :title="i.kelas ? 'Klik utk salin: '+i.kelas : ''" @click="copyKelas(i.kelas)" x-text="i.kelas||'-'"></td>
-                <td class="c" style="width:auto" :title="i.validated+' tervalidasi dari '+i.lembar+' lembar hasil scan'" x-text="i.files.total"></td>
+                <td class="c" style="width:auto" :title="i.validated+' tervalidasi dari '+i.lembar+' lembar hasil scan ('+i.files.total+' foto diunggah)'" x-text="i.lembar"></td>
                 <td class="c" style="width:auto" x-text="i.jml_mhs ?? '-'"></td>
                 <td><span class="chip" :class="sesStatusChip(i.status)" x-text="sesStatusLabel(i.status)"></span>
                   <span class="chip warning" x-show="i.files.orphans" :title="i.files.orphans+' berkas hilang senyap'" x-text="i.files.orphans"></span>
