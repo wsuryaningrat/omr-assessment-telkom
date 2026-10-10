@@ -75,6 +75,8 @@ def decode_survey(
             val = eval_res["value"]
             status = eval_res["status"]
             conf = eval_res["confidence"]
+            if status == "MULTIPLE":
+                val = ""
 
             answers[q_key] = val
             details[q_key] = {

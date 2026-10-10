@@ -133,13 +133,13 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
     # antrean pemindaian beres (1 foto = 1 UploadFile, tapi bisa jadi >1 Sheet kalau PDF multi-halaman,
     # atau 0 Sheet kalau masih diproses/gagal -- jadi dua angka ini memang bisa beda).
     q = (select(ScanSession.id, ScanSession.kelas, ScanSession.submitted, ScanSession.admin_validated, ScanSession.submitted_at, ScanSession.created_at,
-                ScanSession.nama_pengawas, func.count(UploadFile.id))
+                ScanSession.nama_pengawas, ScanSession.hp, func.count(UploadFile.id))
          .outerjoin(UploadFile, UploadFile.session_id == ScanSession.id).where(*cond).group_by(ScanSession.id))
     by_kelas = {}
-    for sid, kelas, sub, adm_val, sub_at, cr_at, nama, n_files in db.execute(q):
+    for sid, kelas, sub, adm_val, sub_at, cr_at, nama, hp, n_files in db.execute(q):
         by_kelas.setdefault((kelas or "").strip().lower(), []).append(
             {"id": sid, "kelas": kelas, "submitted": bool(sub), "admin_validated": bool(adm_val), "submitted_at": sub_at, "created_at": cr_at,
-             "pengawas": nama, "lembar": int(n_files or 0)})
+             "pengawas": nama, "hp": hp, "lembar": int(n_files or 0)})
 
     days, seen = {}, set()
     for r in slots_src:
@@ -153,11 +153,11 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
         if done:
             status, lembar = "selesai", sum(x["lembar"] for x in done)
             at = max((x["submitted_at"] for x in done if x["submitted_at"]), default=None)
-            oleh = done[-1]["pengawas"]
+            oleh, oleh_hp = done[-1]["pengawas"], done[-1]["hp"]
         elif openx:
-            status, lembar, at, oleh = "berjalan", sum(x["lembar"] for x in openx), None, openx[-1]["pengawas"]
+            status, lembar, at, oleh, oleh_hp = "berjalan", sum(x["lembar"] for x in openx), None, openx[-1]["pengawas"], openx[-1]["hp"]
         else:
-            status, lembar, at, oleh = "belum", 0, None, ""
+            status, lembar, at, oleh, oleh_hp = "belum", 0, None, "", ""
         # Jam upload terakhir (kapan sesi utk kelas ini mulai diunggah) -- dipakai FE sbg ganti kolom nama
         # pengawas di tabel Monitoring (upload_file tak punya kolom waktu per-berkas, jadi dipakai created_at
         # sesi yg paling baru sbg perkiraan terdekat).
@@ -165,7 +165,7 @@ def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
         d = days.setdefault(r["hari"], {"hari": r["hari"], "slots": []})
         d["slots"].append({**r, "status": status, "lembar": lembar, "submitted_at": at.isoformat() if at else None,
                            "upload_at": upload_at.isoformat() if upload_at else None,
-                           "oleh": oleh, "beda_pengawas": bool(oleh) and oleh.strip().lower() != r["pengawas"].strip().lower()})
+                           "oleh": oleh, "oleh_hp": oleh_hp or "", "beda_pengawas": bool(oleh) and oleh.strip().lower() != r["pengawas"].strip().lower()})
 
     out_days = []
     for name in sorted(days, key=lambda h: plotting.HARI.index(h) if h in plotting.HARI else 99):
