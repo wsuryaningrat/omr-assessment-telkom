@@ -78,7 +78,22 @@ function admin() {
       if (!this.superuser) return;
       try { this.stats = await this.json("/api/admin/stats"); } catch { /* opsional */ }
     },
-    get monDayData() { return (this.mon?.days || []).find(x => x.hari === this.monDay) || null; },
+    // Tab "Semua Hari" gabung slot dari SELURUH hari jadi satu daftar (tiap slot dibawa serta field "hari"
+    // asalnya, dipakai kolom Hari di tabel) -- totals-nya pun dijumlah lintas hari, dipakai jg utk badge
+    // progres di tab "Semua Hari" sendiri (lihat monAllTotals).
+    get monAllTotals() {
+      const days = this.mon?.days || [];
+      return days.reduce((a, d) => ({ total: a.total + d.total, selesai: a.selesai + d.selesai, berjalan: a.berjalan + d.berjalan, belum: a.belum + d.belum }), { total: 0, selesai: 0, berjalan: 0, belum: 0 });
+    },
+    get monDayData() {
+      if (this.monDay === "__ALL__") {
+        const days = this.mon?.days || []; if (!days.length) return null;
+        const t = this.monAllTotals;
+        return { hari: "Semua Hari", total: t.total, selesai: t.selesai, berjalan: t.berjalan, belum: t.belum,
+                 slots: days.flatMap(d => d.slots.map(x => ({ ...x, hari: d.hari }))) };
+      }
+      return (this.mon?.days || []).find(x => x.hari === this.monDay) || null;
+    },
     get monSlots() {
       const d = this.monDayData; if (!d) return [];
       const q = this.monQ.trim().toLowerCase();

@@ -138,6 +138,12 @@
         </template>
 
         <div class="mon-days" role="tablist" aria-label="Pilih hari">
+          <button class="mon-day" :class="{on: monDay === '__ALL__'}" @click="monDay='__ALL__'; monFilter='all'; monPage=1" role="tab" :aria-selected="monDay === '__ALL__'">
+            <span class="hn"><span>Semua Hari</span></span>
+            <b x-text="pct(monAllTotals.selesai, monAllTotals.total) + '%'"></b>
+            <span class="mon-bar sm"><i class="ok" :style="'width:' + pct(monAllTotals.selesai, monAllTotals.total) + '%'"></i><i class="run" :style="'width:' + pct(monAllTotals.berjalan, monAllTotals.total) + '%'"></i></span>
+            <small x-text="monAllTotals.selesai + '/' + monAllTotals.total + ' kelas'"></small>
+          </button>
           <template x-for="d in mon.days" :key="d.hari">
             <button class="mon-day" :class="{on: monDay === d.hari, done: d.selesai === d.total && d.total > 0}" @click="monDay = d.hari; monFilter = 'all'; monPage = 1" role="tab" :aria-selected="monDay === d.hari">
               <span class="hn"><span x-text="d.hari"></span><em x-show="d.hari === mon.hari_ini">Hari ini</em></span>
@@ -161,10 +167,11 @@
             <button class="ok" :class="{on: monFilter==='selesai'}" @click="monFilter='selesai'; monPage=1">Selesai <b x-text="monDayData.selesai"></b></button>
           </div>
           <div class="tbl"><table>
-            <thead><tr><th>Kelas</th><th>Pengawas</th><th>Upload at</th><th style="min-width:130px">Lembar</th><th>Status</th></tr></thead>
+            <thead><tr><th x-show="monDay === '__ALL__'">Hari</th><th>Kelas</th><th>Pengawas</th><th>Upload at</th><th style="min-width:130px">Lembar</th><th>Status</th></tr></thead>
             <tbody>
-              <template x-for="x in monSlotsPaged" :key="x.no + x.kelas">
+              <template x-for="x in monSlotsPaged" :key="x.hari + x.no + x.kelas">
                 <tr @click="goToSesi(x.kelas)" title="Lihat sesi kelas ini">
+                  <td class="mono" x-show="monDay === '__ALL__'" x-text="x.hari"></td>
                   <td><div class="nm mono" x-text="x.kelas"></div><div class="fl" x-text="x.prodi"></div></td>
                   <td><div style="display:flex;align-items:center;gap:6px">
                     <a x-show="x.oleh_hp" class="walink" style="margin-top:0" :href="'https://wa.me/'+x.oleh_hp.replace(/\D/g,'')" target="_blank" rel="noopener" title="Chat WhatsApp pengawas" @click.stop>
