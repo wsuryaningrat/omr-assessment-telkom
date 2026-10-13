@@ -123,15 +123,74 @@ class GSheetsClient:
         mahasiswa lain di KELAS BERBEDA), baris kelas lain itu bisa KETIMPA tanpa sadar. Key komposit
         Kelas+NPM di tab 'validated' ini membuat tabrakan itu mustahil: beda kelas = beda baris, apa pun
         NPM-nya. Kolom komposit itu sendiri ikut ditulis apa adanya (field "Kelas_NPM") spy gampang
-        ditelusuri manual di Sheet-nya."""
+        ditelusuri manual di Sheet-nya.
+
+        SELAIN upsert, utk tiap KELAS yg muncul di `records`, baris LAMA di tab ini yg kelasnya sama tapi
+        NPM-nya TAK ADA lagi di `records` kali ini ikut DIHAPUS (bukan cuma dibiarkan nyangkut) -- krn NPM
+        bisa berubah (admin koreksi NIM/NPM yg salah input pengawas/mahasiswa lewat edit lembar), jadi baris
+        lama dgn NPM yg sudah tak berlaku utk kelas itu harus ikut hilang, bukan nambah jadi baris "hantu"
+        yg tetap keitung di rekap. Cakupan hapusnya SENGAJA dibatasi per kelas yg benar2 ada di `records`
+        (bukan seisi tab) -- jadi kelas lain yg kebetulan tak ikut disinkron kali ini tak tersentuh sama
+        sekali. `records` yg dioper ke sini HARUS daftar LENGKAP lembar suatu sesi/kelas (bukan sebagian),
+        krn yg tak disertakan dianggap "sudah tak berlaku lagi" -- semua pemanggil di services.py sudah
+        begitu (s.sheets = seluruh lembar sesi itu)."""
         ws_name = ws_name or config.GSHEET_VALIDATED_WORKSHEET
+        kelas_col = key_cols[0]
         key_col = "_".join(key_cols)
+        if not records:
+            return {"updated": 0, "appended": 0, "deleted": 0}
         tagged = []
         for r in records:
             r2 = dict(r)
             r2[key_col] = "_".join(str(r.get(c, "") or "").strip() for c in key_cols)
             tagged.append(r2)
-        return self.upsert_records(tagged, key_col=key_col, ws_name=ws_name)
+        with self._lock:
+            sh = self._spreadsheet()
+            ws, cols = self._worksheet_and_columns(sh, tagged, ws_name)
+            kelas_idx = cols.index(kelas_col) if kelas_col in cols else None
+            key_idx = cols.index(key_col)
+            existing_row = {}          # key komposit -> nomor baris
+            existing_by_kelas = {}     # nilai Kelas -> {key komposit -> nomor baris}, dipakai cari baris usang
+            for i, row in enumerate(ws.get_all_values()[1:], start=2):
+                key_val = row[key_idx] if len(row) > key_idx else ""
+                kelas_val = row[kelas_idx] if kelas_idx is not None and len(row) > kelas_idx else ""
+                if key_val:
+                    existing_row.setdefault(key_val, i)
+                if kelas_val and key_val:
+                    existing_by_kelas.setdefault(kelas_val, {})[key_val] = i
+
+            keys_now_by_kelas = {}   # Kelas -> set key komposit yg ADA di `records` kali ini
+            for r in tagged:
+                kv = str(r.get(kelas_col, "") or "").strip()
+                keys_now_by_kelas.setdefault(kv, set()).add(r[key_col])
+
+            updated = 0
+            to_update, to_append = [], []
+            for r in tagged:
+                key_val = r[key_col]
+                row_vals = [("" if r.get(c) is None else str(r.get(c))) for c in cols]
+                row_num = existing_row.get(key_val) if key_val else None
+                if row_num:
+                    to_update.append({"range": f"A{row_num}", "values": [row_vals]})
+                    updated += 1
+                else:
+                    to_append.append(row_vals)
+
+            stale_rows = sorted(
+                (row_num for kelas_val, wanted in keys_now_by_kelas.items()
+                 for k, row_num in existing_by_kelas.get(kelas_val, {}).items() if k not in wanted),
+                reverse=True)   # urutan MENURUN wajib -- hapus dari bawah dulu spy nomor baris yg BELUM
+                                 # dihapus (lbh kecil) tetap valid stlh tiap panggilan delete
+
+            if to_update:
+                ws.batch_update(to_update, value_input_option="USER_ENTERED")
+            if stale_rows:
+                requests = [{"deleteDimension": {"range": {"sheetId": ws.id, "dimension": "ROWS",
+                             "startIndex": rn - 1, "endIndex": rn}}} for rn in stale_rows]
+                sh.batch_update({"requests": requests})
+            if to_append:
+                ws.append_rows(to_append, value_input_option="USER_ENTERED")
+            return {"updated": updated, "appended": len(to_append), "deleted": len(stale_rows)}
 
     def find_duplicates(self, key_col="NPM"):
         """Baca tab rekap APA ADANYA & kelompokkan nomor baris per nilai `key_col` -- dipakai utk diagnosa
