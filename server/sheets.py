@@ -112,6 +112,34 @@ class GSheetsClient:
                 ws.append_rows(to_append, value_input_option="USER_ENTERED")
             return {"updated": updated, "appended": len(to_append)}
 
+    def find_duplicates(self, key_col="NPM"):
+        """Baca tab rekap APA ADANYA & kelompokkan nomor baris per nilai `key_col` -- dipakai utk diagnosa
+        'kenapa jumlah baris di Sheet > jumlah terkirim di dashboard' (lihat admin.admin_sheet_duplicates):
+        auto-sync berkala (append_records) cuma dedup per SESI, bukan lintas sesi, jadi NPM yg sama muncul
+        di >1 ScanSession (mis. diunggah ulang sbg sesi/kelas baru) bisa numpuk jadi >1 baris di Sheet yg
+        tak pernah ketahuan krn upsert_records cuma dipakai di jalur "Kirim" manual. Hanya baca, tak ubah apa pun."""
+        sh = self._spreadsheet()
+        try:
+            ws = sh.worksheet(self.worksheet)
+        except Exception:
+            return {"total_rows": 0, "duplicates": []}
+        values = ws.get_all_values()
+        if not values:
+            return {"total_rows": 0, "duplicates": []}
+        header = values[0]
+        if key_col not in header:
+            return {"total_rows": len(values) - 1, "duplicates": [], "error": f"Kolom '{key_col}' tak ditemukan di header"}
+        key_idx = header.index(key_col)
+        rows_by_key = {}
+        for i, row in enumerate(values[1:], start=2):
+            key_val = (row[key_idx] if len(row) > key_idx else "").strip()
+            if key_val:
+                rows_by_key.setdefault(key_val, []).append(i)
+        dupes = [{"npm": k, "count": len(v), "rows": v} for k, v in rows_by_key.items() if len(v) > 1]
+        dupes.sort(key=lambda d: -d["count"])
+        return {"total_rows": len(values) - 1, "unique_keys": len(rows_by_key),
+                "duplicates": dupes, "duplicate_extra_rows": sum(d["count"] - 1 for d in dupes)}
+
     def fetch_kunci(self):
         """Ambil semua tab kunci jawaban: {nama_tab: {nomor: jawaban}}."""
         from core.evaluator import parse_kunci_jawaban_raw_rows

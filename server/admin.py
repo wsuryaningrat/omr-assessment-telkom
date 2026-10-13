@@ -1116,6 +1116,24 @@ def export_status_xlsx(db=Depends(get_db)):
                     headers={"Content-Disposition": "attachment; filename=status_kelas.xlsx"})
 
 
+@router.get("/sheet-duplicates", dependencies=[Depends(auth.require_superuser)])
+def admin_sheet_duplicates():
+    """Diagnosa 'kenapa jumlah baris di Google Sheet > jumlah Terkirim di dashboard' (lihat /stats) --
+    cek LANGSUNG ke Sheet (bukan DB) berapa NPM yg punya >1 baris. Dashboard sengaja dedup per NPM (ambil
+    yg paling baru), sementara auto-sync berkala (append_records) cuma dedup per SESI -- kalau NPM yg sama
+    pernah masuk ke >1 ScanSession (mis. diunggah ulang sbg sesi/kelas baru, bukan dikoreksi di sesi yg
+    sama), tiap sesi itu nambah baris sendiri2 ke Sheet yg tak pernah kesatuin krn upsert_records (yg
+    nyatuin by-NPM) cuma jalan di tombol 'Kirim' manual, bukan di jalur auto-sync. Read-only, tak ubah
+    apa pun di Sheet -- super_admin saja krn butuh baca seluruh tab rekap (bisa ribuan baris)."""
+    client = sheets.get_client()
+    if client is None:
+        raise HTTPException(409, "Google Sheet belum dikonfigurasi")
+    try:
+        return client.find_duplicates(key_col="NPM")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Gagal membaca Google Sheet: {type(e).__name__}: {e}")
+
+
 # ---------------------------------------------------------------- kalibrasi template
 def _calib_template():
     tpl = load_default_template()

@@ -132,8 +132,36 @@
           <div class="row-act" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
             <button class="btn sm p" @click="sendAllValidated()" :disabled="bulkSendBusy">Kirim semua tervalidasi</button>
             <button class="btn sm" @click="resendAll()" :disabled="bulkSendBusy">Kirim ulang semua (resync)</button>
+            <button class="btn sm" @click="checkSheetDuplicates()" :disabled="dupBusy">Cek duplikat NPM di Sheet</button>
             <span class="mute" style="font-size:12px" x-show="bulkSendBusy">Mengirim ke Google Sheet, mohon tunggu…</span>
+            <span class="mute" style="font-size:12px" x-show="dupBusy">Membaca Google Sheet, mohon tunggu…</span>
           </div>
+          <template x-if="dupResult && !dupBusy">
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+            <template x-if="dupResult.error_msg">
+              <p class="fail" style="margin:0" x-text="dupResult.error_msg"></p>
+            </template>
+            <template x-if="!dupResult.error_msg">
+              <div>
+                <p style="margin:0 0 8px">
+                  Total baris di Sheet: <b x-text="dupResult.total_rows"></b> · NPM unik: <b x-text="dupResult.unique_keys"></b> ·
+                  <span :class="{fail: dupResult.duplicate_extra_rows > 0}">Baris lebih (duplikat): <b x-text="dupResult.duplicate_extra_rows"></b></span>
+                </p>
+                <template x-if="dupResult.duplicates.length">
+                <div class="tbl" style="max-height:260px;overflow:auto"><table>
+                  <thead><tr><th>NPM</th><th class="c" style="width:auto">Jumlah baris</th><th>Nomor baris di Sheet</th></tr></thead>
+                  <tbody>
+                    <template x-for="d in dupResult.duplicates" :key="d.npm">
+                      <tr><td class="mono" x-text="d.npm"></td><td class="c mono" style="width:auto" x-text="d.count"></td><td class="mono" x-text="d.rows.join(', ')"></td></tr>
+                    </template>
+                  </tbody>
+                </table></div>
+                </template>
+                <p class="mute" style="font-size:12px;margin-top:8px" x-show="!dupResult.duplicates.length">Tidak ada NPM dengan >1 baris di Sheet.</p>
+              </div>
+            </template>
+          </div>
+          </template>
         </div>
         </template>
 

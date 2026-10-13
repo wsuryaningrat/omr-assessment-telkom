@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false,
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false, dupBusy: false, dupResult: null,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false, rotate: 0 },
@@ -189,6 +189,14 @@ function admin() {
         await this.loadStats(); await this.loadSessions();
       } catch (e) { this.toast(e.message, true); }
       this.bulkSendBusy = false;
+    },
+    // Diagnosa gap "jumlah baris Sheet > Terkirim di dashboard" -- baca LANGSUNG dari Google Sheet (bukan
+    // DB), lihat server/admin.py admin_sheet_duplicates utk penjelasan kenapa gap ini bisa terjadi.
+    async checkSheetDuplicates() {
+      this.dupBusy = true; this.dupResult = null;
+      try { this.dupResult = await this.json("/api/admin/sheet-duplicates"); }
+      catch (e) { this.dupResult = { error_msg: e.message }; }
+      this.dupBusy = false;
     },
     async deleteSession(id) {
       if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;
