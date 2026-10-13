@@ -3,7 +3,7 @@ function admin() {
     regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
-    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false },
+    sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false, rotate: 0 },
     meta: {}, editForm: { npm: "", kode_soal: "", fakultas_ljk: "", jawaban: {}, kuisioner: {} },
     users: [], newUser: { username: "", password: "", name: "", hp: "" }, newEmail: { email: "", name: "" }, userBusy: false, accessLog: [], accessPage: 1, accessPageSize: 20,
     calib: { fields: [], canvas: null, maxOffset: 300, token: "", field: "", draftDx: 0, draftDy: 0, savedDx: 0, savedDy: 0, previewUrl: "", busy: false, uploading: false, _t: null },
@@ -403,7 +403,10 @@ function admin() {
       return problems;
     },
     closeDetail() { this.flushAutoSave(); this._setPreview(""); this.detail = null; },
-    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false }; },
+    _setPreview(url) { if (this.preview.url && this.preview.url.startsWith("blob:")) URL.revokeObjectURL(this.preview.url); this.preview = { url, loading: false, zoom: 1, panX: 0, panY: 0, panning: false, rotate: 0 }; },
+    // Putar TAMPILAN preview saja (CSS transform di browser) -- tak mengubah foto/data di server, murni
+    // bantu admin baca lembar yg kefoto miring/terbalik. Reset ke 0 tiap ganti lembar/refresh (lihat _setPreview).
+    rotatePreview(delta) { this.preview.rotate = ((this.preview.rotate + delta) % 360 + 360) % 360; },
     // Zoom/geser foto di kolom preview Detail sesi -- scroll utk zoom, seret utk geser saat diperbesar,
     // klik-2x/tombol utk reset. panX/panY dlm piksel LAYAR (dibagi zoom sebelum masuk transform, lihat
     // admin.html: transform CSS "scale() translate()" menerapkan translate DULU baru scale).

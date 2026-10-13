@@ -442,10 +442,16 @@
               </button>
               <span style="flex:1 0 0"></span>
               <span class="zoominline" x-show="preview.url && !preview.loading">
+                <button class="ib xs" @click="rotatePreview(-90)" title="Putar kiri" aria-label="Putar kiri">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v1"/></svg>
+                </button>
+                <button class="ib xs" @click="rotatePreview(90)" title="Putar kanan" aria-label="Putar kanan">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v1"/></svg>
+                </button>
                 <button class="ib xs" @click="zoomPreview(-0.5)" title="Perkecil" aria-label="Perkecil">−</button>
                 <span class="mono mute" style="font-size:11px;min-width:34px;text-align:center" x-text="Math.round(preview.zoom*100)+'%'"></span>
                 <button class="ib xs" @click="zoomPreview(0.5)" title="Perbesar" aria-label="Perbesar">+</button>
-                <button class="ib xs" x-show="preview.zoom>1" @click="resetZoom()" title="Reset zoom" aria-label="Reset zoom">↺</button>
+                <button class="ib xs" x-show="preview.zoom>1 || preview.rotate!==0" @click="resetZoom(); preview.rotate=0" title="Reset zoom/putar" aria-label="Reset zoom/putar">↺</button>
               </span>
               <button class="ib xs p" x-show="detail.selectedItem" @click="saveDetailEdit()" :disabled="detail.saving" title="Simpan perubahan" aria-label="Simpan perubahan">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4"/><path d="M8 20v-6h8v6"/></svg>
@@ -455,7 +461,7 @@
             <div class="previewbox" @wheel.prevent="zoomPreview($event.deltaY<0?0.4:-0.4)">
               <div class="skel" x-show="preview.loading"></div>
               <img x-show="preview.url && !preview.loading" :src="preview.url" @mousedown="startPan($event)" @click="clickPreview()"
-                   :style="{transform:'scale('+preview.zoom+') translate('+(preview.panX/preview.zoom)+'px,'+(preview.panY/preview.zoom)+'px)', transition:preview.panning?'none':'transform .12s', cursor:preview.panning?'grabbing':(preview.zoom>1?'grab':'zoom-in'), maxWidth:'100%', maxHeight:'100%', objectFit:'contain'}">
+                   :style="{transform:'rotate('+preview.rotate+'deg) scale('+preview.zoom+') translate('+(preview.panX/preview.zoom)+'px,'+(preview.panY/preview.zoom)+'px)', transition:preview.panning?'none':'transform .12s', cursor:preview.panning?'grabbing':(preview.zoom>1?'grab':'zoom-in'), maxWidth: (preview.rotate%180!==0?'75%':'100%'), maxHeight: (preview.rotate%180!==0?'75%':'100%'), objectFit:'contain'}">
               <span class="mute" x-show="!preview.url && !preview.loading">Pilih lembar di kiri utk pratinjau</span>
               <span class="mute" x-show="detail.selectedItem && !detail.selectedItem.photo_exists">Foto sumber tak ada (sudah dibersihkan)</span>
             </div>
