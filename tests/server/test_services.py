@@ -30,6 +30,7 @@ class FakeSheets:
     def __init__(self):
         self.calls, self.fail, self.kunci = [], 0, {}
         self.rows_by_npm = {}   # simulasi isi Sheet (npm -> record terakhir) -- utk uji upsert_records
+        self.validated_calls = []   # panggilan ke upsert_validated (tab "validated", lihat test di atas)
 
     def append_records(self, recs):
         if self.fail > 0:
@@ -57,6 +58,13 @@ class FakeSheets:
             if key:
                 self.rows_by_npm[key] = r
         return {"updated": updated, "appended": appended}
+
+    def upsert_validated(self, recs, key_cols=("Kelas", "NPM"), ws_name=None):
+        # Dicatat terpisah (bukan ikut self.fail) krn tujuannya di sini cuma memastikan services.py
+        # TAK CRASH saat manggil method ini (AttributeError), bukan menguji perilaku upsert komposit itu
+        # sendiri -- itu sudah diuji langsung di test_sheets.py thd GSheetsClient asli.
+        self.validated_calls.append(list(recs))
+        return {"updated": 0, "appended": len(recs)}
 
     def fetch_kunci(self):
         return self.kunci

@@ -43,13 +43,15 @@ class GSheetsClient:
     def _spreadsheet(self):
         return self._client().open_by_url(self.url)
 
-    def _worksheet_and_columns(self, sh, records):
+    def _worksheet_and_columns(self, sh, records, ws_name=None):
         """Ambil/buat worksheet rekap & pastikan header mencakup semua kolom `records` -- dipakai
-        append_records & upsert_records supaya keduanya konsisten nambah kolom baru."""
+        append_records & upsert_records supaya keduanya konsisten nambah kolom baru. `ws_name` default ke
+        tab rekap utama (self.worksheet); upsert_validated mengoper tab lain (lihat GSHEET_VALIDATED_WORKSHEET)."""
+        ws_name = ws_name or self.worksheet
         try:
-            ws = sh.worksheet(self.worksheet)
+            ws = sh.worksheet(ws_name)
         except Exception:
-            ws = sh.add_worksheet(title=self.worksheet, rows=1000, cols=40)
+            ws = sh.add_worksheet(title=ws_name, rows=1000, cols=40)
         header = ws.row_values(1)
         cols = list(header)
         for r in records:
@@ -71,18 +73,19 @@ class GSheetsClient:
             ws.append_rows(rows, value_input_option="USER_ENTERED")
             return len(rows)
 
-    def upsert_records(self, records, key_col="NPM"):
+    def upsert_records(self, records, key_col="NPM", ws_name=None):
         """Spt append_records, tapi baris yg `key_col`-nya SAMA dgn yg sudah ada di Sheet diPERBARUI di
         tempat (bukan ditambah lagi) -- dipakai tombol "Kirim" manual per sesi di admin, yg boleh dipakai
         BERULANG KALI (mis. stlh admin mengoreksi data lewat bulk-edit/edit lembar) tanpa menggandakan
         baris. append_records TETAP dipakai apa adanya utk sinkron otomatis berkala (services.
         sync_pending_once) krn itu cuma pernah memproses sesi yg BELUM PERNAH tersinkron sama sekali --
-        tak butuh & tak perlu kena biaya pencarian baris ini."""
+        tak butuh & tak perlu kena biaya pencarian baris ini. `ws_name` opsional: tab tujuan selain rekap
+        utama (dipakai upsert_validated utk nulis ke tab 'validated' yg key-nya Kelas+NPM)."""
         if not records:
             return {"updated": 0, "appended": 0}
         with self._lock:
             sh = self._spreadsheet()
-            ws, cols = self._worksheet_and_columns(sh, records)
+            ws, cols = self._worksheet_and_columns(sh, records, ws_name)
             key_idx = cols.index(key_col) if key_col in cols else None
             existing_row = {}   # nilai key_col -> nomor baris (1-indexed, termasuk header)
             if key_idx is not None:
@@ -111,6 +114,24 @@ class GSheetsClient:
             if to_append:
                 ws.append_rows(to_append, value_input_option="USER_ENTERED")
             return {"updated": updated, "appended": len(to_append)}
+
+    def upsert_validated(self, records, key_cols=("Kelas", "NPM"), ws_name=None):
+        """Spt upsert_records, tapi key cocoknya KOMBINASI `key_cols` (default Kelas+NPM), bukan NPM saja --
+        ditulis ke tab TERPISAH (default GSHEET_VALIDATED_WORKSHEET = 'validated'), bukan menimpa tab rekap
+        utama. Alasannya: upsert_records(key_col='NPM') di tab rekap utama mencocokkan baris HANYA dari
+        NPM -- kalau ada salah input (pengawas/mahasiswa salah ketik NPM shg kebetulan sama dgn NPM
+        mahasiswa lain di KELAS BERBEDA), baris kelas lain itu bisa KETIMPA tanpa sadar. Key komposit
+        Kelas+NPM di tab 'validated' ini membuat tabrakan itu mustahil: beda kelas = beda baris, apa pun
+        NPM-nya. Kolom komposit itu sendiri ikut ditulis apa adanya (field "Kelas_NPM") spy gampang
+        ditelusuri manual di Sheet-nya."""
+        ws_name = ws_name or config.GSHEET_VALIDATED_WORKSHEET
+        key_col = "_".join(key_cols)
+        tagged = []
+        for r in records:
+            r2 = dict(r)
+            r2[key_col] = "_".join(str(r.get(c, "") or "").strip() for c in key_cols)
+            tagged.append(r2)
+        return self.upsert_records(tagged, key_col=key_col, ws_name=ws_name)
 
     def find_duplicates(self, key_col="NPM"):
         """Baca tab rekap APA ADANYA & kelompokkan nomor baris per nilai `key_col` -- dipakai utk diagnosa

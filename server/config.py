@@ -16,6 +16,10 @@ CLEANUP_ENABLED = os.environ.get("CLEANUP_ENABLED", "1") == "1"
 GSHEET_URL = os.environ.get("GSHEET_URL", "")
 GSHEET_CREDENTIALS = os.environ.get("GSHEET_CREDENTIALS", "")   # path berkas JSON service account, atau isi JSON-nya
 GSHEET_WORKSHEET = os.environ.get("GSHEET_WORKSHEET", "Sheet1")  # tab rekap hasil
+# Tab TERPISAH dari rekap utama di atas -- key upsert-nya KOMBINASI Kelas+NPM (bukan NPM saja spt rekap
+# utama), jadi kalau ada NPM yg sama tapi kelasnya beda (salah input pengawas/mahasiswa, atau kebetulan
+# NPM mirip), tak akan saling timpa data lembar kelas lain (lihat GSheetsClient.upsert_validated).
+GSHEET_VALIDATED_WORKSHEET = os.environ.get("GSHEET_VALIDATED_WORKSHEET", "validated")
 SYNC_INTERVAL_S = int(os.environ.get("SYNC_INTERVAL_S", "10"))
 SYNC_MAX_ATTEMPTS = int(os.environ.get("SYNC_MAX_ATTEMPTS", "10"))
 KUNCI_SYNC_INTERVAL_S = int(os.environ.get("KUNCI_SYNC_INTERVAL_S", "600"))

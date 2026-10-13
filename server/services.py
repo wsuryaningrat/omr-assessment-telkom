@@ -98,6 +98,7 @@ def sync_pending_once(limit: int = 30):
         def _ship(group):
             recs = [dict(sh.record) for s in group for sh in s.sheets]
             client.append_records(recs)
+            client.upsert_validated(recs)   # tab terpisah "validated", key Kelas+NPM (lihat sheets.py)
             for s in group:
                 s.synced_at, s.sync_error, s.sync_next = _now(), None, None
                 clear_scan_cache_for_session(s)
@@ -140,6 +141,7 @@ def sync_session_now(db, s: ScanSession) -> dict:
     try:
         recs = [dict(sh.record) for sh in s.sheets]
         res = client.upsert_records(recs, key_col="NPM")
+        client.upsert_validated(recs)   # tab terpisah "validated", key Kelas+NPM (lihat sheets.py)
         s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
         clear_scan_cache_for_session(s)
     except Exception as e:  # noqa: BLE001
@@ -172,6 +174,7 @@ def sync_sessions_bulk(db, sessions: list) -> dict:
     def _ship(group):
         recs = [dict(sh.record) for s in group for sh in s.sheets]
         client.upsert_records(recs, key_col="NPM")
+        client.upsert_validated(recs)   # tab terpisah "validated", key Kelas+NPM (lihat sheets.py)
         for s in group:
             s.synced_at, s.sync_error, s.sync_next, s.sync_attempts = _now(), None, None, 0
             clear_scan_cache_for_session(s)
