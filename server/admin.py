@@ -118,6 +118,38 @@ def admin_stats(db=Depends(get_db)):
             "per_fakultas": per_fakultas}
 
 
+@router.get("/npm-duplicates", dependencies=[Depends(auth.require_superuser)])
+def admin_npm_duplicates(db=Depends(get_db)):
+    """Cari NPM yg muncul di >1 LEMBAR TERVALIDASI (beda dgn /sheet-duplicates yg cek baris di Google
+    Sheet) -- dipakai admin manual-cek: mahasiswa yg NPM-nya kebetulan sama/salah input antar kelas, atau
+    lembar yg sama kescan & tervalidasi dobel di sesi berbeda. Tiap kemunculan disertai sheet_id supaya FE
+    bisa tampilkan foto ASLI-nya lewat GET /api/admin/sheets/{shid}/photo (endpoint yg sama dipakai popup
+    Detail sesi) -- jadi admin bisa bandingkan langsung foto mana yg benar sebelum memutuskan mana yg mau
+    dibatalkan validasinya. super_admin saja, sama spt /stats & /sheet-duplicates -- data lintas kelas/fakultas."""
+    rows = db.execute(
+        select(Sheet.id, Sheet.record, ScanSession.id, ScanSession.kelas,
+               ScanSession.fakultas, ScanSession.prodi, ScanSession.nama_pengawas, ScanSession.created_at)
+        .select_from(Sheet).join(ScanSession, ScanSession.id == Sheet.session_id)
+        .where(Sheet.validated.is_(True))
+    ).all()
+    groups: dict[str, list] = {}
+    for sheet_id, record, session_id, kelas, fakultas, prodi, pengawas, sess_created_at in rows:
+        npm = str((record or {}).get("NPM") or "").strip()
+        if not npm:
+            continue
+        groups.setdefault(npm, []).append({
+            "sheet_id": sheet_id, "session_id": session_id, "kelas": kelas, "fakultas": fakultas, "prodi": prodi,
+            "pengawas": pengawas, "nama_mahasiswa": (record or {}).get("Nama Mahasiswa"),
+            "kode_soal": (record or {}).get("Kode Soal"), "nilai": (record or {}).get("Nilai"),
+            "created_at": sess_created_at.isoformat() if sess_created_at else None,
+        })
+    dupes = [{"npm": npm, "count": len(items), "items": sorted(items, key=lambda x: x["created_at"] or "")}
+             for npm, items in groups.items() if len(items) > 1]
+    dupes.sort(key=lambda d: -d["count"])
+    return {"duplicates": dupes, "duplicate_npm_count": len(dupes),
+            "duplicate_extra_sheets": sum(d["count"] - 1 for d in dupes)}
+
+
 @router.get("/monitor")
 def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
     """Progres unggah per hari terhadap jadwal plotting (default: hanya tes onsite)."""

@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false, dupBusy: false, dupResult: null,
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false, dupBusy: false, dupResult: null, npmDupBusy: false, npmDup: null,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false, rotate: 0 },
@@ -197,6 +197,20 @@ function admin() {
       try { this.dupResult = await this.json("/api/admin/sheet-duplicates"); }
       catch (e) { this.dupResult = { error_msg: e.message }; }
       this.dupBusy = false;
+    },
+    // Diagnosa NPM yg muncul di >1 LEMBAR TERVALIDASI (beda dr checkSheetDuplicates di atas yg cek Google
+    // Sheet -- ini cek DB lokal, lihat server/admin.py admin_npm_duplicates). Klik baris -> buka sesi itu
+    // langsung di popup Detail lembar (lewat openDuplicateSheet) spy admin bisa lihat foto asli & putuskan.
+    async checkNpmDuplicates() {
+      this.npmDupBusy = true; this.npmDup = null;
+      try { this.npmDup = await this.json("/api/admin/npm-duplicates"); }
+      catch (e) { this.toast(e.message, true); }
+      this.npmDupBusy = false;
+    },
+    async openDuplicateSheet(item) {
+      await this.openDetail({ id: item.session_id, nama: item.pengawas, kelas: item.kelas, prodi: item.prodi, admin_validated_by: null, admin_validated: true });
+      const match = this.detail?.items.find(x => x.id === item.sheet_id);
+      if (match) this.selectDetailSheet(match);
     },
     async deleteSession(id) {
       if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;

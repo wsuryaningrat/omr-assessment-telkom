@@ -133,9 +133,38 @@
             <button class="btn sm p" @click="sendAllValidated()" :disabled="bulkSendBusy">Kirim semua tervalidasi</button>
             <button class="btn sm" @click="resendAll()" :disabled="bulkSendBusy">Kirim ulang semua (resync)</button>
             <button class="btn sm" @click="checkSheetDuplicates()" :disabled="dupBusy">Cek duplikat NPM di Sheet</button>
+            <button class="btn sm" @click="checkNpmDuplicates()" :disabled="npmDupBusy">Cek NPM duplikat (LJK tervalidasi)</button>
             <span class="mute" style="font-size:12px" x-show="bulkSendBusy">Mengirim ke Google Sheet, mohon tunggu…</span>
             <span class="mute" style="font-size:12px" x-show="dupBusy">Membaca Google Sheet, mohon tunggu…</span>
+            <span class="mute" style="font-size:12px" x-show="npmDupBusy">Memeriksa lembar tervalidasi, mohon tunggu…</span>
           </div>
+          <template x-if="npmDup && !npmDupBusy">
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+            <p style="margin:0 0 8px">
+              NPM duplikat: <b :class="{fail: npmDup.duplicate_npm_count > 0}" x-text="npmDup.duplicate_npm_count"></b> ·
+              Lembar lebih (di luar 1 per NPM): <b :class="{fail: npmDup.duplicate_extra_sheets > 0}" x-text="npmDup.duplicate_extra_sheets"></b>
+            </p>
+            <template x-if="npmDup.duplicates.length">
+            <div class="tbl" style="max-height:320px;overflow:auto"><table>
+              <thead><tr><th>NPM</th><th>Nama</th><th class="c" style="width:auto">Jml lembar</th><th>Kelas / Pengawas / Nilai</th></tr></thead>
+              <tbody>
+                <template x-for="d in npmDup.duplicates" :key="d.npm">
+                  <template x-for="(it, idx) in d.items" :key="it.sheet_id">
+                    <tr @click="openDuplicateSheet(it)" title="Buka sesi ini & lihat foto asli lembar">
+                      <td class="mono" x-text="idx===0 ? d.npm : ''"></td>
+                      <td x-text="it.nama_mahasiswa||'-'"></td>
+                      <td class="c mono" style="width:auto" x-text="idx===0 ? d.count : ''"></td>
+                      <td><span class="mono" x-text="it.kelas"></span> <span class="mute" x-text="'· '+(it.pengawas||'-')+' · nilai '+(it.nilai??'-')+' · '+(it.created_at ? it.created_at.slice(0,16).replace('T',' ') : '-')"></span></td>
+                    </tr>
+                  </template>
+                </template>
+              </tbody>
+            </table></div>
+            </template>
+            <p class="mute" style="font-size:12px;margin-top:8px" x-show="!npmDup.duplicates.length">Tidak ada NPM dengan >1 lembar tervalidasi.</p>
+            <p class="mute" style="font-size:12px;margin-top:6px">Klik satu baris utk buka sesinya di popup Detail lembar (bisa langsung lihat foto asli, bandingkan, &amp; batalkan validasi yg salah).</p>
+          </div>
+          </template>
           <template x-if="dupResult && !dupBusy">
           <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
             <template x-if="dupResult.error_msg">
