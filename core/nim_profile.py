@@ -86,3 +86,51 @@ def profile_nim_lengths(rows: list[dict], nim_col: str | None = None, prodi_col:
         "by_prodi": by_prodi,
         "flagged_prodi_count": sum(1 for p in by_prodi if p["multi_length"]),
     }
+
+
+def profile_nim_by_kelas(rows: list[dict], nim_col: str | None = None, kelas_col: str | None = None,
+                          prefix_len: int = 2) -> dict:
+    """Spt profile_nim_lengths, tapi dikelompokkan per KELAS (bukan prodi) & tiap kelompok dipecah lagi
+    per (jumlah digit, N digit awal) -- dipakai tools/nim_profile_by_kelas.py. Satu kelas idealnya py SATU
+    kombinasi (jumlah digit, digit awal) yg konsisten (NIM-nya satu angkatan/prodi yg sama); kelas yg punya
+    >1 kombinasi artinya ada NIM nyasar/salah format di kelas itu -- patut dicek manual."""
+    if not rows:
+        raise ValueError("Data kosong (sheet kosong atau baris 1 bukan header).")
+    headers = list(rows[0].keys())
+    nim_col = pick_column(headers, ["nim", "npm"], nim_col)
+    kelas_col = pick_column(headers, ["kelas"], kelas_col)
+
+    # kelas -> (panjang digit, N digit awal) -> {"count": int, "examples": [str,...]}
+    profile: dict[str, dict[tuple, dict]] = defaultdict(lambda: defaultdict(lambda: {"count": 0, "examples": []}))
+    skipped_blank = 0
+
+    for r in rows:
+        nim_raw = str(r.get(nim_col, "") or "").strip()
+        kelas = str(r.get(kelas_col, "") or "").strip() or "(tanpa kelas)"
+        digits = re.sub(r"\D", "", nim_raw)
+        if not digits:
+            skipped_blank += 1
+            continue
+        key = (len(digits), digits[:prefix_len])
+        bucket = profile[kelas][key]
+        bucket["count"] += 1
+        if len(bucket["examples"]) < 3:
+            bucket["examples"].append(nim_raw)
+
+    by_kelas = []
+    for kelas in sorted(profile):
+        combos = profile[kelas]
+        multi = len(combos) > 1
+        items = []
+        for (length, prefix) in sorted(combos, key=lambda k: -combos[k]["count"]):
+            b = combos[(length, prefix)]
+            items.append({"length": length, "prefix": prefix, "count": b["count"],
+                          "examples": b["examples"], "flagged": multi})
+        by_kelas.append({"kelas": kelas, "multi_combo": multi, "items": items})
+
+    return {
+        "columns": {"nim": nim_col, "kelas": kelas_col}, "prefix_len": prefix_len,
+        "total_rows": len(rows), "skipped_blank": skipped_blank,
+        "by_kelas": by_kelas,
+        "flagged_kelas_count": sum(1 for k in by_kelas if k["multi_combo"]),
+    }
