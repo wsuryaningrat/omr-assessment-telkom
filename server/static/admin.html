@@ -194,6 +194,54 @@
         </div>
         </template>
 
+        <template x-if="superuser">
+        <div class="card" style="margin-top:14px">
+          <div class="tools" style="margin-bottom:0">
+            <div class="tt"><h2 style="margin:0">Analisa NIM per Program Studi <span class="mute" style="font-weight:400;font-size:12px">(khusus super admin)</span></h2></div>
+            <button class="btn sm" @click="loadNimProfile()" :disabled="nimProfileBusy">Analisa dari sheet referensi</button>
+          </div>
+          <p class="mute" style="font-size:12px;margin-top:8px">Baca sheet referensi NIM (bukan rekap hasil LJK) utk lihat panjang digit NIM yg "normal" tiap prodi -- dasar buat mengoreksi NIM pada lembar yg sudah divalidasi (lihat jg "Cek NPM duplikat (LJK tervalidasi)" di atas).</p>
+          <span class="mute" style="font-size:12px" x-show="nimProfileBusy">Membaca sheet referensi, mohon tunggu…</span>
+          <template x-if="nimProfile && !nimProfileBusy">
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+            <template x-if="nimProfile.error_msg">
+              <p class="fail" style="margin:0" x-text="nimProfile.error_msg"></p>
+            </template>
+            <template x-if="!nimProfile.error_msg">
+              <div>
+                <p style="margin:0 0 8px">
+                  Kolom terdeteksi: <b x-text="nimProfile.columns.nim"></b> / <b x-text="nimProfile.columns.prodi"></b> ·
+                  Baris diproses: <b x-text="nimProfile.total_rows"></b> (NIM kosong dilewati: <b x-text="nimProfile.skipped_blank"></b>) ·
+                  <span :class="{fail: nimProfile.flagged_prodi_count > 0}">Prodi &gt;1 panjang digit: <b x-text="nimProfile.flagged_prodi_count"></b></span>
+                </p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                  <template x-for="o in nimProfile.overall" :key="o.length">
+                    <span class="chip" x-text="o.length+' digit: '+o.count"></span>
+                  </template>
+                </div>
+                <div class="tbl" style="max-height:320px;overflow:auto"><table>
+                  <thead><tr><th>Program Studi</th><th class="c" style="width:auto">Panjang digit</th><th class="c" style="width:auto">Jumlah</th><th>Contoh NIM</th></tr></thead>
+                  <tbody>
+                    <template x-for="p in nimProfile.by_prodi" :key="p.prodi">
+                      <template x-for="(it, idx) in p.lengths" :key="p.prodi+'-'+it.length">
+                        <tr :class="{'row-bad': it.flagged}">
+                          <td x-text="idx===0 ? p.prodi : ''"></td>
+                          <td class="c mono" style="width:auto" x-text="it.length"></td>
+                          <td class="c mono" style="width:auto" x-text="it.count"></td>
+                          <td class="mono" x-text="it.examples.join(', ')"></td>
+                        </tr>
+                      </template>
+                    </template>
+                  </tbody>
+                </table></div>
+                <p class="mute" style="font-size:12px;margin-top:8px">Baris merah = prodi dengan &gt;1 panjang digit NIM -- kandidat yg perlu dicek manual sebelum dikoreksi.</p>
+              </div>
+            </template>
+          </div>
+          </template>
+        </div>
+        </template>
+
         <div class="mon-days" role="tablist" aria-label="Pilih hari">
           <button class="mon-day" :class="{on: monDay === '__ALL__'}" @click="monDay='__ALL__'; monFilter='all'; monPage=1" role="tab" :aria-selected="monDay === '__ALL__'">
             <span class="hn"><span>Semua Hari</span></span>

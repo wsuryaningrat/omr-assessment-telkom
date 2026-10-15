@@ -235,6 +235,17 @@ class GSheetsClient:
                 out[title] = q
         return out
 
+    def read_sheet_by_url(self, url: str) -> list[dict]:
+        """Baca worksheet SHEET LAIN (bukan tab rekap utama self.url/self.worksheet) pakai kredensial yg
+        sama -- dipakai utk analisa data referensi eksternal (mis. profil NIM per prodi, lihat
+        core/nim_profile.py & GET /api/admin/nim-profile). Service account HARUS sudah di-invite
+        (Share) ke sheet itu jg, kalau tidak gspread akan lempar 403/PermissionError."""
+        from core.nim_profile import parse_sheet_url
+        sheet_id, gid = parse_sheet_url(url)
+        sh = self._client().open_by_key(sheet_id)
+        ws = sh.get_worksheet_by_id(gid) if gid is not None else sh.sheet1
+        return ws.get_all_records()
+
 
 _client = None
 _override = None

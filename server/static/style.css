@@ -104,6 +104,7 @@ input::placeholder{color:var(--ink3)}
 .tbl tr:last-child td{border-bottom:0}
 .tbl tbody tr{cursor:pointer;transition:background .12s}
 .tbl tbody tr:hover{background:#FAFBFC}
+.tbl tbody tr.row-bad td{background:var(--bad-bg);color:var(--bad)}
 .tbl .nm{font-weight:700}.tbl .fl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink2);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tbl .trunc{display:block;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* menu titik-tiga per baris (aksi sekunder) -- sama spt .menu header, supaya kolom Aksi tak menumpuk banyak tombol */

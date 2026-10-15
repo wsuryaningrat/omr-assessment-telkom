@@ -1,8 +1,10 @@
 """Profil panjang digit NIM per program studi, dari sheet referensi -> ditulis ke sheet output.
 
 Dipakai utk menentukan panjang NIM yang "normal" per prodi (mis. 10 digit vs 12 digit), sebelum
-mengoreksi NIM pada lembar yang sudah divalidasi di aplikasi OMR (lihat server/admin.py bulk-edit /
-GET /api/admin/npm-duplicates utk sisi koreksi datanya).
+mengoreksi NIM pada lembar yang sudah divalidasi di aplikasi OMR. Logika inti (deteksi kolom &
+pengelompokan) ada di core/nim_profile.py, dipakai bareng dgn GET /api/admin/nim-profile (tampilan live
+di UI super admin, tab Summary -- lihat server/admin.py) -- skrip CLI ini bedanya nulis hasilnya ke
+TAB BARU di sheet lain (pakai service account langsung, tanpa lewat server berjalan).
 
     python tools/nim_profile.py \
         --source "https://docs.google.com/spreadsheets/d/<ID_SUMBER>/edit?gid=<GID>" \
@@ -20,10 +22,10 @@ utk kolom NIM, "prodi"/"program studi" utk kolom prodi). Kalau deteksi salah/mel
 import argparse
 import json
 import os
-import re
 import sys
-from collections import defaultdict
-from urllib.parse import urlparse, parse_qs
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from core.nim_profile import parse_sheet_url, profile_nim_lengths  # noqa: E402
 
 
 def load_credentials_dict(spec: str) -> dict:
@@ -41,36 +43,6 @@ def load_credentials_dict(spec: str) -> dict:
         return {k: cfg[k] for k in keys if k in cfg}
     with open(spec, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def sheet_id_and_gid(url: str):
-    parts = urlparse(url)
-    m = re.search(r"/d/([a-zA-Z0-9_-]+)", parts.path)
-    if not m:
-        raise SystemExit(f"URL spreadsheet tak dikenali: {url}")
-    sheet_id = m.group(1)
-    gid = None
-    qs = parse_qs(parts.query)
-    if "gid" in qs:
-        gid = int(qs["gid"][0])
-    elif parts.fragment:
-        fm = re.search(r"gid=(\d+)", parts.fragment)
-        if fm:
-            gid = int(fm.group(1))
-    return sheet_id, gid
-
-
-def pick_column(headers: list, keywords: list, override: str | None) -> str:
-    if override:
-        if override not in headers:
-            raise SystemExit(f"Kolom '{override}' tak ditemukan. Kolom yg ada: {headers}")
-        return override
-    low = {h: h.lower() for h in headers}
-    for h, hl in low.items():
-        if any(k in hl for k in keywords):
-            return h
-    raise SystemExit(f"Gagal deteksi otomatis kolom (cari {keywords}) di header: {headers}. "
-                      f"Pakai --nim-col / --prodi-col utk tentukan manual.")
 
 
 def main():
@@ -94,58 +66,33 @@ def main():
 
     gc = gspread.service_account_from_dict(load_credentials_dict(args.credentials))
 
-    src_id, src_gid = sheet_id_and_gid(args.source)
+    src_id, src_gid = parse_sheet_url(args.source)
     src_sh = gc.open_by_key(src_id)
     src_ws = src_sh.get_worksheet_by_id(src_gid) if src_gid is not None else src_sh.sheet1
     print(f"Sumber: '{src_sh.title}' / tab '{src_ws.title}'", file=sys.stderr)
 
     rows = src_ws.get_all_records()
-    if not rows:
-        raise SystemExit("Sheet sumber kosong (atau baris 1 bukan header).")
-    headers = list(rows[0].keys())
-    nim_col = pick_column(headers, ["nim", "npm"], args.nim_col)
-    prodi_col = pick_column(headers, ["prodi", "program studi"], args.prodi_col)
-    print(f"Kolom terdeteksi -- NIM: '{nim_col}', Prodi: '{prodi_col}'", file=sys.stderr)
+    try:
+        result = profile_nim_lengths(rows, args.nim_col, args.prodi_col)
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
+    print(f"Kolom terdeteksi -- NIM: '{result['columns']['nim']}', Prodi: '{result['columns']['prodi']}'", file=sys.stderr)
+    print(f"Total baris diproses: {result['total_rows']} (dilewati krn NIM kosong: {result['skipped_blank']})", file=sys.stderr)
+    print("Ringkasan keseluruhan panjang digit:", {o['length']: o['count'] for o in result['overall']}, file=sys.stderr)
 
-    # prodi -> panjang digit -> {"count": int, "examples": [str,...]}
-    profile: dict[str, dict[int, dict]] = defaultdict(lambda: defaultdict(lambda: {"count": 0, "examples": []}))
-    overall: dict[int, int] = defaultdict(int)
-    skipped_blank = 0
-
-    for r in rows:
-        nim_raw = str(r.get(nim_col, "") or "").strip()
-        prodi = str(r.get(prodi_col, "") or "").strip() or "(tanpa prodi)"
-        digits = re.sub(r"\D", "", nim_raw)
-        if not digits:
-            skipped_blank += 1
-            continue
-        length = len(digits)
-        bucket = profile[prodi][length]
-        bucket["count"] += 1
-        if len(bucket["examples"]) < 3:
-            bucket["examples"].append(nim_raw)
-        overall[length] += 1
-
-    print(f"Total baris diproses: {len(rows)} (dilewati krn NIM kosong: {skipped_blank})", file=sys.stderr)
-    print("Ringkasan keseluruhan panjang digit:", dict(sorted(overall.items())), file=sys.stderr)
-
-    # susun baris output: per prodi, per panjang digit (urut prodi asc, panjang digit desc jumlah terbanyak dulu)
     out_rows = [["Program Studi", "Panjang Digit NIM", "Jumlah", "Contoh NIM", "Catatan"]]
-    for prodi in sorted(profile):
-        lengths = profile[prodi]
-        multi = len(lengths) > 1
-        for length in sorted(lengths, key=lambda l: -lengths[l]["count"]):
-            b = lengths[length]
-            note = "⚠ Prodi ini punya >1 panjang digit NIM -- cek manual" if multi else ""
-            out_rows.append([prodi, length, b["count"], ", ".join(b["examples"]), note])
+    for p in result["by_prodi"]:
+        for item in p["lengths"]:
+            note = "⚠ Prodi ini punya >1 panjang digit NIM -- cek manual" if item["flagged"] else ""
+            out_rows.append([p["prodi"], item["length"], item["count"], ", ".join(item["examples"]), note])
 
     out_rows.append([])
     out_rows.append(["== Ringkasan keseluruhan =="])
     out_rows.append(["Panjang Digit NIM", "Total"])
-    for length in sorted(overall):
-        out_rows.append([length, overall[length]])
+    for o in result["overall"]:
+        out_rows.append([o["length"], o["count"]])
 
-    out_id, _ = sheet_id_and_gid(args.output)
+    out_id, _ = parse_sheet_url(args.output)
     out_sh = gc.open_by_key(out_id)
     try:
         out_ws = out_sh.worksheet(args.output_tab)

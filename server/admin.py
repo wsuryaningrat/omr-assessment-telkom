@@ -150,6 +150,29 @@ def admin_npm_duplicates(db=Depends(get_db)):
             "duplicate_extra_sheets": sum(d["count"] - 1 for d in dupes)}
 
 
+@router.get("/nim-profile", dependencies=[Depends(auth.require_superuser)])
+def admin_nim_profile():
+    """Profil panjang digit NIM per program studi, dari sheet REFERENSI eksternal (config.
+    NIM_REFERENCE_SHEET_URL -- beda dari GSHEET_URL/tab rekap utama). Dasar utk admin memutuskan NIM
+    "normal"-nya berapa digit per prodi, sblm mengoreksi NIM pada lembar yg sudah divalidasi (lihat jg
+    GET /api/admin/npm-duplicates utk cari lembar yg NIM-nya bermasalah). Logika pengelompokan ada di
+    core/nim_profile.py, dipakai bareng dgn tools/nim_profile.py (versi CLI yg nulis ke sheet lain,
+    dipakai saat server ini sendiri tak bisa menjangkau sheet-nya). super_admin saja, sama spt
+    endpoint analisa lain -- butuh baca sheet eksternal yg mungkin berisi data NIM seluruh angkatan."""
+    client = sheets.get_client()
+    if client is None:
+        raise HTTPException(409, "Google Sheet belum dikonfigurasi")
+    try:
+        rows = client.read_sheet_by_url(config.NIM_REFERENCE_SHEET_URL)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Gagal membaca sheet referensi NIM: {type(e).__name__}: {e}")
+    from core.nim_profile import profile_nim_lengths
+    try:
+        return profile_nim_lengths(rows)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
 @router.get("/monitor")
 def monitor(mode: str = "onsite", refresh: bool = False, db=Depends(get_db)):
     """Progres unggah per hari terhadap jadwal plotting (default: hanya tes onsite)."""

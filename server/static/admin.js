@@ -1,6 +1,6 @@
 function admin() {
   return {
-    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false, dupBusy: false, dupResult: null, npmDupBusy: false, npmDup: null,
+    regradeKelas: "", regradeRes: null, token: "", usr: "", pwd: "", pwErr: "", pwBusy: false, authed: false, loginErr: "", ready: false, errMsg: "", me: { password: false, microsoft: false, google: false, authed: false, token_allowed: true }, tab: "sesi", superuser: false, busy: false, mon: null, monDay: "", monFilter: "all", monQ: "", monBusy: false, monLuar: false, monPage: 1, monPageSize: 10, monPageSizeOptions: [10, 20, 30, 50], stats: null, bulkSendBusy: false, dupBusy: false, dupResult: null, npmDupBusy: false, npmDup: null, nimProfileBusy: false, nimProfile: null,
     allTabs: [{ id: "sesi", label: "Sesi" }, { id: "monitoring", label: "Summary" }, { id: "akun", label: "Akun", superOnly: true }],
     get tabs() { return this.allTabs.filter(t => !t.superOnly || this.superuser); },
     sum: { state: {} }, kunci: [], ses: { items: [], total: 0, page: 1, size: 10, q: "", status: "all", hari: "", sort: "", dir: "desc" }, sesPageSizeOptions: [10, 20, 30, 50], detail: null, preview: { url: "", loading: false, zoom: 1, panX: 0, panY: 0, panning: false, rotate: 0 },
@@ -211,6 +211,14 @@ function admin() {
       await this.openDetail({ id: item.session_id, nama: item.pengawas, kelas: item.kelas, prodi: item.prodi, admin_validated_by: null, admin_validated: true });
       const match = this.detail?.items.find(x => x.id === item.sheet_id);
       if (match) this.selectDetailSheet(match);
+    },
+    // Profil panjang digit NIM per prodi, dari sheet REFERENSI eksternal (beda dr rekap hasil LJK) --
+    // lihat server/admin.py admin_nim_profile & core/nim_profile.py utk logikanya.
+    async loadNimProfile() {
+      this.nimProfileBusy = true; this.nimProfile = null;
+      try { this.nimProfile = await this.json("/api/admin/nim-profile"); }
+      catch (e) { this.nimProfile = { error_msg: e.message }; }
+      this.nimProfileBusy = false;
     },
     async deleteSession(id) {
       if (!confirm("Hapus sesi ini beserta semua lembar & berkasnya? Tindakan ini tidak bisa dibatalkan.")) return;

@@ -67,3 +67,11 @@ PLOTTING_SHEET_URL = os.environ.get("PLOTTING_SHEET_URL", f"https://docs.google.
 PLOTTING_TTL_S = int(os.environ.get("PLOTTING_TTL_S", "300"))
 # Hanya sesi yang dibuat pada/setelah waktu ini dihitung di dashboard (mencegah data uji ikut). Default = SYNC_SINCE.
 MONITOR_SINCE = os.environ.get("MONITOR_SINCE", "") or SYNC_SINCE
+
+# ---- Sheet REFERENSI NIM per prodi (eksternal, beda dgn GSHEET_URL/rekap utama) -- dipakai GET
+# /api/admin/nim-profile (tab Summary, super_admin) utk profil panjang digit NIM tiap prodi, dasar
+# koreksi NIM pada lembar yg sudah divalidasi. Service account GSHEET_CREDENTIALS HARUS di-invite
+# (Share) ke sheet ini jg, terpisah dari undangan ke sheet rekap utama.
+NIM_REFERENCE_SHEET_URL = os.environ.get(
+    "NIM_REFERENCE_SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1NCFlXQheDtSm0HsuygmlDoftCd2eTMuhfJCojqCe7nw/edit?gid=1238350594")
