@@ -42,9 +42,11 @@ export function decodeSheet(raw: RawRead, tpl: Template): DecodedSheet {
   const f = tpl.fields;
   const nimItems = raw.nim.map((sc, i) => decodeItem(sc, f.nim.options, f.nim.items[i].id, i + 1));
   const nimValue = nimItems.map((it) => (it.value !== null && it.status !== "multi" ? it.value : "?")).join("");
+  const kodeItems = raw.kode_soal.map((sc, i) => decodeItem(sc, f.kode_soal.options, f.kode_soal.items[i].id, i + 1));
   return {
     nim: { value: nimValue, items: nimItems },
-    kode_soal: decodeItem(raw.kode_soal[0], f.kode_soal.options, "kode"),
+    kode_soal: combineDigits(kodeItems, "kode"),
+    kode_items: kodeItems,
     kuisioner: raw.kuisioner.map((sc, i) => decodeItem(sc, f.kuisioner.options, f.kuisioner.items[i].id, i + 1)),
     soal: raw.soal.map((sc, i) => decodeItem(sc, f.soal.options, f.soal.items[i].id, i + 1)),
     stats: {
@@ -55,9 +57,25 @@ export function decodeSheet(raw: RawRead, tpl: Template): DecodedSheet {
   };
 }
 
+const SEVERITY: Record<ItemStatus, number> = { ok: 0, ragu: 1, blank: 2, multi: 3 };
+
+/** Gabungkan digit (mis. kode soal) menjadi satu nilai; null jika ada digit kosong/ganda. */
+export function combineDigits(items: ItemResult[], id: string): ItemResult {
+  const worst = items.reduce<ItemStatus>((w, it) => (SEVERITY[it.status] > SEVERITY[w] ? it.status : w), "ok");
+  const allBlank = items.every((it) => it.status === "blank");
+  const complete = items.every((it) => it.value !== null && it.status !== "multi");
+  return {
+    id,
+    value: complete ? items.map((it) => it.value).join("") : null,
+    status: allBlank ? "blank" : complete ? (worst === "ragu" ? "ragu" : "ok") : worst === "blank" ? "ragu" : worst,
+    scores: [],
+    conf: Math.min(...items.map((it) => it.conf)),
+  };
+}
+
 /** Jumlah item yang perlu perhatian validator. */
 export function countFlags(d: DecodedSheet) {
-  const items = [...d.nim.items, d.kode_soal, ...d.kuisioner, ...d.soal];
+  const items = [...d.nim.items, ...d.kode_items, ...d.kuisioner, ...d.soal];
   return {
     ragu: items.filter((i) => i.status === "ragu").length,
     multi: items.filter((i) => i.status === "multi").length,

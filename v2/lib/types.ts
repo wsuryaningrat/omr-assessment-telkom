@@ -1,5 +1,13 @@
 export type SubmissionStatus = "perlu_validasi" | "valid" | "ditolak" | "diganti";
 
+export interface Ujian {
+  id: string;
+  nama: string;
+  template_version: string;
+  /** Daftar kode soal yang berlaku di ujian ini (tidak rahasia). */
+  kode_soal: string[];
+}
+
 export interface Kelas {
   id: string;
   ujian_id: string;
@@ -68,6 +76,8 @@ export interface StoredOmr {
   stats: { baseline: number; peak: number; threshold: number };
   nim: StoredItem[];
   kode_soal: StoredItem;
+  /** Detail per digit kode soal (LJK v2-2 ke atas). */
+  kode_items?: StoredItem[];
   kuisioner: StoredItem[];
   soal: StoredItem[];
   ms: number;

@@ -20,6 +20,7 @@ import openpyxl
 
 UJIAN_ID = "pendikar-2026"
 UJIAN_NAMA = "Profiling Literasi Numerik — MK Pendidikan Karakter 2026"
+TEMPLATE_VERSION = "ljk-v2-2"
 
 
 def q(v):
@@ -108,8 +109,12 @@ def main():
     kunci = read_kunci(a.kunci)
     pengawas = read_pengawas(a.pengawas) if a.pengawas else []
 
-    L = ["-- Seed LJK v2 (berisi data pribadi — jangan di-commit)", "begin;"]
-    L.append(f"insert into public.ujian(id, nama) values ({q(UJIAN_ID)}, {q(UJIAN_NAMA)}) on conflict (id) do update set nama = excluded.nama;")
+    L = ["-- Seed LJK v2 (berisi data pribadi — jangan di-commit). Jalankan SETELAH 0001 & 0002.", "begin;"]
+    kodes = "{" + ",".join(sorted(kunci)) + "}"
+    L.append(
+        f"insert into public.ujian(id, nama, template_version, kode_soal) values ({q(UJIAN_ID)}, {q(UJIAN_NAMA)}, {q(TEMPLATE_VERSION)}, {q(kodes)}::text[]) "
+        "on conflict (id) do update set nama = excluded.nama, template_version = excluded.template_version, kode_soal = excluded.kode_soal;"
+    )
     for k in kelas:
         L.append(
             "insert into public.kelas(id, ujian_id, prodi, kode_mk, dosen, ruangan, hari, waktu, jumlah_mahasiswa) values "

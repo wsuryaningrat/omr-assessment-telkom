@@ -1,7 +1,7 @@
 # LJK Scanner v2: Math Center CSWDA
 
-Web app (Next.js + Supabase, deploy di Vercel) untuk memindai LJK Profiling Literasi Numerik,
-dengan sasaran pertama **mahasiswa MK Pendidikan Karakter**. Semua OMR berjalan **di browser HP
+Web app (Next.js + Supabase, deploy di Vercel) untuk memindai LJK Profiling Literasi Numerik.
+Sasaran pertama **mahasiswa MK Pendidikan Karakter**, tapi LJK & aplikasinya umum (bisa dipakai ujian lain). Semua OMR berjalan **di browser HP
 pengawas** (OpenCV-style deterministik, tanpa AI/OCR), dan server hanya menyimpan hasil + foto.
 
 ## Yang berubah dari v1
@@ -15,6 +15,8 @@ pengawas** (OpenCV-style deterministik, tanpa AI/OCR), dan server hanya menyimpa
 | Kamera bebas, foto apa saja diterima | Kamera **mendeteksi 4 kotak hitam secara live**, cek jarak/kemiringan/stabil, lalu **auto-jepret** |
 | Sistem **silang** (X = benar) | Sistem **arsir penuh** (lihat alasan di bawah) |
 | Grid Nama 20×26 + NPM 10 digit (60% halaman) | Nama ditulis tangan saja. **Bubble NIM 12 digit** dicocokkan ke daftar kelas, kalau tidak cocok pengawas pilih dari dropdown |
+| Kode soal pilihan tetap | **Kode soal 3 digit diarsir seperti NIM.** Kode yang berlaku diatur per ujian di halaman Admin |
+| Pernyataan kejujuran terpisah dari TTD | Pernyataan "mengerjakan secara jujur, tanpa bantuan AI maupun orang lain" tercetak tepat di atas kotak tanda tangan |
 | Validasi di satu sesi Streamlit | **Validasi lintas kelas**, oleh pengawas mana pun, dengan audit log setiap perubahan |
 | Nilai terlihat semua orang | **Kunci & nilai hanya admin** (dihitung di database, tidak pernah dikirim ke HP pengawas) |
 
@@ -31,14 +33,16 @@ ditebak diam-diam.
 ```
 v2/
 ├── ljk/generate_ljk.py      # LJK v2 (PDF) + template.json dari SATU sumber geometri
+├── ljk/build_docx.js        # LJK v2 versi Word (latar OMR terkunci + teks editable)
 ├── ljk/synth.py             # generator foto sintetis untuk tes
 ├── public/ljk/LJK_v2.pdf    # template cetak (A4)
+├── public/ljk/LJK_v2.docx   # template versi Word
 ├── lib/omr/                 # engine OMR TypeScript (browser & Node)
 │   ├── markers.ts           #   deteksi 4 kotak hitam + orientasi + verifikasi template
 │   ├── read.ts / decode.ts  #   sampling bubble + keputusan relatif per nomor
 │   ├── quality.ts           #   px/mm, sudut, ketajaman
 │   ├── grade.ts / nim.ts    #   penilaian & pencocokan NIM ke roster
-│   └── omr.test.ts          #   18 foto sintetis (miring, blur, WA, fotokopi, terbalik, dll.)
+│   └── omr.test.ts          #   20 foto sintetis (miring, blur, WA, fotokopi, terbalik, cetak dari Word, dll.)
 ├── components/scan/         # CameraScanner (live + auto-capture), ScanFlow (review & simpan)
 ├── components/validasi/     # ValidationEditor
 ├── app/                     # halaman: login, beranda, scan, validasi, rekap, admin, demo
@@ -50,7 +54,7 @@ v2/
 
 ### 1. Supabase
 1. Buat project baru di supabase.com (region Singapore).
-2. **SQL Editor →** jalankan `supabase/migrations/0001_init.sql`.
+2. **SQL Editor →** jalankan `supabase/migrations/0001_init.sql`, lalu `0002_kode_soal_digit.sql`.
 3. Buat seed dari Excel (file hasilnya berisi data pribadi, **jangan di-commit**):
    ```bash
    python v2/scripts/seed_from_excel.py \
@@ -85,9 +89,10 @@ cd v2
 cp .env.example .env.local   # isi URL & anon key
 npm install
 npm run dev                  # http://localhost:3000  (kamera jalan di localhost)
-npm test                     # tes engine OMR (18 foto sintetis)
+npm test                     # tes engine OMR (20 foto sintetis)
 npm run typecheck
 python ljk/generate_ljk.py   # kalau mengubah desain LJK: PDF + template.json ikut diperbarui
+node ljk/build_docx.js       # lalu bangun ulang versi Word
 python ljk/synth.py          # bikin ulang foto uji
 ```
 
@@ -102,7 +107,17 @@ kiri, jawaban di kanan (yang ragu/ganda disorot) → koreksi bila perlu → **Va
 (dengan alasan). Setiap perubahan tercatat di riwayat.
 
 **Admin:** *Rekap* (nilai, unduh Excel/CSV: sheet Rekap Nilai, Belum Upload, Ringkasan Kelas),
-*Admin* (whitelist pengawas, kunci jawaban per kode soal).
+*Admin* (whitelist pengawas, daftar kode soal + kunci jawaban per kode).
+
+## LJK versi Word (`LJK_v2.docx`)
+Semua yang dibaca mesin (4 kotak hitam, bar orientasi, bulatan, bingkai) adalah **satu gambar latar
+600 dpi yang terkunci** di belakang teks. Teks judul, petunjuk, pernyataan & footer berupa kotak teks
+yang **boleh diedit**. Aturannya:
+- Jangan memindah, memotong, atau mengubah ukuran gambar latar.
+- Edit teks seperlunya. Kalau terlalu panjang, perkecil font agar tetap di dalam kotaknya.
+- Cetak dengan skala **100% / Actual size** (bukan *Fit to page*) di kertas A4.
+- Perlu ubah posisi bulatan / jumlah soal? Ubah `ljk/generate_ljk.py`, jangan diubah di Word,
+  karena `template.json` aplikasi harus ikut berubah.
 
 ## Keamanan
 - RLS di semua tabel: akun di luar whitelist tidak bisa membaca/menulis apa pun.

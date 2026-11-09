@@ -15,6 +15,7 @@ export function toStoredOmr(scan: ScanResult, image: { w: number; h: number }): 
     stats: d.stats,
     nim: d.nim.items.map(strip),
     kode_soal: strip(d.kode_soal),
+    kode_items: d.kode_items.map(strip),
     kuisioner: d.kuisioner.map(strip),
     soal: d.soal.map(strip),
     ms: scan.ms,
@@ -24,9 +25,9 @@ export function toStoredOmr(scan: ScanResult, image: { w: number; h: number }): 
 }
 
 /** Jumlah item yang perlu diperhatikan validator. */
-export function countOmrFlags(omr: StoredOmr, nimMatched: boolean): number {
-  const items = [omr.kode_soal, ...omr.kuisioner, ...omr.soal];
-  return items.filter((i) => i.status === "ragu" || i.status === "multi").length + (nimMatched ? 0 : 1) + (omr.kode_soal.value ? 0 : 1);
+export function countOmrFlags(omr: StoredOmr, nimMatched: boolean, kodeValid: boolean): number {
+  const items = [...omr.kuisioner, ...omr.soal];
+  return items.filter((i) => i.status === "ragu" || i.status === "multi").length + (nimMatched ? 0 : 1) + (kodeValid ? 0 : 1);
 }
 
 /** Digit NIM per kolom dari string (karakter '?' -> null). */

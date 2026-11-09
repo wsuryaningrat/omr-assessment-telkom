@@ -22,17 +22,25 @@ for (const rr of [1.32, 1.5]) for (let i = 0; i < 24; i++) {
   RING.push([Math.cos(a) * rr, Math.sin(a) * rr]);
 }
 
+/** Ambang "tinta pekat" relatif terhadap putih lokal. */
+const INK_LEVEL = 0.68;
+/** Di bawah proporsi ini, kegelapan dianggap abu-abu rata (bekas hapusan / bayangan). */
+const MIN_INK_FRAC = 0.08;
+const SMUDGE_WEIGHT = 0.4;
+
+/**
+ * Kegelapan efektif bubble (0..1). Bubble yang gelapnya rata tanpa piksel tinta pekat
+ * (bekas hapusan, bayangan) dibobot turun agar tidak terbaca sebagai jawaban.
+ */
 export function bubbleDarkness(g: Gray, H: Homography, cx: number, cy: number, r: number): number {
-  let s = 0;
-  let n = 0;
+  const inner: number[] = [];
   for (const [dx, dy] of INNER) {
     const p = applyH(H, cx + dx * r, cy + dy * r);
     const v = bilinear(g, p.x, p.y);
-    if (!Number.isNaN(v)) {
-      s += v;
-      n++;
-    }
+    if (!Number.isNaN(v)) inner.push(v);
   }
+  const n = inner.length;
+  const s = inner.reduce((a, b) => a + b, 0);
   const ring: number[] = [];
   for (const [dx, dy] of RING) {
     const p = applyH(H, cx + dx * r, cy + dy * r);
@@ -42,7 +50,9 @@ export function bubbleDarkness(g: Gray, H: Homography, cx: number, cy: number, r
   if (n === 0 || ring.length < 8) return NaN;
   const white = percentile(ring, 75);
   if (!(white > 0)) return NaN;
-  return Math.max(0, Math.min(1, 1 - s / n / white));
+  const d = Math.max(0, Math.min(1, 1 - s / n / white));
+  const ink = inner.filter((v) => v < white * INK_LEVEL).length / n;
+  return ink < MIN_INK_FRAC ? d * SMUDGE_WEIGHT : d;
 }
 
 /** Baca kegelapan semua bubble pada semua field. */

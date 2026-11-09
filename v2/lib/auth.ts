@@ -31,10 +31,10 @@ export async function requireAdmin() {
 export async function getUjianAktif(supabase: Awaited<ReturnType<typeof supabaseServer>>) {
   const { data } = await supabase
     .from("ujian")
-    .select("id,nama,template_version")
+    .select("id,nama,template_version,kode_soal")
     .eq("aktif", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data as { id: string; nama: string; template_version: string } | null;
+  return data as { id: string; nama: string; template_version: string; kode_soal: string[] | null } | null;
 }

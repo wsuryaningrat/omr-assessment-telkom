@@ -41,6 +41,7 @@ export default function DemoValidasi() {
         nextId={null}
         takenNims={[]}
         me="demo@local"
+        kodeList={["192", "273", "365", "487"]}
       />
     </main>
   );

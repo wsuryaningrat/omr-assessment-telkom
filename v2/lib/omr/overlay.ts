@@ -11,7 +11,8 @@ export interface OverlayValues {
 
 export interface OverlayStatuses {
   nim?: ItemStatus[];
-  kode?: ItemStatus;
+  /** Status per digit kode soal. */
+  kode?: ItemStatus[];
   kuisioner?: ItemStatus[];
   soal?: ItemStatus[];
 }
@@ -88,7 +89,9 @@ export function drawOmrOverlay(
   };
 
   f.nim.items.forEach((it, i) => drawItem("nim", i, it.cells, f.nim.options, f.nim.r, values.nim[i] ?? null, statuses.nim?.[i]));
-  drawItem("kode_soal", 0, f.kode_soal.items[0].cells, f.kode_soal.options, f.kode_soal.r, values.kode, statuses.kode);
+  f.kode_soal.items.forEach((it, i) =>
+    drawItem("kode_soal", i, it.cells, f.kode_soal.options, f.kode_soal.r, values.kode && /^\d+$/.test(values.kode) ? (values.kode[i] ?? null) : null, statuses.kode?.[i]),
+  );
   f.kuisioner.items.forEach((it, i) =>
     drawItem("kuisioner", i, it.cells, f.kuisioner.options, f.kuisioner.r, values.kuisioner[i] ?? null, statuses.kuisioner?.[i]),
   );

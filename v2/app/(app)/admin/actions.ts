@@ -45,7 +45,8 @@ export async function simpanKunci(formData: FormData) {
   const { supabase } = await requireAdmin();
   const ujian = await getUjianAktif(supabase);
   if (!ujian) return;
-  const kode = String(formData.get("kode"));
+  const kode = String(formData.get("kode") ?? "").replace(/\D/g, "");
+  if (!/^\d{3}$/.test(kode)) return;
   const text = String(formData.get("kunci") ?? "");
   const rows = text
     .split(/\n/)
@@ -56,5 +57,19 @@ export async function simpanKunci(formData: FormData) {
   const jawaban = Object.fromEntries(Object.entries(parsed).map(([k, v]) => [String(k), v]));
   if (Object.keys(jawaban).length === 0) return;
   await supabase.from("kunci").upsert({ ujian_id: ujian.id, kode_soal: kode, jawaban, updated_at: new Date().toISOString() });
+  const list = new Set(ujian.kode_soal ?? []);
+  if (!list.has(kode)) {
+    await supabase.from("ujian").update({ kode_soal: [...list, kode].sort() }).eq("id", ujian.id);
+  }
+  revalidatePath("/admin");
+}
+
+export async function hapusKode(formData: FormData) {
+  const { supabase } = await requireAdmin();
+  const ujian = await getUjianAktif(supabase);
+  if (!ujian) return;
+  const kode = String(formData.get("kode"));
+  await supabase.from("kunci").delete().eq("ujian_id", ujian.id).eq("kode_soal", kode);
+  await supabase.from("ujian").update({ kode_soal: (ujian.kode_soal ?? []).filter((k) => k !== kode) }).eq("id", ujian.id);
   revalidatePath("/admin");
 }

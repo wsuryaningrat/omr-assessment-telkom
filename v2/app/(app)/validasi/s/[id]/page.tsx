@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requirePengawas } from "@/lib/auth";
+import { getUjianAktif, requirePengawas } from "@/lib/auth";
 import ValidationEditor from "@/components/validasi/ValidationEditor";
 import type { Peserta, Submission } from "@/lib/types";
 
@@ -9,6 +9,7 @@ export default async function ValidasiDetail(props: { params: Promise<{ id: stri
   const { data: sub } = await supabase.from("submissions").select("*").eq("id", id).maybeSingle();
   if (!sub) notFound();
   const s = sub as Submission;
+  const ujian = await getUjianAktif(supabase);
   const [{ data: signed }, { data: peserta }, { data: audit }, { data: next }, { data: others }] = await Promise.all([
     supabase.storage.from("ljk").createSignedUrl(s.photo_path, 60 * 60),
     supabase.from("peserta").select("kelas_id,nim,nama").eq("kelas_id", s.kelas_id).order("nama"),
@@ -34,6 +35,7 @@ export default async function ValidasiDetail(props: { params: Promise<{ id: stri
       nextId={next?.id ?? null}
       takenNims={(others ?? []).map((o) => o.nim)}
       me={pengawas.email}
+      kodeList={ujian?.kode_soal ?? []}
     />
   );
 }

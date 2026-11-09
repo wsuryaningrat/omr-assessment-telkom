@@ -56,7 +56,10 @@ export interface ItemResult {
 
 export interface DecodedSheet {
   nim: { value: string; items: ItemResult[] };
+  /** Kode soal gabungan (mis. "273"); status = digit terburuk. */
   kode_soal: ItemResult;
+  /** Detail per digit kode soal. */
+  kode_items: ItemResult[];
   kuisioner: ItemResult[];
   soal: ItemResult[];
   stats: { baseline: number; peak: number; threshold: number };

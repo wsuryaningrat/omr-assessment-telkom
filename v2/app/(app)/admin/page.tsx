@@ -1,6 +1,6 @@
 import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { TEMPLATE } from "@/lib/omr/scan";
-import { setPengawas, simpanKunci, tambahPengawas } from "./actions";
+import { hapusKode, setPengawas, simpanKunci, tambahPengawas } from "./actions";
 
 export default async function AdminPage() {
   const { supabase, pengawas: me } = await requireAdmin();
@@ -13,6 +13,7 @@ export default async function AdminPage() {
   const uploads = new Map<string, number>();
   (counts ?? []).forEach((c) => uploads.set(c.uploaded_by, (uploads.get(c.uploaded_by) ?? 0) + 1));
   const kunciMap = new Map((kunci ?? []).map((k) => [k.kode_soal, k]));
+  const kodeList = [...new Set([...(ujian?.kode_soal ?? []), ...kunciMap.keys()])].sort();
 
   return (
     <div className="space-y-6">
@@ -84,11 +85,11 @@ export default async function AdminPage() {
       <section className="card p-4">
         <h2 className="mb-1 font-semibold">Kunci jawaban</h2>
         <p className="mb-3 text-xs text-muted">
-          Tempel satu nomor per baris: <code>1 B</code>, <code>2 A,C</code> (lebih dari satu benar), <code>3 *</code> (bonus). Hanya nomor yang ada di kunci
-          yang dinilai. Kunci tidak pernah terlihat oleh pengawas.
+          Kode soal 3 digit (diarsir mahasiswa di LJK). Tempel satu nomor per baris: <code>1 B</code>, <code>2 A,C</code> (lebih dari satu benar),{" "}
+          <code>3 *</code> (bonus). Hanya nomor yang ada di kunci yang dinilai. Daftar kode terlihat pengawas, isi kunci tidak.
         </p>
         <div className="grid gap-4 md:grid-cols-2">
-          {TEMPLATE.fields.kode_soal.options.map((kode) => {
+          {kodeList.map((kode) => {
             const k = kunciMap.get(kode);
             const text = k
               ? Object.entries(k.jawaban as Record<string, string[]>)
@@ -106,10 +107,21 @@ export default async function AdminPage() {
                   </span>
                 </div>
                 <textarea name="kunci" defaultValue={text} className="input h-40 font-mono text-xs" />
-                <button className="btn-ghost w-full">Simpan kunci {kode}</button>
+                <div className="flex gap-2">
+                  <button className="btn-ghost flex-1">Simpan kunci {kode}</button>
+                  <button formAction={hapusKode} className="btn-ghost text-bad" title="Hapus kode & kuncinya">
+                    Hapus
+                  </button>
+                </div>
               </form>
             );
           })}
+          <form action={simpanKunci} className="space-y-2 rounded-lg border border-dashed border-line p-3">
+            <div className="font-semibold">Tambah kode soal baru</div>
+            <input name="kode" className="input max-w-32 font-mono" inputMode="numeric" maxLength={3} placeholder="mis. 518" required />
+            <textarea name="kunci" className="input h-32 font-mono text-xs" placeholder={"1 A\n2 C\n3 B"} required />
+            <button className="btn-primary w-full">Tambah</button>
+          </form>
         </div>
       </section>
     </div>

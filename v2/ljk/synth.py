@@ -24,8 +24,11 @@ DPI = 200
 PX_PER_MM = DPI / 25.4
 
 
-def render_blank():
-    pdf = pdfium.PdfDocument(PDF)
+WORD_RENDER = os.path.join(HERE, "word_render_libreoffice.pdf")
+
+
+def render_blank(path=PDF):
+    pdf = pdfium.PdfDocument(path)
     img = pdf[0].render(scale=DPI / 72).to_numpy()
     img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR) if img.shape[2] == 4 else cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     return img
@@ -76,10 +79,11 @@ def fill_sheet(img, tpl, rng, style="fill"):
         cx, cy = mm(item["cells"][int(nim[c])])
         pencil_fill(img, cx, cy, f["nim"]["r"] * PX_PER_MM, rng)
 
-    k = int(rng.integers(0, 4))
-    truth["kode_soal"] = f["kode_soal"]["options"][k]
-    cx, cy = mm(f["kode_soal"]["items"][0]["cells"][k])
-    pencil_fill(img, cx, cy, f["kode_soal"]["r"] * PX_PER_MM, rng)
+    kode = ["192", "273", "365", "487"][int(rng.integers(0, 4))]
+    truth["kode_soal"] = kode
+    for c, item in enumerate(f["kode_soal"]["items"]):
+        cx, cy = mm(item["cells"][int(kode[c])])
+        pencil_fill(img, cx, cy, f["kode_soal"]["r"] * PX_PER_MM, rng)
 
     for name in ("kuisioner", "soal"):
         fd = f[name]
@@ -220,6 +224,9 @@ CASES = [
     ("13_campur_ganda_tipis", dict(tilt=0.05), "mixed"),
     ("14_benda_hitam_dekat_pojok", dict(tilt=0.03, fill_frac=0.72, near_corner=True), "fill"),
     ("15_benda_dekat_pojok_wa", dict(out_size=(1080, 1920), jpeg=75, tilt=0.03, fill_frac=0.75, near_corner=True), "fill"),
+    # dicetak dari versi Word (LJK_v2.docx dirender LibreOffice) — memastikan posisi bubble tetap tepat
+    ("16_cetak_dari_word", dict(tilt=0.04, rot_deg=4, blank="word"), "fill"),
+    ("17_cetak_dari_word_wa", dict(out_size=(1080, 1920), jpeg=72, tilt=0.03, fill_frac=0.8, blank="word"), "fill"),
 ]
 
 
@@ -227,10 +234,15 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     tpl = json.load(open(TPL))
     blank = render_blank()
+    blank_word = render_blank(WORD_RENDER) if os.path.exists(WORD_RENDER) else None
     truth_all = {}
     for i, (name, kw, style) in enumerate(CASES):
         rng = np.random.default_rng(1000 + i)
-        sheet = blank.copy()
+        kw = dict(kw)
+        src = kw.pop("blank", None)
+        if src == "word" and blank_word is None:
+            continue
+        sheet = (blank_word if src == "word" else blank).copy()
         truth = fill_sheet(sheet, tpl, rng, style=style)
         photo = photograph(sheet, rng, **kw)
         # Simpan ukuran wajar agar repo tidak bengkak

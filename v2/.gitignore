@@ -10,3 +10,6 @@ next-env.d.ts
 # data pribadi (seed roster/kunci/pengawas) jangan pernah di-commit
 seed*.sql
 *.xlsx
+
+# artefak build LJK (dibuat ulang oleh ljk/generate_ljk.py)
+ljk/build/

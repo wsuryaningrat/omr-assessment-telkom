@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
+import KodePicker from "@/components/KodePicker";
 import OmrImage from "@/components/OmrImage";
 import StudentPicker from "@/components/StudentPicker";
 import { matchNim } from "@/lib/omr/nim";
 import { countOmrFlags, nimToDigits, toStoredOmr } from "@/lib/omr/store";
-import { TEMPLATE } from "@/lib/omr/scan";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Kelas, Peserta } from "@/lib/types";
 import CameraScanner, { type Capture } from "./CameraScanner";
@@ -33,16 +33,17 @@ interface Review {
   ganti: boolean;
 }
 
-const KODE = TEMPLATE.fields.kode_soal.options;
-
 export default function ScanFlow({
   kelas,
   peserta,
   existing: initialExisting,
   pengawasEmail,
+  kodeList,
   demo = false,
 }: {
   kelas: Kelas;
+  /** Kode soal yang berlaku di ujian aktif. */
+  kodeList: string[];
   peserta: Peserta[];
   existing: Existing[];
   pengawasEmail: string;
@@ -76,13 +77,13 @@ export default function ScanFlow({
         nim: m.exact?.nim ?? "",
         nimSource: m.exact ? "omr" : "dropdown",
         suggestions: m.suggestions.map((s) => s.nim),
-        kode: d.kode_soal.status === "ok" || d.kode_soal.status === "ragu" ? d.kode_soal.value : null,
+        kode: d.kode_soal.value && kodeList.includes(d.kode_soal.value) ? d.kode_soal.value : null,
         soal: d.soal.map((i) => i.value),
         kuis: d.kuisioner.map((i) => i.value),
         ganti: false,
       });
     },
-    [peserta],
+    [peserta, kodeList],
   );
 
   const save = async () => {
@@ -127,7 +128,8 @@ export default function ScanFlow({
         jawaban: review.soal,
         kuisioner: review.kuis,
         omr,
-        flags: countOmrFlags(omr, review.nimSource === "omr") + (matched ? 0 : 1),
+        flags:
+          countOmrFlags(omr, review.nimSource === "omr", omr.kode_soal.value === review.kode && kodeList.includes(review.kode)) + (matched ? 0 : 1),
         photo_path: path,
       };
       const { data: id, error: rpcErr } = await supabase.rpc("simpan_ljk", { payload, ganti: review.ganti });
@@ -192,7 +194,7 @@ export default function ScanFlow({
               values={{ nim: nimToDigits(review.nimRead), kode: review.kode, kuisioner: review.kuis, soal: review.soal }}
               statuses={{
                 nim: d.nim.items.map((i) => i.status),
-                kode: d.kode_soal.status,
+                kode: d.kode_items.map((i) => i.status),
                 kuisioner: d.kuisioner.map((i) => i.status),
                 soal: soalStatus,
               }}
@@ -248,19 +250,14 @@ export default function ScanFlow({
             <section className="card p-4">
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-sm font-bold">Kode soal</h3>
-                {d.kode_soal.status !== "ok" && <span className="pill bg-amber-100 text-warn">cek manual</span>}
+                <span className="font-mono text-xs text-muted">terbaca: {d.kode_items.map((i) => i.value ?? "?").join("")}</span>
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {KODE.map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setReview({ ...review, kode: k })}
-                    className={`rounded-lg border py-2.5 font-mono text-sm font-bold ${review.kode === k ? "border-brand bg-brand text-white" : "border-line bg-white"}`}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
+              <KodePicker
+                kodeList={kodeList}
+                value={review.kode}
+                read={d.kode_soal.value}
+                onChange={(k) => setReview({ ...review, kode: k })}
+              />
             </section>
 
             {/* Ringkasan */}

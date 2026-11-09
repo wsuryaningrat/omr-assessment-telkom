@@ -20,6 +20,7 @@ export default function DemoPage() {
         peserta={peserta}
         existing={[]}
         pengawasEmail="demo@local"
+        kodeList={["192", "273", "365", "487"]}
       />
     </main>
   );

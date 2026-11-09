@@ -4,15 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
+import KodePicker from "@/components/KodePicker";
 import OmrImage from "@/components/OmrImage";
 import StudentPicker from "@/components/StudentPicker";
 import { nimToDigits } from "@/lib/omr/store";
-import { TEMPLATE } from "@/lib/omr/scan";
 import type { OverlayFocus } from "@/lib/omr/overlay";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { STATUS_LABEL, type Peserta, type Submission, type SubmissionStatus } from "@/lib/types";
-
-const KODE = TEMPLATE.fields.kode_soal.options;
 
 export default function ValidationEditor({
   sub,
@@ -22,7 +20,9 @@ export default function ValidationEditor({
   nextId,
   takenNims,
   me,
+  kodeList,
 }: {
+  kodeList: string[];
   sub: Submission;
   photoUrl: string | null;
   peserta: Peserta[];
@@ -117,7 +117,7 @@ export default function ValidationEditor({
               showOverlay={overlay}
               focus={focus}
               values={{ nim: nimToDigits(sub.nim_terbaca ?? ""), kode, kuisioner: kuis, soal }}
-              statuses={{ nim: omr.nim.map((i) => i.status), kode: omr.kode_soal.status, kuisioner: kuisStatus, soal: soalStatus }}
+              statuses={{ nim: omr.nim.map((i) => i.status), kode: omr.kode_items?.map((i) => i.status), kuisioner: kuisStatus, soal: soalStatus }}
             />
           ) : (
             <div className="card p-6 text-sm text-muted">Foto tidak bisa dimuat.</div>
@@ -174,20 +174,11 @@ export default function ValidationEditor({
           <section className="card p-4">
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-sm font-bold">Kode soal</h3>
-              {omr.kode_soal.status !== "ok" && <span className="pill bg-amber-100 text-warn">OMR: {omr.kode_soal.status}</span>}
+              <span className="font-mono text-xs text-muted">
+                terbaca: {omr.kode_items ? omr.kode_items.map((i) => i.value ?? "?").join("") : (omr.kode_soal.value ?? "—")}
+              </span>
             </div>
-            <div className="grid grid-cols-4 gap-2">
-              {KODE.map((k) => (
-                <button
-                  key={k}
-                  disabled={locked}
-                  onClick={() => setKode(k)}
-                  className={`rounded-lg border py-2 font-mono text-sm font-bold ${kode === k ? "border-brand bg-brand text-white" : "border-line bg-white"}`}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
+            <KodePicker kodeList={kodeList} value={kode} read={omr.kode_soal.value} onChange={setKode} disabled={locked} />
           </section>
 
           <section className="card space-y-4 p-4">
