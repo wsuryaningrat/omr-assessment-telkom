@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #ba0c2f;
+  --color-brand-dark: #8f0924;
+  --color-brand-soft: #fff1f2;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-bad: #b91c1c;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  @apply bg-slate-50 text-ink antialiased;
+}
+
+@utility card {
+  @apply rounded-xl border border-line bg-white;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-brand text-white hover:bg-brand-dark;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-white text-ink hover:bg-slate-50;
+}
+@utility btn-ok {
+  @apply btn bg-ok text-white hover:brightness-95;
+}
+@utility input {
+  @apply w-full rounded-lg border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+}
+@utility label {
+  @apply mb-1 block text-xs font-semibold tracking-wide text-muted uppercase;
+}
+@utility pill {
+  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold;
+}

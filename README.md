@@ -2,6 +2,8 @@
 
 Aplikasi web **Streamlit Full OMR Calibration & Testing** untuk Lembar Jawaban Komputer (LJK) mahasiswa Telkom University menggunakan **OpenCV 100% deterministic** (zero OCR, zero LLM, zero AI Vision).
 
+> **v2 (branch `v2`, folder [`v2/`](v2/README.md))**: web app Next.js + Supabase di Vercel: login Google + whitelist pengawas, pilih kelas Pendidikan Karakter, scan LJK satu per satu lewat kamera dengan deteksi 4 kotak hitam & auto-capture (tanpa bulk upload), LJK baru berbasis arsir, dan validasi lintas kelas. Lihat [`v2/README.md`](v2/README.md).
+
 ---
 
 ## Fitur Utama

@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+.env*.local
+.env
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+# data pribadi (seed roster/kunci/pengawas) jangan pernah di-commit
+seed*.sql
+*.xlsx
