@@ -22,9 +22,9 @@ export async function proxy(request: NextRequest) {
     },
   });
   // Wajib: menyegarkan token sesi
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verifikasi lokal + segarkan token bila perlu (lebih cepat dari getUser yang selalu ke server Auth)
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
