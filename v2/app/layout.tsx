@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "LJK Scanner v2 — Math Center",
-  description: "Pemindai LJK profiling literasi numerik, Math Center CSWDA Telkom University",
+  description: "Pemindai LJK profiling literasi numerasi, Math Center CSWDA Telkom University",
 };
 
 export const viewport: Viewport = {

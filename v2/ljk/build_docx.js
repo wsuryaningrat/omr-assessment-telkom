@@ -101,7 +101,7 @@ for (const blk of BLOCKS.blocks) {
 
 const doc = new Document({
   creator: "Math Center CSWDA - Telkom University",
-  title: "LJK v2 - Profiling Literasi Numerik",
+  title: "LJK v2 - Profiling Literasi Numerasi",
   description:
     "Teks judul, petunjuk, pernyataan & footer boleh diedit. JANGAN memindah/mengubah ukuran gambar latar (kotak hitam & bulatan) dan cetak dengan skala 100% (Actual size).",
   styles: { default: { document: { run: { font: "Arial", size: 12 } } } },

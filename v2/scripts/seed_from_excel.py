@@ -19,7 +19,7 @@ import re
 import openpyxl
 
 UJIAN_ID = "pendikar-2026"
-UJIAN_NAMA = "Profiling Literasi Numerik — MK Pendidikan Karakter 2026"
+UJIAN_NAMA = "Profiling Literasi Numerasi — MK Pendidikan Karakter 2026"
 TEMPLATE_VERSION = "ljk-v2-2"
 
 

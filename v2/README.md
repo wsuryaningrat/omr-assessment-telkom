@@ -1,6 +1,6 @@
 # LJK Scanner v2: Math Center CSWDA
 
-Web app (Next.js + Supabase, deploy di Vercel) untuk memindai LJK Profiling Literasi Numerik.
+Web app (Next.js + Supabase, deploy di Vercel) untuk memindai LJK Profiling Literasi Numerasi.
 Sasaran pertama **mahasiswa MK Pendidikan Karakter**, tapi LJK & aplikasinya umum (bisa dipakai ujian lain). Semua OMR berjalan **di browser HP
 pengawas** (OpenCV-style deterministik, tanpa AI/OCR), dan server hanya menyimpan hasil + foto.
 

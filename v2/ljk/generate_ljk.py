@@ -130,6 +130,29 @@ def build_geometry():
 
 
 # ---------------------------------------------------------------------------
+# Logo di pita atas, di antara kotak hitam pojok (bukan area baca OMR).
+# Jarak >= 5 mm dari kotak pojok (cincin cek kontras r=7.2 mm) dan dari bar orientasi.
+# [file, x, y_atas, tinggi] mm; lebar mengikuti rasio gambar.
+# ---------------------------------------------------------------------------
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+LOGOS = [
+    ("logo_telkom.png", 24.0, 10.0, 8.0, "left"),
+    ("logo_cswda.png", 186.0, 10.6, 6.8, "right"),
+]
+
+
+def draw_logos(c):
+    from reportlab.lib.utils import ImageReader
+
+    for fname, x, y, h, anchor in LOGOS:
+        img = ImageReader(os.path.join(ASSETS_DIR, fname))
+        iw, ih = img.getSize()
+        w = h * iw / ih
+        x0 = x if anchor == "left" else x - w
+        c.drawImage(img, X(x0), Y(y + h), w * mm, h * mm, mask="auto")
+
+
+# ---------------------------------------------------------------------------
 # Teks yang boleh diedit (di versi Word jadi kotak teks; tidak dibaca OMR)
 # box = [x, y, w, h] mm dari kiri-atas. size dalam pt.
 # ---------------------------------------------------------------------------
@@ -142,7 +165,7 @@ TEXT_BLOCKS = [
         "leading": 1.32,
         "lines": [
             {"text": "LEMBAR JAWABAN KOMPUTER", "size": 11, "bold": True},
-            {"text": "PROFILING LITERASI NUMERIK", "size": 8, "bold": True, "italic": True},
+            {"text": "PROFILING LITERASI NUMERASI", "size": 8, "bold": True, "italic": True},
             {"text": "MATH CENTER - CSWDA - TELKOM UNIVERSITY", "size": 6.5},
         ],
     },
@@ -292,7 +315,7 @@ def bubble(c, cx, cy, r, label, filled=False, mark=None):
 def draw_pdf(fields, path, editable_text=True):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     c = canvas.Canvas(path, pagesize=(PAGE_W * mm, PAGE_H * mm))
-    c.setTitle("LJK v2 - Profiling Literasi Numerik - Pendidikan Karakter")
+    c.setTitle("LJK v2 - Profiling Literasi Numerasi")
     c.setAuthor("Math Center CSWDA - Telkom University")
 
     # Kotak hitam pojok
@@ -303,8 +326,9 @@ def draw_pdf(fields, path, editable_text=True):
     # Bar orientasi
     o = ORIENTATION
     c.rect(X(o["x"]), Y(o["y"] + o["h"]), o["w"] * mm, o["h"] * mm, stroke=0, fill=1)
-    text(c, 52, 15.4, "Bagian ATAS lembar", size=6.5, color=GRAY_LABEL, align="center", italic=True)
-    text(c, 158, 15.4, TEMPLATE_VERSION, size=6.5, color=GRAY_LABEL, align="center")
+    draw_logos(c)
+    text(c, 66, 15.4, "Bagian ATAS lembar", size=6.0, color=GRAY_LABEL, align="center", italic=True)
+    text(c, 137, 15.4, TEMPLATE_VERSION, size=6.0, color=GRAY_LABEL, align="center")
 
     # Header (bingkai di latar, teks bisa diedit)
     frame(c, 12, 22, 94, 16)
