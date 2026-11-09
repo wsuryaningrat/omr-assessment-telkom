@@ -70,7 +70,11 @@ export default async function ValidasiIndex(props: { searchParams: Promise<{ sem
             </div>
           </Link>
         ))}
-        {rows.length === 0 && <div className="card p-6 text-sm text-muted sm:col-span-2">Semua LJK sudah divalidasi 🎉</div>}
+        {rows.length === 0 && (
+          <div className="card p-6 text-sm text-muted sm:col-span-2">
+            {all.some((r) => r.terupload > 0) ? "Semua LJK sudah divalidasi 🎉" : "Belum ada LJK yang diupload."}
+          </div>
+        )}
       </div>
     </div>
   );
