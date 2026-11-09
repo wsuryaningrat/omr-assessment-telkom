@@ -4,6 +4,27 @@ Situs utama sudah punya menu **Evaluasi LJK → `/ljk`** (versi lama, upload mas
 Aplikasi v2 bisa dipasang dengan salah satu cara di bawah. Tampilan v2 sudah memakai
 palet, font, dan logo yang sama dengan situs utama (Math Center, Telkom University, CSWDA).
 
+## Rekomendasi: `mathcenter.cswda.id/v2` lewat Caddy di VPS Math Center
+
+Situs utama (FastAPI + Caddy, `deploy/` di branch `deploy/no-cnn`) sudah disiapkan di branch
+**`feat/integrasi-v2`**: Caddy meneruskan `/v2*` ke Vercel, beranda mendapat menu & kartu
+"Scan LJK v2". Halaman `/ljk` (v1) tidak berubah, jadi keduanya bisa jalan berdampingan.
+
+Urutan go-live:
+
+1. **Vercel** → `ljk-scanner-v2` → Settings → Environment Variables (Production):
+   `NEXT_PUBLIC_BASE_PATH=/v2`, `NEXT_PUBLIC_SITE_URL=https://mathcenter.cswda.id` → Redeploy.
+   (Setelah ini alamat vercel.app juga pindah ke `https://ljk-scanner-v2.vercel.app/v2`.)
+   `NEXT_PUBLIC_SITE_URL` wajib: Vercel menimpa `x-forwarded-host`, jadi redirect login
+   memakai env ini agar pengguna tetap di mathcenter.cswda.id.
+2. **Supabase** → Authentication → URL Configuration: Site URL `https://mathcenter.cswda.id/v2`,
+   tambah Redirect URL `https://mathcenter.cswda.id/v2/auth/callback`.
+3. **Google Auth Platform** → Branding: Authorized domains tambah `cswda.id`; home page
+   `https://mathcenter.cswda.id/v2`, privasi `…/v2/privasi`, ketentuan `…/v2/ketentuan`.
+4. **VPS**: merge `feat/integrasi-v2` ke branch yang dipakai VPS, lalu `bash deploy/update.sh`.
+   Cek Caddyfile dulu: `docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec caddy caddy validate --config /etc/caddy/Caddyfile`.
+5. Buka `https://mathcenter.cswda.id/v2/` → login Google → scan.
+
 ## Pilihan A — Subdomain (paling sederhana)
 
 Contoh: `ljk.mathcenter.cswda.id` (atau `scan.mathcenter.cswda.id`).

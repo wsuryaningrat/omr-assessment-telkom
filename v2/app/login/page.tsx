@@ -57,7 +57,7 @@ export default async function LoginPage(props: { searchParams: Promise<{ next?: 
           </p>
         </section>
       </div>
-      <footer className="pb-6 text-center text-xs text-ink3">developed by DIS MathCenter CSWDA Telkom University</footer>
+      <footer className="pb-6 text-center text-xs text-ink3">developed by WHS MathCenter CSWDA Telkom University</footer>
     </main>
   );
 }

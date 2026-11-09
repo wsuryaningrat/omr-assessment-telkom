@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </header>
       <main className="mx-auto max-w-6xl px-4 py-5">{children}</main>
       <footer className="mx-auto max-w-6xl px-4 pt-4 pb-8 text-center text-xs text-ink3">
-        developed by DIS MathCenter CSWDA Telkom University
+        developed by WHS MathCenter CSWDA Telkom University
       </footer>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         <NavLinks isAdmin={isAdmin} variant="bottom" />
