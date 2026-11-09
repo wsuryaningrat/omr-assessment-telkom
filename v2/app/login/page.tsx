@@ -17,6 +17,9 @@ export default async function LoginPage(props: { searchParams: Promise<{ next?: 
         <div className="mt-6">
           <LoginButton next={next} />
         </div>
+        <p className="mt-6 text-xs text-muted">
+          <a className="underline" href="/privasi">Kebijakan Privasi</a> · <a className="underline" href="/ketentuan">Ketentuan Layanan</a>
+        </p>
       </div>
     </main>
   );
