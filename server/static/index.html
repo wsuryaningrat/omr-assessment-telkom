@@ -49,6 +49,7 @@
 .tool{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between;background:linear-gradient(120deg,#FDECEF,#fff);border:1px solid #F3C9D2;border-radius:18px;padding:22px 26px}
 .tool h4{margin:0 0 4px;font-size:18px}.tool p{margin:0;color:var(--ink2);font-size:14.5px;max-width:60ch}
 .tool a{text-decoration:none}
+.tool+.tool{margin-top:14px}
 .rv{opacity:0;transform:translateY(16px);transition:opacity .5s,transform .5s}.rv.in{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.hero .orb,.hero .sym span{animation:none}}
 footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32px}
@@ -68,6 +69,7 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu">
+      <a href="/v2/" role="menuitem">Scan LJK v2 (kamera)</a>
       <a href="/ljk" role="menuitem">Evaluasi LJK</a>
       <a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/admin" role="menuitem">Administrator</a>
     </div>
@@ -115,6 +117,10 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32
     <div class="tool">
       <div><h4>Evaluasi LJK</h4><p>Pengawas mengunggah foto lembar jawaban; sistem memindai, memvalidasi, dan menyimpan hasilnya untuk profiling per kelas, fakultas, dan program studi.</p></div>
       <a class="btn p" href="/ljk">Buka Evaluasi LJK →</a>
+    </div>
+    <div class="tool">
+      <div><h4>Scan LJK v2 — langsung dari kamera</h4><p>Pengawas masuk dengan Google, memilih kelas, lalu memotret LJK satu per satu. Hasil baca tampil seketika, tersimpan otomatis, dan bisa divalidasi pengawas mana pun.</p></div>
+      <a class="btn p" href="/v2/">Buka Scan LJK v2 →</a>
     </div>
   </section>
 </main>

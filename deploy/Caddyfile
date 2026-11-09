@@ -12,7 +12,16 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
-	reverse_proxy api:8000 {
-		flush_interval -1
+	# LJK Scanner v2 (Next.js di Vercel) dipasang di /v2 — app di-build dengan NEXT_PUBLIC_BASE_PATH=/v2
+	handle /v2* {
+		reverse_proxy https://ljk-scanner-v2.vercel.app {
+			header_up Host {upstream_hostport}
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
 	}
 }
