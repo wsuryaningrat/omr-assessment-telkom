@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { loadRekap } from "@/lib/rekap";
+import { asset } from "@/lib/basePath";
 
 export default async function RekapPage(props: { searchParams: Promise<{ kelas?: string; status?: string }> }) {
   const { kelas, status } = await props.searchParams;
@@ -18,14 +19,14 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Rekap nilai</h1>
+          <h1 className="font-serif text-2xl font-bold">Rekap nilai</h1>
           <p className="text-sm text-muted">Nilai dihitung di server dari kunci (hanya admin yang melihat kunci & nilai).</p>
         </div>
         <div className="flex gap-2">
-          <a href="/api/rekap?format=xlsx" className="btn-primary">
+          <a href={asset("/api/rekap?format=xlsx")} className="btn-primary">
             Unduh Excel
           </a>
-          <a href="/api/rekap?format=csv" className="btn-ghost">
+          <a href={asset("/api/rekap?format=csv")} className="btn-ghost">
             CSV
           </a>
         </div>
@@ -37,7 +38,7 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
         <Box label="Belum upload" value={kelas ? belum.filter((b) => b.kelas_id === kelas).length : belum.length} />
       </div>
       {tanpaKunci > 0 && (
-        <div className="rounded-lg bg-amber-50 p-3 text-sm text-warn">{tanpaKunci} LJK belum bisa dinilai (kode soal kosong atau kunci belum diisi).</div>
+        <div className="rounded-lg bg-warn-bg p-3 text-sm text-warn">{tanpaKunci} LJK belum bisa dinilai (kode soal kosong atau kunci belum diisi).</div>
       )}
       <form className="flex flex-wrap gap-2">
         <select name="kelas" defaultValue={kelas ?? ""} className="input max-w-xs">
@@ -55,7 +56,7 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
       </form>
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs text-muted uppercase">
+          <thead className="bg-soft text-left text-xs text-muted uppercase">
             <tr>
               <th className="px-3 py-2">Kelas</th>
               <th className="px-3 py-2">NIM</th>
@@ -68,7 +69,7 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
           </thead>
           <tbody className="divide-y divide-line">
             {shown.map((r) => (
-              <tr key={r.submission_id} className="hover:bg-slate-50">
+              <tr key={r.submission_id} className="hover:bg-soft">
                 <td className="px-3 py-2 text-xs whitespace-nowrap">{r.kelas_id}</td>
                 <td className="px-3 py-2 font-mono text-xs">{r.nim}</td>
                 <td className="px-3 py-2">
@@ -82,7 +83,7 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
                 </td>
                 <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.nilai ?? "—"}</td>
                 <td className="px-3 py-2">
-                  <span className={`pill ${r.status === "valid" ? "bg-green-100 text-ok" : "bg-amber-100 text-warn"}`}>
+                  <span className={`pill ${r.status === "valid" ? "bg-ok-bg text-ok" : "bg-warn-bg text-warn"}`}>
                     {r.status === "valid" ? "valid" : "menunggu"}
                   </span>
                 </td>

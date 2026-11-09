@@ -24,7 +24,7 @@ export default async function PilihKelas(props: { searchParams: Promise<{ q?: st
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold">Pilih kelas yang diawasi</h1>
+        <h1 className="font-serif text-2xl font-bold">Pilih kelas yang diawasi</h1>
         <p className="text-sm text-muted">Setelah memilih kelas, foto LJK mahasiswa satu per satu dengan kamera.</p>
       </div>
       <form className="flex gap-2">
@@ -33,10 +33,10 @@ export default async function PilihKelas(props: { searchParams: Promise<{ q?: st
       </form>
       {[...byHari.entries()].map(([hari, list]) => (
         <section key={hari}>
-          <h2 className="mb-2 text-xs font-bold tracking-wider text-muted uppercase">{hari}</h2>
+          <h2 className="mb-2 text-[11px] font-bold tracking-[0.12em] text-brand uppercase">{hari}</h2>
           <div className="grid gap-2 sm:grid-cols-2">
             {list.map((r) => (
-              <Link key={r.kelas_id} href={`/scan/${encodeURIComponent(r.kelas_id)}`} className="card block p-4 hover:border-brand">
+              <Link key={r.kelas_id} href={`/scan/${encodeURIComponent(r.kelas_id)}`} className="card block p-4 transition hover:-translate-y-0.5 hover:border-brand hover:shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate font-semibold">{r.kelas_id}</div>

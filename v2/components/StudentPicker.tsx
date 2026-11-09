@@ -65,13 +65,13 @@ export default function StudentPicker({
               key={p.nim}
               onClick={() => onChange(p.nim, "dropdown")}
               className={`flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-sm last:border-0 ${
-                value === p.nim ? "bg-brand-soft" : "hover:bg-slate-50"
+                value === p.nim ? "bg-brand-soft" : "hover:bg-soft"
               }`}
             >
               <span className="font-mono text-xs text-muted">{p.nim}</span>
               <span className="flex-1 truncate font-medium">{p.nama}</span>
               {isSug && <span className="pill bg-blue-100 text-blue-700">mirip</span>}
-              {done && <span className="pill bg-slate-100 text-slate-600">sudah</span>}
+              {done && <span className="pill bg-soft text-ink2">sudah</span>}
             </button>
           );
         })}

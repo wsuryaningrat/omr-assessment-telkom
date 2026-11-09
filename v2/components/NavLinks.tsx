@@ -21,7 +21,7 @@ export default function NavLinks({ isAdmin, variant }: { isAdmin: boolean; varia
           <li key={l.href}>
             <Link
               href={l.href}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${active(l.href) ? "bg-brand-soft text-brand" : "text-slate-600 hover:bg-slate-100"}`}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${active(l.href) ? "bg-brand-soft text-brand" : "text-ink2 hover:bg-soft"}`}
             >
               {l.label}
             </Link>
@@ -36,7 +36,7 @@ export default function NavLinks({ isAdmin, variant }: { isAdmin: boolean; varia
         <li key={l.href} className="flex-1">
           <Link
             href={l.href}
-            className={`flex flex-col items-center py-2 text-[11px] font-semibold ${active(l.href) ? "text-brand" : "text-slate-500"}`}
+            className={`flex flex-col items-center py-2 text-[11px] font-semibold ${active(l.href) ? "text-brand" : "text-ink3"}`}
           >
             <span className="text-lg leading-none">{l.icon}</span>
             {l.label}

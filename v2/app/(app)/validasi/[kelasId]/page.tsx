@@ -38,7 +38,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
         <Link href="/validasi" className="text-xs font-semibold text-brand">
           ← Semua kelas
         </Link>
-        <h1 className="text-xl font-bold">{kelas.id}</h1>
+        <h1 className="font-serif text-2xl font-bold">{kelas.id}</h1>
         <p className="text-sm text-muted">
           {kelas.prodi} · {kelas.hari} {kelas.waktu} · {kelas.ruangan}
         </p>
@@ -48,7 +48,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
           <Link
             key={x.key}
             href={`?tab=${x.key}`}
-            className={`pill px-3 py-1 ${x.key === t.key ? "bg-ink text-white" : "bg-white text-slate-600 ring-1 ring-line"}`}
+            className={`pill px-3 py-1 ${x.key === t.key ? "bg-ink text-white" : "bg-white text-ink2 ring-1 ring-line"}`}
           >
             {x.label}
           </Link>
@@ -56,7 +56,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
       </div>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs text-muted uppercase">
+          <thead className="bg-soft text-left text-xs text-muted uppercase">
             <tr>
               <th className="px-3 py-2">Mahasiswa</th>
               <th className="hidden px-3 py-2 sm:table-cell">Kode</th>
@@ -67,7 +67,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
           </thead>
           <tbody className="divide-y divide-line">
             {(subs ?? []).map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50">
+              <tr key={s.id} className="hover:bg-soft">
                 <td className="px-3 py-2">
                   <Link href={`/validasi/s/${s.id}`} className="block">
                     <div className="font-medium">{nama.get(s.nim) ?? <span className="text-warn">di luar daftar</span>}</div>

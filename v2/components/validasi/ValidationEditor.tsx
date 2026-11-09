@@ -97,7 +97,7 @@ export default function ValidationEditor({
         </Link>
         <span
           className={`pill ${
-            sub.status === "valid" ? "bg-green-100 text-ok" : sub.status === "perlu_validasi" ? "bg-amber-100 text-warn" : "bg-slate-200 text-slate-600"
+            sub.status === "valid" ? "bg-ok-bg text-ok" : sub.status === "perlu_validasi" ? "bg-warn-bg text-warn" : "bg-slate-200 text-ink2"
           }`}
         >
           {STATUS_LABEL[sub.status]}
@@ -132,7 +132,7 @@ export default function ValidationEditor({
           </div>
           <div className="flex flex-wrap gap-3 text-[11px] text-muted">
             <Legend color="bg-green-600" label="terbaca" />
-            <Legend color="bg-amber-500" label="ragu" />
+            <Legend color="bg-warn-bg0" label="ragu" />
             <Legend color="bg-red-600" label="ganda" />
             <Legend color="bg-blue-600" label="dikoreksi / disorot" />
           </div>
@@ -144,7 +144,7 @@ export default function ValidationEditor({
               <h3 className="text-sm font-bold">Mahasiswa</h3>
               <span className="font-mono text-xs text-muted">NIM terbaca: {sub.nim_terbaca ?? "—"}</span>
             </div>
-            <div className={`flex items-center gap-3 rounded-lg p-3 ${student ? "bg-green-50" : "bg-amber-50"}`}>
+            <div className={`flex items-center gap-3 rounded-lg p-3 ${student ? "bg-ok-bg" : "bg-warn-bg"}`}>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold">{student?.nama ?? "Di luar daftar kelas"}</div>
                 <div className="font-mono text-xs text-muted">
@@ -224,7 +224,7 @@ export default function ValidationEditor({
             />
           </section>
 
-          {err && <div className="rounded-lg bg-red-50 p-3 text-sm text-bad">{err}</div>}
+          {err && <div className="rounded-lg bg-bad-bg p-3 text-sm text-bad">{err}</div>}
           {!locked && (
             <div className="sticky bottom-16 z-10 flex flex-wrap gap-2 rounded-xl border border-line bg-white p-3 shadow-sm md:bottom-2">
               <button className="btn-ghost text-bad" disabled={busy} onClick={() => save("ditolak", true)}>
@@ -246,7 +246,7 @@ export default function ValidationEditor({
                 <li key={i} className="text-muted">
                   <b className="text-ink">{a.actor === me ? "kamu" : a.actor}</b> · {a.action} ·{" "}
                   {new Date(a.at).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}
-                  <code className="mt-0.5 block truncate rounded bg-slate-50 px-1.5 py-0.5">{JSON.stringify(a.detail)}</code>
+                  <code className="mt-0.5 block truncate rounded bg-soft px-1.5 py-0.5">{JSON.stringify(a.detail)}</code>
                 </li>
               ))}
             </ul>

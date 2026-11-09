@@ -28,7 +28,7 @@ export default async function ValidasiIndex(props: { searchParams: Promise<{ sem
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Validasi</h1>
+          <h1 className="font-serif text-2xl font-bold">Validasi</h1>
           <p className="text-sm text-muted">
             Cocokkan hasil baca dengan foto. Kamu boleh memvalidasi kelasmu sendiri maupun kelas lain. {total} LJK menunggu.
           </p>
@@ -40,10 +40,10 @@ export default async function ValidasiIndex(props: { searchParams: Promise<{ sem
         )}
       </div>
       <div className="flex gap-2 text-sm">
-        <Link href="/validasi" className={`pill px-3 py-1 ${!semua ? "bg-ink text-white" : "bg-white text-slate-600 ring-1 ring-line"}`}>
+        <Link href="/validasi" className={`pill px-3 py-1 ${!semua ? "bg-ink text-white" : "bg-white text-ink2 ring-1 ring-line"}`}>
           Perlu validasi
         </Link>
-        <Link href="/validasi?semua=1" className={`pill px-3 py-1 ${semua ? "bg-ink text-white" : "bg-white text-slate-600 ring-1 ring-line"}`}>
+        <Link href="/validasi?semua=1" className={`pill px-3 py-1 ${semua ? "bg-ink text-white" : "bg-white text-ink2 ring-1 ring-line"}`}>
           Semua kelas
         </Link>
       </div>
@@ -59,7 +59,7 @@ export default async function ValidasiIndex(props: { searchParams: Promise<{ sem
               </div>
               <div className="flex shrink-0 gap-1">
                 {r.perlu_cek > 0 && <span className="pill bg-red-100 text-bad">{r.perlu_cek} ditandai</span>}
-                {r.perlu_validasi > 0 && <span className="pill bg-amber-100 text-warn">{r.perlu_validasi} menunggu</span>}
+                {r.perlu_validasi > 0 && <span className="pill bg-warn-bg text-warn">{r.perlu_validasi} menunggu</span>}
               </div>
             </div>
             <div className="mt-3">

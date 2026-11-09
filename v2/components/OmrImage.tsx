@@ -62,8 +62,8 @@ export default function OmrImage({
     }
   }, [img, dims, corners, values, statuses, focus, showOverlay]);
 
-  if (err) return <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-slate-100 text-sm text-muted">{err}</div>;
-  if (!dims) return <div className="aspect-[3/4] animate-pulse rounded-xl bg-slate-100" />;
+  if (err) return <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-soft text-sm text-muted">{err}</div>;
+  if (!dims) return <div className="aspect-[3/4] animate-pulse rounded-xl bg-soft" />;
 
   return (
     <div

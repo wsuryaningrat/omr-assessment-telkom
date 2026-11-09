@@ -1,6 +1,7 @@
 import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { TEMPLATE } from "@/lib/omr/scan";
 import { hapusKode, setPengawas, simpanKunci, tambahPengawas } from "./actions";
+import { asset } from "@/lib/basePath";
 
 export default async function AdminPage() {
   const { supabase, pengawas: me } = await requireAdmin();
@@ -18,10 +19,10 @@ export default async function AdminPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold">Admin</h1>
+        <h1 className="font-serif text-2xl font-bold">Admin</h1>
         <p className="text-sm text-muted">
           Ujian aktif: <b>{ujian?.nama ?? "—"}</b> ({ujian?.id ?? "-"}) · template {TEMPLATE.version} ·{" "}
-          <a href="/ljk/LJK_v2.pdf" target="_blank" className="font-semibold text-brand">
+          <a href={asset("/ljk/LJK_v2.pdf")} target="_blank" className="font-semibold text-brand">
             unduh LJK v2
           </a>
         </p>
@@ -57,8 +58,8 @@ export default async function AdminPage() {
                   <td className="py-2 pr-2">{p.nama}</td>
                   <td className="py-2 pr-2 font-mono text-xs">{p.email}</td>
                   <td className="py-2 pr-2">
-                    <span className={`pill ${p.role === "admin" ? "bg-brand-soft text-brand" : "bg-slate-100 text-slate-600"}`}>{p.role}</span>
-                    {!p.aktif && <span className="ml-1 pill bg-slate-200 text-slate-600">nonaktif</span>}
+                    <span className={`pill ${p.role === "admin" ? "bg-brand-soft text-brand" : "bg-soft text-ink2"}`}>{p.role}</span>
+                    {!p.aktif && <span className="ml-1 pill bg-slate-200 text-ink2">nonaktif</span>}
                   </td>
                   <td className="py-2 pr-2 text-right tabular-nums">{uploads.get(p.email) ?? 0}</td>
                   <td className="py-2 text-right whitespace-nowrap">

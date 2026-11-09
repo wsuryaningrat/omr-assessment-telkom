@@ -1,3 +1,4 @@
+import { asset } from "@/lib/basePath";
 import { notFound } from "next/navigation";
 import ValidationEditor from "@/components/validasi/ValidationEditor";
 import type { Submission } from "@/lib/types";
@@ -29,10 +30,10 @@ export default function DemoValidasi() {
   };
   return (
     <main className="mx-auto max-w-6xl px-4 py-5">
-      <p className="mb-3 pill bg-amber-100 text-warn">MODE DEMO — tombol simpan tidak terhubung ke database</p>
+      <p className="mb-3 pill bg-warn-bg text-warn">MODE DEMO — tombol simpan tidak terhubung ke database</p>
       <ValidationEditor
         sub={sub}
-        photoUrl="/ljk/contoh_foto_ljk_v2.jpg"
+        photoUrl={asset("/ljk/contoh_foto_ljk_v2.jpg")}
         peserta={[
           { kelas_id: "DEMO-01", nim: "103052600003", nama: "Citra Dewi" },
           { kelas_id: "DEMO-01", nim: "103052600004", nama: "Dimas Pratama" },

@@ -98,9 +98,20 @@ python ljk/synth.py          # bikin ulang foto uji
 
 ## Alur kerja
 
-**Pengawas (HP):** Login Google → *Scan LJK* → pilih kelas → *Buka kamera* → arahkan ke LJK
-sampai bingkai hijau. Foto diambil otomatis, lalu cek mahasiswa (NIM otomatis dicocokkan ke
-daftar kelas; kalau tidak cocok, pilih dari dropdown) dan kode soal → *Simpan & foto berikutnya*.
+**Pengawas (HP) — scan beruntun:** Login Google → *Scan LJK* → pilih kelas → *Mulai scan*.
+Kamera tetap menyala sepanjang sesi:
+
+1. Arahkan ke LJK sampai bingkai hijau → jepret otomatis (bunyi + getar).
+2. Panel hasil muncul di atas kamera: nama mahasiswa (NIM dicocokkan ke daftar kelas), kode soal,
+   jumlah terisi/ragu/ganda.
+3. Bila NIM & kode soal terbaca pasti dan belum pernah diupload → **tersimpan otomatis** dalam
+   ±1,4 detik (*Auto ON*, sentuh panel untuk membatalkan). Bila ada yang perlu dicek → perbaiki
+   (pilih mahasiswa / kode) → *Simpan & lanjut*.
+4. Ganti ke LJK berikutnya. Lembar yang sama tidak akan terpotret dua kali (auto-jepret terkunci
+   sampai lembar diganti; tombol jepret manual tetap bisa).
+5. Upload foto + data berjalan di latar belakang (antrean). Strip "Sesi" di atas kamera
+   menampilkan status tiap LJK; yang gagal bisa *Ulangi* / *Buka*. Browser memperingatkan bila
+   tab ditutup saat masih ada upload. Layar dijaga tetap menyala (Wake Lock).
 
 **Validator (siapa pun yang terdaftar):** *Validasi* → pilih kelas mana pun → foto + overlay di
 kiri, jawaban di kanan (yang ragu/ganda disorot) → koreksi bila perlu → **Valid** / **Tolak**
@@ -118,6 +129,11 @@ yang **boleh diedit**. Aturannya:
 - Cetak dengan skala **100% / Actual size** (bukan *Fit to page*) di kertas A4.
 - Perlu ubah posisi bulatan / jumlah soal? Ubah `ljk/generate_ljk.py`, jangan diubah di Word,
   karena `template.json` aplikasi harus ikut berubah.
+
+## Integrasi ke mathcenter.cswda.id
+
+Tema sudah mengikuti situs Math Center. Cara memasang di subdomain atau di `mathcenter.cswda.id/ljk`
+(reverse proxy + `NEXT_PUBLIC_BASE_PATH`) ada di **[INTEGRASI.md](INTEGRASI.md)**.
 
 ## Keamanan
 - RLS di semua tabel: akun di luar whitelist tidak bisa membaca/menulis apa pun.

@@ -28,12 +28,21 @@ export default function CameraScanner({
   onCapture,
   onClose,
   paused = false,
+  topSlot,
+  sheet,
+  headerExtra,
 }: {
   title: string;
   subtitle?: string;
   onCapture: (c: Capture) => void;
   onClose: () => void;
+  /** Saat true: deteksi berhenti & gambar dibekukan (mis. panel hasil sedang tampil). */
   paused?: boolean;
+  /** Konten di atas video (mis. strip riwayat sesi). */
+  topSlot?: React.ReactNode;
+  /** Panel bawah yang menggantikan kontrol kamera (mis. hasil baca). */
+  sheet?: React.ReactNode;
+  headerExtra?: React.ReactNode;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -45,6 +54,12 @@ export default function CameraScanner({
   const lastDetOk = useRef(false);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const freezeRef = useRef<HTMLCanvasElement>(null);
+  // Setelah memotret, auto-jepret dikunci sampai lembar diganti (lembar hilang dari frame
+  // beberapa saat) supaya lembar yang sama tidak terpotret dua kali.
+  const armed = useRef(true);
+  const lostFrames = useRef(0);
+  const [frozen, setFrozen] = useState(false);
 
   const [msg, setMsg] = useState("Menyalakan kamera…");
   const [tone, setTone] = useState<Tone>("idle");
@@ -103,6 +118,48 @@ export default function CameraScanner({
     };
   }, []);
 
+  // Layar tetap menyala selama kamera terbuka
+  useEffect(() => {
+    let lock: { release: () => Promise<void> } | null = null;
+    const req = async () => {
+      try {
+        lock = await (navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request("screen") ?? null;
+      } catch {}
+    };
+    req();
+    const onVis = () => document.visibilityState === "visible" && req();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      lock?.release().catch(() => {});
+    };
+  }, []);
+
+  // Lanjut dari jeda: buang bekuan gambar, reset stabilitas
+  useEffect(() => {
+    if (!paused) {
+      setFrozen(false);
+      stable.current = 0;
+      lastCorners.current = null;
+    }
+  }, [paused]);
+
+  const freezeFrame = () => {
+    const v = videoRef.current;
+    const f = freezeRef.current;
+    if (!v || !f || !v.videoWidth) return;
+    const rect = f.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    f.width = Math.round(rect.width * dpr);
+    f.height = Math.round(rect.height * dpr);
+    const ctx = f.getContext("2d")!;
+    const k = Math.max(f.width / v.videoWidth, f.height / v.videoHeight);
+    const w = v.videoWidth * k;
+    const h = v.videoHeight * k;
+    ctx.drawImage(v, (f.width - w) / 2, (f.height - h) / 2, w, h);
+    setFrozen(true);
+  };
+
   const toggleTorch = async () => {
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
@@ -117,8 +174,12 @@ export default function CameraScanner({
     const v = videoRef.current;
     if (!v || busy.current || !v.videoWidth) return;
     busy.current = true;
+    armed.current = false;
+    lostFrames.current = 0;
+    freezeFrame();
+    feedback("shutter");
     setTone("busy");
-    setMsg("Memproses foto…");
+    setMsg("Membaca LJK…");
     setProgress(1);
     // beri waktu UI menampilkan status sebelum kerja berat
     setTimeout(() => {
@@ -136,18 +197,15 @@ export default function CameraScanner({
         const img = ctx.getImageData(0, 0, cw, ch);
         const scan = scanRgba(img.data, cw, ch);
         if (!scan.ok) {
-          setTone("bad");
-          setMsg(`Gagal membaca: ${scan.reason ?? "coba lagi"}`);
+          fail(`Gagal membaca: ${scan.reason ?? "coba lagi"}`);
         } else if (scan.quality && !scan.quality.ok) {
-          setTone("bad");
-          setMsg(scan.quality.issues.join(" "));
+          fail(scan.quality.issues.join(" "));
         } else {
-          navigator.vibrate?.(60);
+          feedback("ok");
           onCapture({ canvas, scan });
         }
       } catch (e) {
-        setTone("bad");
-        setMsg(`Error: ${(e as Error).message}`);
+        fail(`Error: ${(e as Error).message}`);
       } finally {
         stable.current = 0;
         setProgress(0);
@@ -157,6 +215,14 @@ export default function CameraScanner({
       }
     }, 30);
   }, [onCapture]);
+
+  const fail = (m: string) => {
+    feedback("error");
+    setFrozen(false);
+    armed.current = true; // boleh langsung coba lagi
+    setTone("bad");
+    setMsg(m);
+  };
 
   // --- Loop deteksi live
   useEffect(() => {
@@ -201,6 +267,7 @@ export default function CameraScanner({
       lastDetOk.current = det.ok;
       setCanManual(det.ok);
       if (!det.ok || !det.corners || !det.H) {
+        if (++lostFrames.current >= 3) armed.current = true;
         stable.current = 0;
         setProgress(0);
         lastCorners.current = null;
@@ -211,6 +278,7 @@ export default function CameraScanner({
         return;
       }
 
+      lostFrames.current = 0;
       const c = det.corners;
       const pxPerMmFull = localScale(det.H, 105, 148) / s;
       setPxmm(Math.round(pxPerMmFull * Math.min(1, CAPTURE_MAX_SIDE / Math.max(vw, vh)) * 10) / 10);
@@ -252,6 +320,13 @@ export default function CameraScanner({
         ctx.stroke();
       }
 
+      if (!armed.current) {
+        stable.current = 0;
+        setProgress(0);
+        setTone("idle");
+        setMsg("Ganti ke LJK berikutnya — atau tekan Jepret untuk memotret lembar ini lagi.");
+        return;
+      }
       const prog = Math.min(1, stable.current / STABLE_FRAMES);
       setProgress(prog);
       if (!good) {
@@ -259,7 +334,7 @@ export default function CameraScanner({
         setMsg(issues.join(" · "));
       } else if (prog < 1) {
         setTone("good");
-        setMsg("4 kotak terdeteksi — tahan HP tetap diam…");
+        setMsg("Tahan sebentar…");
       } else {
         capture();
       }
@@ -269,61 +344,134 @@ export default function CameraScanner({
   }, [capture]);
 
   const toneClass: Record<Tone, string> = {
-    idle: "bg-black/60 text-white",
-    warn: "bg-amber-500 text-white",
-    good: "bg-green-600 text-white",
-    busy: "bg-blue-600 text-white",
-    bad: "bg-red-600 text-white",
+    idle: "bg-black/55 text-white",
+    warn: "bg-warn-bg0/95 text-white",
+    good: "bg-emerald-600/95 text-white",
+    busy: "bg-white text-ink",
+    bad: "bg-red-600/95 text-white",
   };
+  const R = 34;
+  const C = 2 * Math.PI * R;
 
   return (
-    <div className="fixed inset-0 z-50 m-0! flex flex-col bg-black text-white">
-      <div className="flex items-center gap-3 px-4 py-3">
-        <button onClick={onClose} className="rounded-full bg-white/15 px-3 py-1.5 text-sm font-semibold">
-          ✕ Tutup
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-bold">{title}</div>
-          {subtitle && <div className="truncate text-xs text-white/70">{subtitle}</div>}
-        </div>
-        {torchAvail && (
-          <button onClick={toggleTorch} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${torchOn ? "bg-yellow-400 text-black" : "bg-white/15"}`}>
-            ⚡ Lampu
+    <div className="fixed inset-0 z-50 m-0! overflow-hidden bg-black text-white select-none">
+      <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted autoPlay />
+      <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+      <canvas ref={freezeRef} className={`pointer-events-none absolute inset-0 h-full w-full ${frozen ? "opacity-100" : "opacity-0"}`} />
+      {(paused || tone === "busy") && !error && <div className="pointer-events-none absolute inset-0 bg-black/35 transition-opacity" />}
+      {error && <div className="absolute inset-0 flex items-center justify-center bg-black/85 p-8 text-center text-sm leading-relaxed">{error}</div>}
+
+      {/* Header */}
+      <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/75 to-transparent pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-2 px-3 pb-2">
+          <button onClick={onClose} className="cam-btn" aria-label="Tutup kamera">
+            ✕
           </button>
-        )}
-      </div>
-
-      <div className="relative flex-1 overflow-hidden">
-        <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted autoPlay />
-        <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6 text-center text-sm">{error}</div>
-        )}
-        {paused && !error && <div className="absolute inset-0 bg-black/50" />}
-      </div>
-
-      <div className="space-y-3 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        <div className={`rounded-xl px-4 py-2.5 text-center text-sm font-semibold ${toneClass[tone]}`}>{msg}</div>
-        <div className="flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/20">
-            <div className="h-full bg-green-500 transition-all" style={{ width: `${Math.round(progress * 100)}%` }} />
+          <div className="min-w-0 flex-1 px-1">
+            <div className="truncate text-sm font-bold">{title}</div>
+            {subtitle && <div className="truncate text-xs text-white/75">{subtitle}</div>}
           </div>
-          <button
-            onClick={capture}
-            disabled={!canManual || paused}
-            className="rounded-full bg-white px-5 py-2.5 text-sm font-bold text-black disabled:opacity-40"
-            title="Hanya aktif jika 4 kotak hitam terdeteksi"
-          >
-            Jepret
-          </button>
+          {headerExtra}
+          {torchAvail && (
+            <button onClick={toggleTorch} className={`cam-btn ${torchOn ? "bg-yellow-300! text-black" : ""}`} aria-label="Lampu">
+              ⚡
+            </button>
+          )}
         </div>
-        <div className="text-center text-[11px] text-white/50">
-          Otomatis memotret saat 4 kotak hitam stabil · kamera {res || "-"}
-          {pxmm !== null && ` · ${pxmm} px/mm (min ${QUALITY_LIMITS.minPxPerMm})`}
-        </div>
+        {topSlot && <div className="px-3 pb-3">{topSlot}</div>}
       </div>
+
+      {/* Kontrol bawah atau panel hasil */}
+      {sheet ? (
+        <div className="absolute inset-x-0 bottom-0 max-h-[78dvh] overflow-y-auto rounded-t-3xl bg-white text-ink shadow-2xl animate-sheet-up">{sheet}</div>
+      ) : (
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-4 pt-10 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="mb-5 flex justify-center">
+            <div className={`max-w-sm rounded-full px-4 py-2 text-center text-[13px] leading-snug font-semibold backdrop-blur transition-colors ${toneClass[tone]}`}>
+              {tone === "busy" && <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-ink/30 border-t-ink align-[-1px]" />}
+              {msg}
+            </div>
+          </div>
+          <div className="flex items-center justify-center">
+            <button
+              onClick={capture}
+              disabled={!canManual || paused || tone === "busy"}
+              className="relative h-[84px] w-[84px] rounded-full disabled:opacity-50"
+              aria-label="Jepret"
+              title="Otomatis memotret saat 4 kotak hitam stabil. Tekan untuk memotret manual."
+            >
+              <svg viewBox="0 0 84 84" className="absolute inset-0 -rotate-90">
+                <circle cx="42" cy="42" r={R} fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="5" />
+                <circle
+                  cx="42"
+                  cy="42"
+                  r={R}
+                  fill="none"
+                  stroke="#22c55e"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeDasharray={C}
+                  strokeDashoffset={C * (1 - progress)}
+                  style={{ transition: "stroke-dashoffset 120ms linear" }}
+                />
+              </svg>
+              <span className={`absolute inset-[13px] rounded-full transition ${canManual ? "bg-white" : "bg-white/60"} active:scale-90`} />
+            </button>
+          </div>
+          <div className="mt-3 text-center text-[11px] text-white/55">
+            Jepret otomatis saat bingkai hijau · kamera {res || "-"}
+            {pxmm !== null && ` · ${pxmm} px/mm`}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------- Umpan balik (getar + bunyi)
+let audioCtx: AudioContext | null = null;
+export function soundEnabled(): boolean {
+  try {
+    return localStorage.getItem("ljk-sound") !== "0";
+  } catch {
+    return true;
+  }
+}
+export function setSoundEnabled(on: boolean) {
+  try {
+    localStorage.setItem("ljk-sound", on ? "1" : "0");
+  } catch {}
+}
+export function feedback(kind: "shutter" | "ok" | "saved" | "error") {
+  const vib: Record<typeof kind, number | number[]> = { shutter: 25, ok: 50, saved: [30, 40, 30], error: [120, 60, 120] };
+  try {
+    navigator.vibrate?.(vib[kind]);
+  } catch {}
+  if (!soundEnabled()) return;
+  try {
+    audioCtx ??= new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const ctx = audioCtx;
+    const notes: Record<typeof kind, [number, number][]> = {
+      shutter: [[1400, 0.03]],
+      ok: [[880, 0.07]],
+      saved: [[660, 0.06], [990, 0.09]],
+      error: [[220, 0.14], [180, 0.16]],
+    };
+    let t = ctx.currentTime;
+    for (const [f, d] of notes[kind]) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = kind === "error" ? "square" : "sine";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(kind === "error" ? 0.05 : 0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + d + 0.02);
+      t += d + 0.03;
+    }
+  } catch {}
 }
 
 /** Bingkai panduan A4 tegak saat lembar belum terdeteksi. */

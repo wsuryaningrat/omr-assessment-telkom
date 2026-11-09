@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
+import { asset } from "@/lib/basePath";
 
 export default async function TidakTerdaftar() {
   const supabase = await supabaseServer();
@@ -12,7 +13,7 @@ export default async function TidakTerdaftar() {
         <p className="mt-3 text-sm text-slate-600">
           Akun <b>{user?.email ?? "-"}</b> belum ada di daftar pengawas. Minta admin Math Center menambahkan Gmail ini, lalu masuk lagi.
         </p>
-        <form action="/auth/signout" method="post" className="mt-6">
+        <form action={asset("/auth/signout")} method="post" className="mt-6">
           <button className="btn-ghost w-full">Keluar & ganti akun</button>
         </form>
       </div>

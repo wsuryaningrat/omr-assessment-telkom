@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { BASE_PATH } from "@/lib/basePath";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 export default function LoginButton({ next }: { next?: string }) {
@@ -11,7 +12,7 @@ export default function LoginButton({ next }: { next?: string }) {
     await supabaseBrowser().auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+        redirectTo: `${origin}${BASE_PATH}/auth/callback?next=${encodeURIComponent(safeNext)}`,
         queryParams: { prompt: "select_account" },
       },
     });

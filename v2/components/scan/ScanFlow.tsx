@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
 import KodePicker from "@/components/KodePicker";
 import OmrImage from "@/components/OmrImage";
@@ -10,7 +10,7 @@ import { matchNim } from "@/lib/omr/nim";
 import { countOmrFlags, nimToDigits, toStoredOmr } from "@/lib/omr/store";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Kelas, Peserta } from "@/lib/types";
-import CameraScanner, { type Capture } from "./CameraScanner";
+import CameraScanner, { feedback, setSoundEnabled, soundEnabled, type Capture } from "./CameraScanner";
 
 interface Existing {
   id: string;
@@ -28,9 +28,37 @@ interface Review {
   nimSource: "omr" | "dropdown" | "manual";
   suggestions: string[];
   kode: string | null;
+  kodeFromOmr: boolean;
   soal: (string | null)[];
   kuis: (string | null)[];
   ganti: boolean;
+}
+
+type QStatus = "antri" | "upload" | "ok" | "gagal";
+interface QItem {
+  key: string;
+  review: Review;
+  nama: string;
+  status: QStatus;
+  error?: string;
+  prev?: Existing; // entri lama yang diganti (untuk dikembalikan bila gagal)
+  at: number;
+}
+
+const AUTO_MS = 1400;
+
+function readPref(key: string, def: boolean) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? def : v === "1";
+  } catch {
+    return def;
+  }
+}
+function writePref(key: string, v: boolean) {
+  try {
+    localStorage.setItem(key, v ? "1" : "0");
+  } catch {}
 }
 
 export default function ScanFlow({
@@ -53,31 +81,48 @@ export default function ScanFlow({
   const [existing, setExisting] = useState(initialExisting);
   const [camera, setCamera] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [detail, setDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [showGrid, setShowGrid] = useState(false);
+  const [queue, setQueue] = useState<QItem[]>([]);
+  const [autoSave, setAutoSave] = useState(true);
+  const [sound, setSound] = useState(true);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [showQueue, setShowQueue] = useState(false);
+  const [filter, setFilter] = useState<"belum" | "sudah" | "semua">("belum");
   const [q, setQ] = useState("");
+  const working = useRef(false);
+  const autoCancelled = useRef(false);
+
+  useEffect(() => {
+    setAutoSave(readPref("ljk-autosave", true));
+    setSound(soundEnabled());
+  }, []);
 
   const byNim = useMemo(() => new Map(existing.map((e) => [e.nim, e])), [existing]);
   const uploadedHere = useMemo(() => new Set(existing.filter((e) => e.kelas_id === kelas.id).map((e) => e.nim)), [existing, kelas.id]);
   const pesertaByNim = useMemo(() => new Map(peserta.map((p) => [p.nim, p])), [peserta]);
   const done = peserta.filter((p) => uploadedHere.has(p.nim)).length;
+  const pending = queue.filter((i) => i.status === "antri" || i.status === "upload").length;
+  const failed = queue.filter((i) => i.status === "gagal").length;
+  const savedSession = queue.filter((i) => i.status !== "gagal").length;
 
+  // ---------------------------------------------------------------- hasil jepret
   const onCapture = useCallback(
     (capture: Capture) => {
       const d = capture.scan.decoded!;
       const m = matchNim(d.nim.value, peserta);
-      setShowGrid(false);
+      const kodeOk = !!d.kode_soal.value && kodeList.includes(d.kode_soal.value);
       setError(null);
+      setDetail(false);
+      autoCancelled.current = false;
       setReview({
         capture,
         nimRead: d.nim.value,
         nim: m.exact?.nim ?? "",
         nimSource: m.exact ? "omr" : "dropdown",
         suggestions: m.suggestions.map((s) => s.nim),
-        kode: d.kode_soal.value && kodeList.includes(d.kode_soal.value) ? d.kode_soal.value : null,
+        kode: kodeOk ? d.kode_soal.value : null,
+        kodeFromOmr: kodeOk,
         soal: d.soal.map((i) => i.value),
         kuis: d.kuisioner.map((i) => i.value),
         ganti: false,
@@ -86,303 +131,410 @@ export default function ScanFlow({
     [peserta, kodeList],
   );
 
-  const save = async () => {
+  const dup = review?.nim ? byNim.get(review.nim) : undefined;
+  const sameSession = !!review?.nim && queue.some((i) => i.review.nim === review.nim && i.status !== "gagal");
+  const canAuto = !!review && review.nimSource === "omr" && review.kodeFromOmr && !!review.kode && !dup;
+  const blockers: string[] = [];
+  if (review) {
+    if (!review.nim) blockers.push(review.nimRead.includes("?") ? "NIM tidak terbaca lengkap" : "NIM tidak ada di daftar kelas ini");
+    if (!review.kode) blockers.push("Kode soal belum dipilih");
+    if (dup && !review.ganti) blockers.push(sameSession ? "LJK ini baru saja disimpan di sesi ini" : "NIM ini sudah punya LJK");
+  }
+
+  // ---------------------------------------------------------------- simpan (masuk antrean, upload di latar)
+  const enqueue = useCallback(() => {
     if (!review) return;
-    const { capture, nim } = review;
-    if (!/^\d{12}$/.test(nim)) return setError("Pilih / konfirmasi NIM mahasiswa dulu.");
+    if (!/^\d{12}$/.test(review.nim)) return setError("Pilih / konfirmasi mahasiswanya dulu.");
     if (!review.kode) return setError("Pilih kode soal.");
-    const dup = byNim.get(nim);
-    if (dup && !review.ganti) return setError("NIM ini sudah punya LJK. Centang 'ganti' jika foto ini menggantikan yang lama.");
-    setSaving(true);
+    const old = byNim.get(review.nim);
+    if (old && !review.ganti) return setError("NIM ini sudah punya LJK. Centang 'ganti' bila foto ini menggantikan yang lama.");
+    const item: QItem = {
+      key: crypto.randomUUID(),
+      review,
+      nama: pesertaByNim.get(review.nim)?.nama ?? review.nim,
+      status: "antri",
+      prev: old,
+      at: Date.now(),
+    };
+    setExisting((prev) => [
+      ...prev.filter((e) => e.nim !== review.nim),
+      { id: item.key, nim: review.nim, kelas_id: kelas.id, uploaded_by: pengawasEmail, uploaded_at: new Date().toISOString(), status: "perlu_validasi" },
+    ]);
+    setQueue((qq) => [item, ...qq]);
+    feedback("saved");
+    setReview(null);
+    setDetail(false);
+    setCountdown(null);
     setError(null);
-    if (demo) {
-      setExisting((prev) => [
-        ...prev.filter((e) => e.nim !== nim),
-        { id: crypto.randomUUID(), nim, kelas_id: kelas.id, uploaded_by: pengawasEmail, uploaded_at: new Date().toISOString(), status: "perlu_validasi" },
-      ]);
-      setSessionCount((n) => n + 1);
-      setToast(`(demo, tidak disimpan) ${pesertaByNim.get(nim)?.nama ?? nim}`);
-      setTimeout(() => setToast(null), 2500);
-      setReview(null);
-      setSaving(false);
-      setCamera(true);
+  }, [review, byNim, pesertaByNim, kelas.id, pengawasEmail]);
+
+  const retake = () => {
+    setReview(null);
+    setDetail(false);
+    setCountdown(null);
+    setError(null);
+  };
+
+  // hitung mundur simpan otomatis
+  useEffect(() => {
+    if (!review || !autoSave || !canAuto || detail || autoCancelled.current) {
+      setCountdown(null);
       return;
     }
-    try {
+    const t0 = performance.now();
+    setCountdown(0);
+    let raf = 0;
+    const step = () => {
+      if (autoCancelled.current) return setCountdown(null);
+      const p = (performance.now() - t0) / AUTO_MS;
+      if (p >= 1) {
+        enqueue();
+        return;
+      }
+      setCountdown(p);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review?.capture, autoSave, canAuto, detail]);
+  const stopCountdown = () => {
+    autoCancelled.current = true;
+    setCountdown(null);
+  };
+
+  // ---------------------------------------------------------------- pekerja antrean
+  const upload = useCallback(
+    async (item: QItem) => {
+      const r = item.review;
+      if (demo) {
+        await new Promise((res) => setTimeout(res, 600));
+        return item.key;
+      }
       const supabase = supabaseBrowser();
       const blob: Blob = await new Promise((res, rej) =>
-        capture.canvas.toBlob((b) => (b ? res(b) : rej(new Error("Gagal membuat JPEG"))), "image/jpeg", 0.85),
+        r.capture.canvas.toBlob((b) => (b ? res(b) : rej(new Error("Gagal membuat JPEG"))), "image/jpeg", 0.85),
       );
-      const path = `${kelas.ujian_id}/${kelas.id}/${nim}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.jpg`;
+      const path = `${kelas.ujian_id}/${kelas.id}/${r.nim}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.jpg`;
       const up = await supabase.storage.from("ljk").upload(path, blob, { contentType: "image/jpeg", upsert: false });
       if (up.error) throw new Error(`Upload foto gagal: ${up.error.message}`);
-      const omr = toStoredOmr(capture.scan, { w: capture.canvas.width, h: capture.canvas.height });
-      const matched = review.nimSource === "omr" || pesertaByNim.has(nim);
+      const omr = toStoredOmr(r.capture.scan, { w: r.capture.canvas.width, h: r.capture.canvas.height });
+      const matched = r.nimSource === "omr" || pesertaByNim.has(r.nim);
       const payload = {
         ujian_id: kelas.ujian_id,
         kelas_id: kelas.id,
-        nim,
-        nim_terbaca: review.nimRead,
-        nim_sumber: review.nimSource,
-        kode_soal: review.kode,
-        jawaban: review.soal,
-        kuisioner: review.kuis,
+        nim: r.nim,
+        nim_terbaca: r.nimRead,
+        nim_sumber: r.nimSource,
+        kode_soal: r.kode,
+        jawaban: r.soal,
+        kuisioner: r.kuis,
         omr,
-        flags:
-          countOmrFlags(omr, review.nimSource === "omr", omr.kode_soal.value === review.kode && kodeList.includes(review.kode)) + (matched ? 0 : 1),
+        flags: countOmrFlags(omr, r.nimSource === "omr", omr.kode_soal.value === r.kode && kodeList.includes(r.kode!)) + (matched ? 0 : 1),
         photo_path: path,
       };
-      const { data: id, error: rpcErr } = await supabase.rpc("simpan_ljk", { payload, ganti: review.ganti });
+      const { data: id, error: rpcErr } = await supabase.rpc("simpan_ljk", { payload, ganti: r.ganti });
       if (rpcErr) {
         await supabase.storage.from("ljk").remove([path]).catch(() => {});
         throw new Error(
           rpcErr.message.includes("submissions_one_active_per_nim")
-            ? "NIM ini baru saja diupload pengawas lain. Muat ulang halaman lalu pilih 'ganti' jika perlu."
+            ? "NIM ini baru saja diupload pengawas lain. Buka detail lalu pilih 'ganti' jika perlu."
             : rpcErr.message,
         );
       }
-      setExisting((prev) => [
-        ...prev.filter((e) => e.nim !== nim),
-        { id: id as string, nim, kelas_id: kelas.id, uploaded_by: pengawasEmail, uploaded_at: new Date().toISOString(), status: "perlu_validasi" },
-      ]);
-      setSessionCount((n) => n + 1);
-      const nama = pesertaByNim.get(nim)?.nama ?? nim;
-      setToast(`Tersimpan: ${nama}`);
-      setTimeout(() => setToast(null), 2500);
-      setReview(null);
-      setCamera(true); // lanjut foto berikutnya
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
+      return id as string;
+    },
+    [demo, kelas.ujian_id, kelas.id, pesertaByNim, kodeList],
+  );
 
-  const retake = () => {
-    setReview(null);
-    setError(null);
+  useEffect(() => {
+    if (working.current) return;
+    const next = [...queue].reverse().find((i) => i.status === "antri");
+    if (!next) return;
+    working.current = true;
+    setQueue((qq) => qq.map((i) => (i.key === next.key ? { ...i, status: "upload" } : i)));
+    upload(next)
+      .then((id) => {
+        // lepas memori foto resolusi penuh (±20 MB per lembar) setelah terupload
+        next.review.capture.canvas.width = 0;
+        next.review.capture.canvas.height = 0;
+        setQueue((qq) => qq.map((i) => (i.key === next.key ? { ...i, status: "ok", error: undefined } : i)));
+        setExisting((prev) => prev.map((e) => (e.id === next.key ? { ...e, id } : e)));
+      })
+      .catch((e: Error) => {
+        feedback("error");
+        setQueue((qq) => qq.map((i) => (i.key === next.key ? { ...i, status: "gagal", error: e.message } : i)));
+        setExisting((prev) => [...prev.filter((x) => x.id !== next.key), ...(next.prev ? [next.prev] : [])]);
+      })
+      .finally(() => {
+        working.current = false;
+        setQueue((qq) => [...qq]); // picu pemeriksaan item berikutnya
+      });
+  }, [queue, upload]);
+
+  const retry = (key: string) => {
+    const it = queue.find((i) => i.key === key);
+    if (!it) return;
+    setExisting((prev) => [
+      ...prev.filter((e) => e.nim !== it.review.nim),
+      { id: it.key, nim: it.review.nim, kelas_id: kelas.id, uploaded_by: pengawasEmail, uploaded_at: new Date().toISOString(), status: "perlu_validasi" },
+    ]);
+    setQueue((qq) => qq.map((i) => (i.key === key ? { ...i, status: "antri", error: undefined } : i)));
+  };
+  const reopen = (key: string) => {
+    const it = queue.find((i) => i.key === key);
+    if (!it) return;
+    setQueue((qq) => qq.filter((i) => i.key !== key));
+    setReview({ ...it.review, ganti: true });
+    setShowQueue(false);
     setCamera(true);
   };
 
-  // ------------------------------------------------------------------ Review
-  if (review) {
-    const d = review.capture.scan.decoded!;
-    const q0 = review.capture.scan.quality!;
-    const student = pesertaByNim.get(review.nim);
-    const dup = review.nim ? byNim.get(review.nim) : undefined;
-    const soalStatus = d.soal.map((i) => i.status);
-    const ragu = soalStatus.filter((s) => s === "ragu").length;
-    const multi = soalStatus.filter((s) => s === "multi").length;
-    return (
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-50">
-        <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-white px-4 py-3">
-          <button onClick={retake} className="btn-ghost px-3 py-1.5 text-xs">
-            ↺ Foto ulang
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-bold">Periksa hasil baca</div>
-            <div className="truncate text-xs text-muted">
-              {kelas.id} · {review.capture.scan.ms} ms · {q0.pxPerMm} px/mm
-            </div>
-          </div>
-        </div>
-        <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-          <div className="md:sticky md:top-20 md:self-start">
-            <OmrImage
-              sourceCanvas={review.capture.canvas}
-              corners={review.capture.scan.corners!}
-              values={{ nim: nimToDigits(review.nimRead), kode: review.kode, kuisioner: review.kuis, soal: review.soal }}
-              statuses={{
-                nim: d.nim.items.map((i) => i.status),
-                kode: d.kode_items.map((i) => i.status),
-                kuisioner: d.kuisioner.map((i) => i.status),
-                soal: soalStatus,
-              }}
-            />
-          </div>
+  // jangan tutup tab saat masih ada upload
+  useEffect(() => {
+    if (!pending && !failed) return;
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [pending, failed]);
 
-          <div className="space-y-4">
-            {/* NIM */}
-            <section className="card space-y-3 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold">Mahasiswa</h3>
-                <span className="font-mono text-xs text-muted">NIM terbaca: {review.nimRead}</span>
-              </div>
-              {review.nimSource === "omr" && student ? (
-                <div className="flex items-center gap-3 rounded-lg bg-green-50 p-3">
-                  <span className="text-xl text-ok">✓</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold">{student.nama}</div>
-                    <div className="font-mono text-xs text-muted">{student.nim}</div>
-                  </div>
-                  <button className="text-xs font-semibold text-brand" onClick={() => setReview({ ...review, nimSource: "dropdown" })}>
-                    Bukan dia?
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="rounded-lg bg-amber-50 p-3 text-sm text-warn">
-                    {review.nim
-                      ? `Dipilih: ${student?.nama ?? "(di luar daftar)"} — ${review.nim}`
-                      : "NIM tidak terbaca / tidak ada di kelas ini. Cocokkan dengan tulisan di LJK lalu pilih mahasiswanya."}
-                  </div>
-                  <StudentPicker
-                    peserta={peserta}
-                    value={review.nim}
-                    suggestions={review.suggestions}
-                    uploaded={uploadedHere}
-                    onChange={(nim, source) => setReview({ ...review, nim, nimSource: source, ganti: false })}
-                  />
-                </>
-              )}
-              {dup && (
-                <label className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
-                  <input type="checkbox" className="mt-0.5" checked={review.ganti} onChange={(e) => setReview({ ...review, ganti: e.target.checked })} />
-                  <span>
-                    NIM ini sudah punya LJK ({dup.status === "valid" ? "sudah divalidasi" : "menunggu validasi"}, diupload {dup.uploaded_by}
-                    {dup.kelas_id !== kelas.id ? ` di kelas ${dup.kelas_id}` : ""}). <b>Ganti dengan foto ini?</b>
-                  </span>
-                </label>
-              )}
-            </section>
+  // ---------------------------------------------------------------- UI kamera
+  const sessionStrip = queue.length > 0 && (
+    <button onClick={() => setShowQueue(true)} className="flex w-full items-center gap-2 overflow-hidden text-left">
+      <span className="shrink-0 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold backdrop-blur">
+        Sesi {savedSession}
+        {pending > 0 && ` · ⟳ ${pending}`}
+        {failed > 0 && <span className="text-red-300"> · ⚠ {failed}</span>}
+      </span>
+      <span className="flex min-w-0 gap-1.5 overflow-hidden">
+        {queue.slice(0, 6).map((i) => (
+          <span
+            key={i.key}
+            className={`shrink-0 truncate rounded-full px-2 py-1 text-[11px] font-medium backdrop-blur ${
+              i.status === "gagal" ? "bg-bad-bg0/80" : i.status === "ok" ? "bg-emerald-500/70" : "bg-white/20"
+            }`}
+            style={{ maxWidth: 120 }}
+          >
+            {i.status === "ok" ? "✓" : i.status === "gagal" ? "⚠" : "⟳"} {i.nama.split(" ").slice(0, 2).join(" ")}
+          </span>
+        ))}
+      </span>
+    </button>
+  );
 
-            {/* Kode soal */}
-            <section className="card p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-bold">Kode soal</h3>
-                <span className="font-mono text-xs text-muted">terbaca: {d.kode_items.map((i) => i.value ?? "?").join("")}</span>
-              </div>
-              <KodePicker
-                kodeList={kodeList}
-                value={review.kode}
-                read={d.kode_soal.value}
-                onChange={(k) => setReview({ ...review, kode: k })}
-              />
-            </section>
+  const headerExtra = (
+    <>
+      <button
+        onClick={() => {
+          setAutoSave((v) => (writePref("ljk-autosave", !v), !v));
+        }}
+        className={`cam-btn text-xs ${autoSave ? "bg-emerald-500/80!" : ""}`}
+        title="Simpan otomatis bila NIM & kode soal terbaca pasti"
+      >
+        Auto {autoSave ? "ON" : "OFF"}
+      </button>
+      <button
+        onClick={() => {
+          setSound((v) => (setSoundEnabled(!v), !v));
+        }}
+        className="cam-btn"
+        aria-label="Bunyi"
+      >
+        {sound ? "🔊" : "🔇"}
+      </button>
+    </>
+  );
 
-            {/* Ringkasan */}
-            <section className="card space-y-3 p-4">
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <Mini label="Soal terisi" value={`${review.soal.filter(Boolean).length}/75`} />
-                <Mini label="Ragu" value={String(ragu)} tone={ragu ? "warn" : undefined} />
-                <Mini label="Ganda" value={String(multi)} tone={multi ? "bad" : undefined} />
-              </div>
-              <p className="text-xs text-muted">
-                Jawaban tidak wajib dikoreksi di sini — semua LJK tetap melewati tahap validasi. Pastikan saja foto jelas dan mahasiswanya benar.
-              </p>
-              <button className="text-sm font-semibold text-brand" onClick={() => setShowGrid((v) => !v)}>
-                {showGrid ? "Sembunyikan jawaban" : "Lihat / koreksi jawaban"}
-              </button>
-              {showGrid && (
-                <div className="space-y-4">
-                  <AnswerGrid
-                    title="Jawaban soal"
-                    options={["A", "B", "C", "D"]}
-                    values={review.soal}
-                    original={d.soal.map((i) => i.value)}
-                    statuses={soalStatus}
-                    onChange={(i, v) => setReview({ ...review, soal: review.soal.map((x, j) => (j === i ? v : x)) })}
-                  />
-                  <AnswerGrid
-                    title="Kuisioner"
-                    options={["A", "B", "C", "D"]}
-                    values={review.kuis}
-                    original={d.kuisioner.map((i) => i.value)}
-                    statuses={d.kuisioner.map((i) => i.status)}
-                    onChange={(i, v) => setReview({ ...review, kuis: review.kuis.map((x, j) => (j === i ? v : x)) })}
-                  />
-                </div>
-              )}
-            </section>
+  const sheet = review && !detail && (
+    <ResultSheet
+      review={review}
+      student={pesertaByNim.get(review.nim)}
+      blockers={blockers}
+      dup={dup}
+      kelasId={kelas.id}
+      peserta={peserta}
+      uploaded={uploadedHere}
+      kodeList={kodeList}
+      countdown={countdown}
+      error={error}
+      onTouch={stopCountdown}
+      onChange={(r) => {
+        stopCountdown();
+        setReview(r);
+      }}
+      onSave={enqueue}
+      onRetake={retake}
+      onDetail={() => {
+        stopCountdown();
+        setDetail(true);
+      }}
+    />
+  );
 
-            {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-bad">{error}</div>}
-            <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-line bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:static md:mx-0 md:border-0 md:bg-transparent md:p-0">
-              <button className="btn-ghost flex-1" onClick={retake} disabled={saving}>
-                Foto ulang
-              </button>
-              <button className="btn-primary flex-[2]" onClick={save} disabled={saving || !review.nim || !review.kode || (!!dup && !review.ganti)}>
-                {saving ? "Menyimpan…" : "Simpan & foto berikutnya"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ------------------------------------------------------------------ Halaman kelas
+  // ---------------------------------------------------------------- Halaman kelas
   const s = q.trim().toLowerCase();
-  const list = peserta.filter((p) => !s || p.nama.toLowerCase().includes(s) || p.nim.includes(s));
+  const list = peserta.filter(
+    (p) =>
+      (!s || p.nama.toLowerCase().includes(s) || p.nim.includes(s)) &&
+      (filter === "semua" || (filter === "sudah" ? uploadedHere.has(p.nim) : !uploadedHere.has(p.nim))),
+  );
+  const pct = peserta.length ? Math.round((done / peserta.length) * 100) : 0;
+
   return (
     <div className="space-y-4">
       {camera && (
         <CameraScanner
           title={kelas.id}
-          subtitle={`${done}/${peserta.length} terupload${sessionCount ? ` · sesi ini ${sessionCount}` : ""}`}
-          onCapture={(c) => {
+          subtitle={`${done}/${peserta.length} terupload${demo ? " · DEMO" : ""}`}
+          paused={!!review}
+          onCapture={onCapture}
+          onClose={() => {
             setCamera(false);
-            onCapture(c);
+            setReview(null);
+            setCountdown(null);
           }}
-          onClose={() => setCamera(false)}
+          topSlot={sessionStrip || undefined}
+          headerExtra={headerExtra}
+          sheet={sheet || undefined}
         />
       )}
-      {toast && (
-        <div className="fixed top-4 left-1/2 z-[60] m-0! -translate-x-1/2 rounded-full bg-ok px-4 py-2 text-sm font-semibold text-white shadow-lg">{toast}</div>
+
+      {review && detail && (
+        <DetailReview
+          review={review}
+          kelasId={kelas.id}
+          peserta={peserta}
+          uploaded={uploadedHere}
+          kodeList={kodeList}
+          student={pesertaByNim.get(review.nim)}
+          dup={dup}
+          error={error}
+          onChange={setReview}
+          onBack={() => setDetail(false)}
+          onRetake={retake}
+          onSave={enqueue}
+        />
       )}
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      {showQueue && (
+        <QueuePanel
+          queue={queue}
+          onClose={() => setShowQueue(false)}
+          onRetry={retry}
+          onReopen={reopen}
+        />
+      )}
+
+      {/* Kepala kelas */}
+      <section className="card overflow-hidden">
+        <div className="hero-band px-5 py-5 text-white">
           {demo ? (
-            <span className="pill bg-amber-100 text-warn">MODE DEMO — tidak tersimpan</span>
+            <span className="pill bg-amber-300 text-ink">MODE DEMO — tidak tersimpan</span>
           ) : (
-            <Link href="/scan" className="text-xs font-semibold text-brand">
+            <Link href="/scan" className="text-xs font-semibold text-white/80 hover:text-white">
               ← Ganti kelas
             </Link>
           )}
-          <h1 className="truncate text-xl font-bold">{kelas.id}</h1>
-          <p className="text-sm text-muted">
-            {kelas.prodi} · {kelas.hari} {kelas.waktu} · {kelas.ruangan}
-          </p>
-        </div>
-        <div className="text-right">
-          <div className="text-2xl font-bold">
-            {done}
-            <span className="text-base text-muted">/{peserta.length}</span>
+          <div className="mt-1 flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="font-serif truncate text-2xl font-bold">{kelas.id}</h1>
+              <p className="text-sm text-white/75">
+                {kelas.prodi} · {kelas.hari} {kelas.waktu} · {kelas.ruangan}
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-3xl font-bold tabular-nums">
+                {done}
+                <span className="text-base font-medium text-white/70">/{peserta.length}</span>
+              </div>
+              <div className="text-xs text-white/70">terupload</div>
+            </div>
           </div>
-          <div className="text-xs text-muted">terupload</div>
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/20">
+            <div className="h-full rounded-full bg-white transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
-      </div>
+        <div className="space-y-3 p-4">
+          <button onClick={() => setCamera(true)} className="btn-primary w-full py-4 text-base">
+            <span className="text-lg">◉</span> {queue.length ? "Lanjutkan scan" : "Mulai scan LJK"}
+          </button>
+          {queue.length > 0 && (
+            <button onClick={() => setShowQueue(true)} className="flex w-full items-center justify-between rounded-xl bg-soft px-4 py-3 text-sm">
+              <span>
+                Sesi ini: <b>{savedSession}</b> LJK
+                {pending > 0 && <span className="text-info"> · {pending} sedang diupload</span>}
+                {failed > 0 && <span className="text-bad"> · {failed} gagal</span>}
+              </span>
+              <span className="text-muted">Lihat →</span>
+            </button>
+          )}
+          <details className="rounded-xl bg-soft px-4 py-3 text-sm text-ink2">
+            <summary className="cursor-pointer font-semibold text-ink">Cara cepat memotret banyak LJK</summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Taruh LJK di meja yang terang, HP tegak lurus di atasnya, 4 kotak hitam masuk layar.</li>
+              <li>Kamera memotret sendiri saat bingkai hijau. Hasil langsung muncul di bawah.</li>
+              <li>
+                Kalau NIM & kode soal terbaca pasti, LJK tersimpan otomatis (<b>Auto ON</b>). Kalau ada yang perlu dicek, perbaiki lalu ketuk{" "}
+                <b>Simpan &amp; lanjut</b>.
+              </li>
+              <li>Ganti dengan LJK berikutnya — kamera siap memotret lagi. Upload berjalan di latar belakang.</li>
+            </ol>
+          </details>
+        </div>
+      </section>
 
-      <button onClick={() => setCamera(true)} className="btn-primary w-full py-4 text-base">
-        ◉ Buka kamera & scan LJK
-      </button>
-      <div className="card p-4 text-xs leading-relaxed text-slate-600">
-        <b>Tips:</b> letakkan LJK di permukaan datar & terang, HP tegak lurus di atas lembar, keempat kotak hitam masuk frame. Kamera akan memotret otomatis
-        saat bingkai berubah hijau dan stabil. Satu foto = satu mahasiswa.
-      </div>
-
+      {/* Daftar mahasiswa */}
       <section className="card overflow-hidden">
-        <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-          <h2 className="flex-1 font-semibold">Daftar mahasiswa</h2>
-          <input className="input max-w-48 py-1.5" placeholder="Cari…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+          <div className="flex rounded-lg bg-soft p-0.5 text-xs font-semibold">
+            {(
+              [
+                ["belum", `Belum ${peserta.length - done}`],
+                ["sudah", `Sudah ${done}`],
+                ["semua", "Semua"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setFilter(k)}
+                className={`rounded-md px-3 py-1.5 ${filter === k ? "bg-white text-ink shadow-sm" : "text-ink2"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <input className="input ml-auto max-w-48 py-1.5" placeholder="Cari nama / NIM…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <ul className="divide-y divide-line">
+          {list.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted">{filter === "belum" ? "Semua mahasiswa sudah terupload 🎉" : "Tidak ada."}</li>}
           {list.map((p) => {
             const e = byNim.get(p.nim);
             const here = e && e.kelas_id === kelas.id;
+            const qi = queue.find((i) => i.review.nim === p.nim);
             return (
               <li key={p.nim} className="flex items-center gap-3 px-4 py-2.5">
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${here ? "bg-ok text-white" : "bg-slate-100 text-slate-400"}`}>
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${here ? "bg-ok text-white" : "bg-soft text-ink3"}`}
+                >
                   {here ? "✓" : "·"}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{p.nama}</div>
                   <div className="font-mono text-xs text-muted">{p.nim}</div>
                 </div>
-                {e && (
-                  <span className={`pill ${e.status === "valid" ? "bg-green-100 text-ok" : "bg-amber-100 text-warn"}`}>
-                    {e.status === "valid" ? "valid" : "menunggu validasi"}
-                  </span>
+                {qi && (qi.status === "antri" || qi.status === "upload") ? (
+                  <span className="pill bg-info-bg text-info">mengupload…</span>
+                ) : qi?.status === "gagal" ? (
+                  <span className="pill bg-bad-bg text-bad">gagal</span>
+                ) : (
+                  e && (
+                    <span className={`pill ${e.status === "valid" ? "bg-ok-bg text-ok" : "bg-warn-bg text-warn"}`}>
+                      {e.status === "valid" ? "valid" : "menunggu validasi"}
+                    </span>
+                  )
                 )}
               </li>
             );
@@ -393,11 +545,328 @@ export default function ScanFlow({
   );
 }
 
+// ======================================================================= Panel hasil (di atas kamera)
+function ResultSheet({
+  review,
+  student,
+  blockers,
+  dup,
+  kelasId,
+  peserta,
+  uploaded,
+  kodeList,
+  countdown,
+  error,
+  onTouch,
+  onChange,
+  onSave,
+  onRetake,
+  onDetail,
+}: {
+  review: Review;
+  student?: Peserta;
+  blockers: string[];
+  dup?: Existing;
+  kelasId: string;
+  peserta: Peserta[];
+  uploaded: Set<string>;
+  kodeList: string[];
+  countdown: number | null;
+  error: string | null;
+  onTouch: () => void;
+  onChange: (r: Review) => void;
+  onSave: () => void;
+  onRetake: () => void;
+  onDetail: () => void;
+}) {
+  const d = review.capture.scan.decoded!;
+  const st = d.soal.map((i) => i.status);
+  const multi = st.filter((s) => s === "multi").length;
+  const ragu = st.filter((s) => s === "ragu").length;
+  const kosong = review.soal.filter((v) => !v).length;
+  const ok = blockers.length === 0;
+  const [pickNim, setPickNim] = useState(false);
+  const showPicker = pickNim || !review.nim || review.nimSource !== "omr";
+
+  return (
+    <div onPointerDown={onTouch} className="pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="mx-auto mt-2 mb-1 h-1 w-10 rounded-full bg-line" />
+      {/* status */}
+      <div className={`mx-4 mt-2 flex items-center gap-3 rounded-2xl px-4 py-3 ${ok ? "bg-ok-bg" : "bg-warn-bg"}`}>
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-bold text-white ${ok ? "bg-ok" : "bg-warn"}`}>
+          {ok ? "✓" : "!"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className={`text-sm font-bold ${ok ? "text-ok" : "text-warn"}`}>{ok ? "Terbaca jelas — siap disimpan" : "Perlu dicek sebelum disimpan"}</div>
+          <div className="truncate text-xs text-ink2">{ok ? `${review.capture.scan.ms} ms · ${review.capture.scan.quality?.pxPerMm} px/mm` : blockers.join(" · ")}</div>
+        </div>
+      </div>
+
+      <div className="space-y-3 px-4 pt-3">
+        {/* mahasiswa */}
+        <div className="rounded-2xl border border-line p-3">
+          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold tracking-wide text-ink3 uppercase">
+            <span>Mahasiswa</span>
+            <span className="font-mono normal-case">terbaca {review.nimRead}</span>
+          </div>
+          {review.nim && !pickNim ? (
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-base font-semibold">{student?.nama ?? "(di luar daftar kelas)"}</div>
+                <div className="font-mono text-xs text-muted">{review.nim}</div>
+              </div>
+              <button className="shrink-0 text-xs font-semibold text-brand" onClick={() => setPickNim(true)}>
+                Ganti
+              </button>
+            </div>
+          ) : null}
+          {showPicker && (pickNim || !review.nim) && (
+            <div className="mt-1">
+              <StudentPicker
+                peserta={peserta}
+                value={review.nim}
+                suggestions={review.suggestions}
+                uploaded={uploaded}
+                onChange={(nim, source) => {
+                  onChange({ ...review, nim, nimSource: source, ganti: false });
+                  setPickNim(false);
+                }}
+              />
+            </div>
+          )}
+          {dup && (
+            <label className="mt-2 flex items-start gap-2 rounded-xl bg-bad-bg p-2.5 text-xs text-ink">
+              <input type="checkbox" className="mt-0.5" checked={review.ganti} onChange={(e) => onChange({ ...review, ganti: e.target.checked })} />
+              <span>
+                Sudah ada LJK untuk NIM ini ({dup.status === "valid" ? "sudah divalidasi" : "menunggu validasi"}
+                {dup.kelas_id !== kelasId ? `, kelas ${dup.kelas_id}` : ""}). <b>Ganti dengan foto ini?</b>
+              </span>
+            </label>
+          )}
+        </div>
+
+        {/* kode soal + ringkasan */}
+        <div className="grid grid-cols-[auto_1fr] gap-3">
+          <div className="rounded-2xl border border-line p-3">
+            <div className="mb-1 text-[11px] font-semibold tracking-wide text-ink3 uppercase">Kode soal</div>
+            <div className={`font-mono text-2xl font-bold tracking-widest ${review.kode ? "" : "text-warn"}`}>{review.kode ?? "???"}</div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Mini label="terisi" value={`${75 - kosong}`} />
+            <Mini label="ragu" value={String(ragu)} tone={ragu ? "warn" : undefined} />
+            <Mini label="ganda" value={String(multi)} tone={multi ? "bad" : undefined} />
+          </div>
+        </div>
+
+        {!review.kodeFromOmr && (
+          <div className="rounded-2xl border border-warn-line bg-warn-bg/40 p-3">
+            <div className="mb-2 text-xs text-ink2">
+              Kode soal terbaca <b className="font-mono">{d.kode_items.map((i) => i.value ?? "?").join("")}</b> — pilih kode yang benar sesuai LJK:
+            </div>
+            <KodePicker kodeList={kodeList} value={review.kode} read={d.kode_soal.value} onChange={(k) => onChange({ ...review, kode: k })} />
+          </div>
+        )}
+
+        <button onClick={onDetail} className="w-full text-center text-xs font-semibold text-brand">
+          Lihat foto &amp; jawaban →
+        </button>
+        {error && <div className="rounded-xl bg-bad-bg p-3 text-sm text-bad">{error}</div>}
+
+        <div className="flex gap-2 pt-1">
+          <button className="btn-ghost flex-1 py-3.5" onClick={onRetake}>
+            ↺ Ulang
+          </button>
+          <button className="btn-primary relative flex-[2.2] overflow-hidden py-3.5 text-base" onClick={onSave} disabled={!ok}>
+            {countdown !== null && <span className="absolute inset-y-0 left-0 bg-white/25" style={{ width: `${Math.round(countdown * 100)}%` }} />}
+            <span className="relative">{countdown !== null ? "Menyimpan otomatis…" : "Simpan & lanjut"}</span>
+          </button>
+        </div>
+        {/* tinggi tetap supaya tombol tidak bergeser saat hitung mundur dibatalkan */}
+        <p className={`h-4 text-center text-[11px] text-muted ${countdown !== null ? "" : "invisible"}`}>Sentuh panel untuk membatalkan simpan otomatis</p>
+      </div>
+    </div>
+  );
+}
+
+// ======================================================================= Detail (foto + koreksi jawaban)
+function DetailReview({
+  review,
+  kelasId,
+  peserta,
+  uploaded,
+  kodeList,
+  student,
+  dup,
+  error,
+  onChange,
+  onBack,
+  onRetake,
+  onSave,
+}: {
+  review: Review;
+  kelasId: string;
+  peserta: Peserta[];
+  uploaded: Set<string>;
+  kodeList: string[];
+  student?: Peserta;
+  dup?: Existing;
+  error: string | null;
+  onChange: (r: Review) => void;
+  onBack: () => void;
+  onRetake: () => void;
+  onSave: () => void;
+}) {
+  const d = review.capture.scan.decoded!;
+  const soalStatus = d.soal.map((i) => i.status);
+  return (
+    <div className="fixed inset-0 z-[60] m-0! overflow-y-auto bg-bg">
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <button onClick={onBack} className="btn-ghost px-3 py-1.5 text-xs">
+          ← Kembali
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-bold">{student?.nama ?? "Periksa hasil baca"}</div>
+          <div className="truncate text-xs text-muted">
+            {kelasId} · NIM terbaca {review.nimRead}
+          </div>
+        </div>
+      </div>
+      <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div className="md:sticky md:top-20 md:self-start">
+          <OmrImage
+            sourceCanvas={review.capture.canvas}
+            corners={review.capture.scan.corners!}
+            values={{ nim: nimToDigits(review.nimRead), kode: review.kode, kuisioner: review.kuis, soal: review.soal }}
+            statuses={{
+              nim: d.nim.items.map((i) => i.status),
+              kode: d.kode_items.map((i) => i.status),
+              kuisioner: d.kuisioner.map((i) => i.status),
+              soal: soalStatus,
+            }}
+          />
+        </div>
+        <div className="space-y-4">
+          <section className="card space-y-3 p-4">
+            <h3 className="text-sm font-bold">Mahasiswa</h3>
+            <StudentPicker
+              peserta={peserta}
+              value={review.nim}
+              suggestions={review.suggestions}
+              uploaded={uploaded}
+              onChange={(nim, source) => onChange({ ...review, nim, nimSource: source, ganti: false })}
+            />
+            {dup && (
+              <label className="flex items-start gap-2 rounded-lg bg-bad-bg p-3 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={review.ganti} onChange={(e) => onChange({ ...review, ganti: e.target.checked })} />
+                <span>
+                  NIM ini sudah punya LJK ({dup.status === "valid" ? "sudah divalidasi" : "menunggu validasi"}, diupload {dup.uploaded_by}
+                  {dup.kelas_id !== kelasId ? ` di kelas ${dup.kelas_id}` : ""}). <b>Ganti dengan foto ini?</b>
+                </span>
+              </label>
+            )}
+          </section>
+          <section className="card p-4">
+            <h3 className="mb-2 text-sm font-bold">Kode soal</h3>
+            <KodePicker kodeList={kodeList} value={review.kode} read={d.kode_soal.value} onChange={(k) => onChange({ ...review, kode: k })} />
+          </section>
+          <section className="card space-y-4 p-4">
+            <p className="text-xs text-muted">Koreksi jawaban tidak wajib di sini — semua LJK tetap melewati tahap validasi.</p>
+            <AnswerGrid
+              title="Jawaban soal"
+              options={["A", "B", "C", "D"]}
+              values={review.soal}
+              original={d.soal.map((i) => i.value)}
+              statuses={soalStatus}
+              onChange={(i, v) => onChange({ ...review, soal: review.soal.map((x, j) => (j === i ? v : x)) })}
+            />
+            <AnswerGrid
+              title="Kuisioner"
+              options={["A", "B", "C", "D"]}
+              values={review.kuis}
+              original={d.kuisioner.map((i) => i.value)}
+              statuses={d.kuisioner.map((i) => i.status)}
+              onChange={(i, v) => onChange({ ...review, kuis: review.kuis.map((x, j) => (j === i ? v : x)) })}
+            />
+          </section>
+          {error && <div className="rounded-lg bg-bad-bg p-3 text-sm text-bad">{error}</div>}
+          <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-line bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:static md:mx-0 md:border-0 md:bg-transparent md:p-0">
+            <button className="btn-ghost flex-1" onClick={onRetake}>
+              ↺ Foto ulang
+            </button>
+            <button className="btn-primary flex-[2]" onClick={onSave} disabled={!review.nim || !review.kode || (!!dup && !review.ganti)}>
+              Simpan &amp; lanjut
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ======================================================================= Riwayat sesi
+function QueuePanel({
+  queue,
+  onClose,
+  onRetry,
+  onReopen,
+}: {
+  queue: QItem[];
+  onClose: () => void;
+  onRetry: (k: string) => void;
+  onReopen: (k: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] m-0! flex items-end bg-black/40 md:items-center md:justify-center" onClick={onClose}>
+      <div
+        className="max-h-[80dvh] w-full overflow-y-auto rounded-t-3xl bg-white pb-[max(1rem,env(safe-area-inset-bottom))] md:max-w-lg md:rounded-3xl animate-sheet-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 flex items-center justify-between border-b border-line bg-white px-5 py-4">
+          <h3 className="font-bold">LJK sesi ini ({queue.length})</h3>
+          <button onClick={onClose} className="text-sm font-semibold text-muted">
+            Tutup
+          </button>
+        </div>
+        <ul className="divide-y divide-line">
+          {queue.map((i) => (
+            <li key={i.key} className="flex items-center gap-3 px-5 py-3">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  i.status === "ok" ? "bg-ok text-white" : i.status === "gagal" ? "bg-bad text-white" : "bg-info-bg text-info"
+                }`}
+              >
+                {i.status === "ok" ? "✓" : i.status === "gagal" ? "!" : <span className="h-3 w-3 animate-spin rounded-full border-2 border-info/30 border-t-info" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{i.nama}</div>
+                <div className="truncate text-xs text-muted">
+                  {i.review.nim} · kode {i.review.kode} · {new Date(i.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                {i.error && <div className="text-xs text-bad">{i.error}</div>}
+              </div>
+              {i.status === "gagal" && (
+                <div className="flex shrink-0 gap-1">
+                  <button className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => onReopen(i.key)}>
+                    Buka
+                  </button>
+                  <button className="btn-primary px-2.5 py-1.5 text-xs" onClick={() => onRetry(i.key)}>
+                    Ulangi
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function Mini({ label, value, tone }: { label: string; value: string; tone?: "warn" | "bad" }) {
   return (
-    <div className="rounded-lg bg-slate-50 p-2">
-      <div className={`text-lg font-bold ${tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : ""}`}>{value}</div>
-      <div className="text-[11px] text-muted">{label}</div>
+    <div className="flex flex-col justify-center rounded-2xl bg-soft p-2">
+      <div className={`text-xl font-bold tabular-nums ${tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : ""}`}>{value}</div>
+      <div className="text-[10px] font-semibold tracking-wide text-ink3 uppercase">{label}</div>
     </div>
   );
 }

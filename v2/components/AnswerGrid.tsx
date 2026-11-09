@@ -5,8 +5,8 @@ import type { ItemStatus } from "@/lib/omr/types";
 const STATUS_STYLE: Record<ItemStatus, string> = {
   ok: "border-l-transparent",
   blank: "border-l-slate-300",
-  ragu: "border-l-amber-500 bg-amber-50",
-  multi: "border-l-red-500 bg-red-50",
+  ragu: "border-l-amber-500 bg-warn-bg",
+  multi: "border-l-red-500 bg-bad-bg",
 };
 
 export default function AnswerGrid({
@@ -52,7 +52,7 @@ export default function AnswerGrid({
         </span>
       </div>
       {idx.length === 0 ? (
-        <p className="rounded-lg bg-slate-50 p-3 text-xs text-muted">Tidak ada yang ditandai.</p>
+        <p className="rounded-lg bg-soft p-3 text-xs text-muted">Tidak ada yang ditandai.</p>
       ) : (
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-3">
           {idx.map((i) => {
@@ -66,7 +66,7 @@ export default function AnswerGrid({
                 onMouseEnter={() => onFocus?.(i)}
                 onFocus={() => onFocus?.(i)}
               >
-                <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-slate-600">{i + 1}</span>
+                <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-ink2">{i + 1}</span>
                 {options.map((o) => {
                   const on = values[i] === o;
                   return (
