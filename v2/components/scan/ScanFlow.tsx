@@ -596,95 +596,94 @@ function ResultSheet({
   const kosong = review.soal.filter((v) => !v).length;
   const ok = blockers.length === 0;
   const [pickNim, setPickNim] = useState(false);
-  const showPicker = pickNim || !review.nim || review.nimSource !== "omr";
 
   return (
     <div onPointerDown={onTouch} className="pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto mt-1.5 mb-1 h-1 w-10 rounded-full bg-line" />
-      <div className="space-y-2 px-3 pt-1">
-        {/* status + kode + ringkasan dalam satu baris */}
-        <div className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${ok ? "bg-ok-bg" : "bg-warn-bg"}`}>
-          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${ok ? "bg-ok" : "bg-warn"}`}>
-            {ok ? "✓" : "!"}
-          </span>
-          <div className="min-w-0 flex-1 leading-tight">
-            <div className={`truncate text-[13px] font-bold ${ok ? "text-ok" : "text-warn"}`}>{ok ? "Terbaca jelas" : "Perlu dicek"}</div>
-            <div className="truncate text-[11px] text-ink2">{ok ? `terisi ${75 - kosong} · ragu ${ragu} · ganda ${multi}` : blockers.join(" · ")}</div>
+      {pickNim ? (
+        // mode pilih mahasiswa: hanya daftar, tanpa tombol lain
+        <div className="space-y-2 px-3 pt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold">Pilih mahasiswa</span>
+            <button className="text-xs font-semibold text-muted" onClick={() => setPickNim(false)}>
+              Batal
+            </button>
           </div>
-          <div className="shrink-0 text-right leading-tight">
-            <div className="text-[9px] font-semibold tracking-wide text-ink3 uppercase">Kode</div>
-            <div className={`font-mono text-lg font-bold tracking-wider ${review.kode ? "" : "text-warn"}`}>{review.kode ?? "???"}</div>
-          </div>
+          <StudentPicker
+            peserta={peserta}
+            value={review.nim}
+            suggestions={review.suggestions}
+            uploaded={uploaded}
+            onChange={(nim, source) => {
+              onChange({ ...review, nim, nimSource: source, ganti: false });
+              setPickNim(false);
+            }}
+          />
         </div>
+      ) : (
+        <div className="space-y-2 px-3 pt-1">
+          {/* mahasiswa (ketuk untuk ganti) + kode soal */}
+          <div className="flex items-stretch gap-2">
+            <button
+              onClick={() => setPickNim(true)}
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2.5 py-2 text-left ${ok ? "bg-ok-bg" : "bg-warn-bg"}`}
+            >
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${ok ? "bg-ok" : "bg-warn"}`}>
+                {ok ? "✓" : "!"}
+              </span>
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-sm font-semibold">
+                  {review.nim ? (student?.nama ?? "Di luar daftar kelas") : "NIM belum dikenali"}
+                </span>
+                <span className="block truncate font-mono text-[11px] text-ink2">
+                  {review.nim ? review.nim : `terbaca ${review.nimRead} · ketuk untuk pilih`}
+                </span>
+              </span>
+              <span className="shrink-0 text-ink3">›</span>
+            </button>
+            <div className="flex w-16 shrink-0 flex-col items-center justify-center rounded-xl border border-line">
+              <span className="text-[9px] font-semibold tracking-wide text-ink3 uppercase">Kode</span>
+              <span className={`font-mono text-base font-bold ${review.kode ? "" : "text-warn"}`}>{review.kode ?? "???"}</span>
+            </div>
+          </div>
 
-        {/* mahasiswa */}
-        <div className="rounded-xl border border-line px-2.5 py-2">
-          {review.nim && !pickNim ? (
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1 leading-tight">
-                <div className="truncate text-sm font-semibold">{student?.nama ?? "(di luar daftar kelas)"}</div>
-                <div className="truncate font-mono text-[11px] text-muted">
-                  {review.nim}
-                  {review.nimRead !== review.nim ? ` · terbaca ${review.nimRead}` : ""}
-                </div>
-              </div>
-              <button className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-brand" onClick={() => setPickNim(true)}>
-                Ganti
-              </button>
-            </div>
-          ) : (
-            <div className="mb-1 text-[11px] font-semibold text-ink3">Pilih mahasiswa · terbaca <span className="font-mono">{review.nimRead}</span></div>
-          )}
-          {showPicker && (pickNim || !review.nim) && (
-            <div className="mt-1">
-              <StudentPicker
-                peserta={peserta}
-                value={review.nim}
-                suggestions={review.suggestions}
-                uploaded={uploaded}
-                onChange={(nim, source) => {
-                  onChange({ ...review, nim, nimSource: source, ganti: false });
-                  setPickNim(false);
-                }}
-              />
-            </div>
-          )}
+          {!ok && blockers.length > 0 && <div className="truncate px-1 text-[11px] text-warn">{blockers.join(" · ")}</div>}
+
           {dup && (
-            <label className="mt-1.5 flex items-start gap-2 rounded-lg bg-bad-bg p-2 text-xs text-ink">
+            <label className="flex items-start gap-2 rounded-lg bg-bad-bg p-2 text-xs text-ink">
               <input type="checkbox" className="mt-0.5" checked={review.ganti} onChange={(e) => onChange({ ...review, ganti: e.target.checked })} />
               <span>
-                Sudah ada LJK NIM ini ({dup.status === "valid" ? "tervalidasi" : "menunggu validasi"}
-                {dup.kelas_id !== kelasId ? `, kelas ${dup.kelas_id}` : ""}). <b>Ganti?</b>
+                Sudah ada LJK NIM ini{dup.kelas_id !== kelasId ? ` (kelas ${dup.kelas_id})` : ""}. <b>Ganti dengan foto ini?</b>
               </span>
             </label>
           )}
-        </div>
 
-        {!review.kodeFromOmr && (
-          <div className="rounded-xl border border-warn-line bg-warn-bg/40 p-2">
-            <div className="mb-1.5 text-xs text-ink2">
-              Kode terbaca <b className="font-mono">{d.kode_items.map((i) => i.value ?? "?").join("")}</b> — pilih yang benar:
+          {!review.kodeFromOmr && (
+            <div className="rounded-xl border border-warn-line bg-warn-bg/40 p-2">
+              <div className="mb-1.5 text-xs text-ink2">Pilih kode soal sesuai LJK:</div>
+              <KodePicker kodeList={kodeList} value={review.kode} read={d.kode_soal.value} onChange={(k) => onChange({ ...review, kode: k })} />
             </div>
-            <KodePicker kodeList={kodeList} value={review.kode} read={d.kode_soal.value} onChange={(k) => onChange({ ...review, kode: k })} />
+          )}
+
+          {error && <div className="rounded-lg bg-bad-bg p-2 text-xs text-bad">{error}</div>}
+
+          <div className="flex gap-2">
+            <button className="btn-ghost flex-1 py-3" onClick={onRetake}>
+              ↺ Foto ulang
+            </button>
+            <button className="btn-primary relative flex-[1.6] overflow-hidden py-3" onClick={onSave} disabled={!ok}>
+              {countdown !== null && <span className="absolute inset-y-0 left-0 bg-white/25" style={{ width: `${Math.round(countdown * 100)}%` }} />}
+              <span className="relative">{countdown !== null ? "Menyimpan…" : "Simpan"}</span>
+            </button>
           </div>
-        )}
-
-        {error && <div className="rounded-lg bg-bad-bg p-2 text-xs text-bad">{error}</div>}
-
-        <div className="flex gap-2">
-          <button className="btn-ghost px-3 py-3" onClick={onRetake} aria-label="Foto ulang">
-            ↺
-          </button>
-          <button className="btn-ghost flex-1 px-2 py-3 text-xs" onClick={onDetail}>
-            Foto &amp; jawaban
-          </button>
-          <button className="btn-primary relative flex-[2] overflow-hidden py-3 text-[15px]" onClick={onSave} disabled={!ok}>
-            {countdown !== null && <span className="absolute inset-y-0 left-0 bg-white/25" style={{ width: `${Math.round(countdown * 100)}%` }} />}
-            <span className="relative">{countdown !== null ? "Menyimpan…" : "Simpan & lanjut"}</span>
-          </button>
+          <div className="flex items-center justify-between px-1 text-[11px] text-muted">
+            <span>{countdown !== null ? "Sentuh untuk batal simpan otomatis" : `terisi ${75 - kosong} · ragu ${ragu} · ganda ${multi}`}</span>
+            <button onClick={onDetail} className="font-semibold text-brand">
+              Lihat jawaban ›
+            </button>
+          </div>
         </div>
-        {countdown !== null && <p className="text-center text-[10px] text-muted">Sentuh panel untuk membatalkan simpan otomatis</p>}
-      </div>
+      )}
     </div>
   );
 }
