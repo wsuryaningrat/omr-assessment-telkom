@@ -20,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import func, select
 
 from scanner.service import classify_scan_status, load_default_template
-from server import refdata, admin, auth, config, plotting, services, worker
+from server import refdata, admin, auth, config, plotting, services, worker, v2sync
 from server.db import Kunci, ScanSession, Sheet, SessionLocal, UploadFile, init_db
 
 _pool: ProcessPoolExecutor | None = None
@@ -398,6 +398,7 @@ async def _revalidate_static(request, call_next):
 
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(v2sync.router)
 
 
 def get_db():

@@ -31,6 +31,12 @@
   <button class="btn sm" x-show="authed" @click="logout()">Keluar</button>
 </div></header>
 
+<div class="wrap" style="padding-top:14px;padding-bottom:0">
+  <div role="radiogroup" aria-label="Pilih batch" style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/admin" role="radio" aria-checked="true" style="flex:1;min-width:220px;display:flex;gap:10px;align-items:center;padding:10px 14px;border:2px solid #BA0C2F;background:#FDECEF;border-radius:12px;text-decoration:none;color:inherit"><span style="width:14px;height:14px;border-radius:50%;border:2px solid #BA0C2F;display:inline-flex;align-items:center;justify-content:center"><span style="width:7px;height:7px;border-radius:50%;background:#BA0C2F"></span></span><span><b style="display:block;font-size:14px">Batch 1</b><small style="color:#5B6473">Hasil scan sebelumnya</small></span></a>
+    <a href="/ljk/admin" role="radio" aria-checked="false" style="flex:1;min-width:220px;display:flex;gap:10px;align-items:center;padding:10px 14px;border:2px solid #E6E8EC;background:#fff;border-radius:12px;text-decoration:none;color:inherit"><span style="width:14px;height:14px;border-radius:50%;border:2px solid #9AA3B2;display:inline-block"></span><span><b style="display:block;font-size:14px">Batch 2</b><small style="color:#5B6473">Profiling FIF</small></span></a>
+  </div>
+</div>
 <main class="wrap">
 
   <!-- masuk -->

@@ -56,6 +56,8 @@ services:
       MONITOR_SINCE: ${MONITOR_SINCE:-}
       UPLOAD_RETENTION_HOURS: ${UPLOAD_RETENTION_HOURS:-1}
       CLEANUP_ENABLED: ${CLEANUP_ENABLED:-1}
+      V2_SYNC_TOKEN: ${V2_SYNC_TOKEN:-}
+      GSHEET_V2_WORKSHEET: ${GSHEET_V2_WORKSHEET:-Profiling FIF (v2)}
     volumes:
       - uploads:/data/uploads
       - ./secrets:/run/secrets:ro        # mis. gsheet.toml -> GSHEET_CREDENTIALS=/run/secrets/gsheet.toml
@@ -63,11 +65,29 @@ services:
     stop_grace_period: 20s
     logging: *logging
 
+  # LJK Scanner v2 (Next.js, branch "v2") — kode di worktree /root/ljk-v2 (dibuat/diperbarui oleh deploy/update.sh).
+  ljk-v2:
+    build:
+      context: ../../ljk-v2/v2
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?isi NEXT_PUBLIC_SUPABASE_URL di deploy/.env}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?isi NEXT_PUBLIC_SUPABASE_ANON_KEY di deploy/.env}
+        NEXT_PUBLIC_BASE_PATH: /ljk
+        NEXT_PUBLIC_SITE_URL: ${PUBLIC_URL}
+    image: ljk-v2:latest
+    restart: unless-stopped
+    environment:
+      V1_API_URL: http://api:8000
+      V2_SYNC_TOKEN: ${V2_SYNC_TOKEN:-}
+    mem_limit: 384m
+    logging: *logging
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }
+      ljk-v2: { condition: service_healthy }
     environment:
       DOMAIN: ${DOMAIN:?isi DOMAIN (mis. ljk.contoh.id, atau :80 untuk uji tanpa domain) di deploy/.env}
     ports: ["80:80", "443:443", "443:443/udp"]

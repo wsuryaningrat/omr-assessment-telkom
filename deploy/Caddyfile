@@ -12,12 +12,11 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
-	# /ljk = LJK Scanner v2 (Next.js di Vercel, di-build dengan NEXT_PUBLIC_BASE_PATH=/ljk).
+	# /ljk = LJK Scanner v2 (Next.js, container ljk-v2 di VPS ini, basePath /ljk).
 	# Halaman /ljk lama (v1, FastAPI) tidak lagi dilayani; /admin, /panduan, /monitor, /api tetap ke FastAPI.
 	@ljk path /ljk /ljk/*
 	handle @ljk {
-		reverse_proxy https://ljk-scanner-v2.vercel.app {
-			header_up Host {upstream_hostport}
+		reverse_proxy ljk-v2:3000 {
 			flush_interval -1
 		}
 	}
