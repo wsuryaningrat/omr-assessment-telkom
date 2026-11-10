@@ -15,6 +15,11 @@ if [ -d ../ljk-v2 ]; then git -C ../ljk-v2 checkout -q --detach origin/v2; else 
 grep -q '^V2_SYNC_TOKEN=.\+' deploy/.env || { echo "V2_SYNC_TOKEN=$(openssl rand -hex 24)" >> deploy/.env; echo "   (V2_SYNC_TOKEN dibuat)"; }
 echo "==> Build & jalankan ($PREV -> $NEW)"
 $DC up -d --build
+# Caddyfile di-mount sebagai file: setelah git menggantinya, container lama masih membaca versi lama.
+# Buat ulang caddy hanya jika Caddyfile berubah (jeda HTTPS ±2 detik).
+if [ "$PREV" != "$NEW" ] && ! git diff --quiet "$PREV" "$NEW" -- deploy/Caddyfile; then
+  echo "==> Caddyfile berubah, muat ulang caddy"; $DC up -d --force-recreate caddy
+fi
 echo "==> Tunggu API sehat"
 for i in $(seq 1 30); do
   st=$($DC ps --format '{{.Service}} {{.Health}}' | awk '$1=="api"||$1=="ljk-v2"{print $2}' | sort -u | tr '\n' ' ')
