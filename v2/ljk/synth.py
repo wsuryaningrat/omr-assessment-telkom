@@ -34,12 +34,21 @@ def render_blank(path=PDF):
     return img
 
 
+MESSY = {"on": False}
+
+
 def pencil_fill(img, cx, cy, r, rng, strength=1.0, partial=1.0):
-    """Arsiran pensil: elips sedikit meleset + tekstur goresan."""
+    """Arsiran pensil: elips sedikit meleset + tekstur goresan. Mode MESSY: arsiran keluar garis,
+    meleset dari tengah, atau kurang penuh (seperti arsiran mahasiswa sungguhan)."""
     mask = np.zeros(img.shape[:2], np.uint8)
-    rx = r * rng.uniform(0.85, 1.1) * partial
-    ry = r * rng.uniform(0.8, 1.05)
-    ox, oy = rng.uniform(-0.15, 0.15) * r, rng.uniform(-0.15, 0.15) * r
+    if MESSY["on"]:
+        rx = r * rng.uniform(0.75, 1.35) * partial
+        ry = r * rng.uniform(0.7, 1.3)
+        ox, oy = rng.uniform(-0.35, 0.35) * r, rng.uniform(-0.35, 0.35) * r
+    else:
+        rx = r * rng.uniform(0.85, 1.1) * partial
+        ry = r * rng.uniform(0.8, 1.05)
+        ox, oy = rng.uniform(-0.15, 0.15) * r, rng.uniform(-0.15, 0.15) * r
     cv2.ellipse(mask, (int(cx + ox), int(cy + oy)), (int(rx), int(ry)), rng.uniform(0, 180), 0, 360, 255, -1)
     level = rng.uniform(40, 95) / strength  # graphite gelap tapi bukan hitam pekat
     noise = rng.normal(0, 18, img.shape[:2])
@@ -128,8 +137,24 @@ def fill_sheet(img, tpl, rng, style="fill"):
     return truth
 
 
+def bend_sheet(sheet, amp, rng):
+    """Kertas tidak rata (melengkung/terlipat saat dipegang): pergeseran halus non-linear.
+    Nol di tepi kertas (marker hampir tidak bergeser), maksimum di tengah — persis kasus yang tidak
+    bisa ditangkap homography 4 pojok. amp = pergeseran maksimum sebagai fraksi tinggi kertas."""
+    h, w = sheet.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    u, v = xx / w, yy / h
+    ph = rng.uniform(0, np.pi)
+    dy = amp * h * np.sin(np.pi * u) * np.sin(np.pi * v) * np.cos(ph)
+    dx = amp * h * 0.7 * np.sin(np.pi * v) * np.sin(2 * np.pi * u) * np.sin(ph)
+    return cv2.remap(sheet, (xx - dx).astype(np.float32), (yy - dy).astype(np.float32), cv2.INTER_LINEAR, borderValue=(255, 255, 255))
+
+
 def photograph(sheet, rng, *, out_size=(3024, 4032), tilt=0.06, rot_deg=6, blur=0.0, noise=4,
-               shadow=0.25, clutter=True, near_corner=False, rotate180=False, photocopy=False, jpeg=88, fill_frac=0.80):
+               shadow=0.25, clutter=True, near_corner=False, rotate180=False, photocopy=False, jpeg=88, fill_frac=0.80,
+               bend=0.0):
+    if bend:
+        sheet = bend_sheet(sheet, bend, rng)
     h, w = sheet.shape[:2]
     if photocopy:
         g = cv2.cvtColor(sheet, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -227,6 +252,11 @@ CASES = [
     # dicetak dari versi Word (LJK_v2.docx dirender LibreOffice) — memastikan posisi bubble tetap tepat
     ("16_cetak_dari_word", dict(tilt=0.04, rot_deg=4, blank="word"), "fill"),
     ("17_cetak_dari_word_wa", dict(out_size=(1080, 1920), jpeg=72, tilt=0.03, fill_frac=0.8, blank="word"), "fill"),
+    # kertas tidak rata + arsiran mahasiswa yang berantakan (temuan lapangan: bulatan tidak pas, arsiran pekat dibaca ragu)
+    ("18_kertas_melengkung", dict(tilt=0.04, bend=0.006), "fill"),
+    ("19_melengkung_kuat_arsir_meleset", dict(tilt=0.05, bend=0.010, messy=True), "fill"),
+    ("20_melengkung_wa_arsir_meleset", dict(out_size=(1080, 1920), jpeg=72, tilt=0.03, fill_frac=0.82, bend=0.008, messy=True), "fill"),
+    ("21_melengkung_sangat_kuat", dict(tilt=0.04, bend=0.016, messy=True), "fill"),
 ]
 
 
@@ -240,6 +270,7 @@ def main():
         rng = np.random.default_rng(1000 + i)
         kw = dict(kw)
         src = kw.pop("blank", None)
+        MESSY["on"] = kw.pop("messy", False)
         if src == "word" and blank_word is None:
             continue
         sheet = (blank_word if src == "word" else blank).copy()

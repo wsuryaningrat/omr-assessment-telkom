@@ -736,6 +736,7 @@ function DetailReview({
           <OmrImage
             sourceCanvas={review.capture.canvas}
             corners={review.capture.scan.corners!}
+            offsets={review.capture.scan.offsets}
             values={{ nim: nimToDigits(review.nimRead), kode: review.kode, kuisioner: review.kuis, soal: review.soal }}
             statuses={{
               nim: d.nim.items.map((i) => i.status),

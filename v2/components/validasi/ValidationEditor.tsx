@@ -121,6 +121,7 @@ export default function ValidationEditor({
             <OmrImage
               src={photoUrl}
               corners={omr.corners}
+              offsets={omr.align}
               showOverlay={overlay}
               focus={focus}
               values={{ nim: nimToDigits(sub.nim_terbaca ?? ""), kode, kuisioner: kuis, soal }}

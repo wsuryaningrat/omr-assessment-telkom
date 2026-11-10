@@ -1,4 +1,5 @@
 import { applyH, localScale } from "./homography";
+import type { ItemOffsets } from "./align";
 import type { Homography, ItemStatus, Template } from "./types";
 
 export interface OverlayValues {
@@ -42,6 +43,7 @@ export function drawOmrOverlay(
   statuses: OverlayStatuses,
   scale: number,
   focus?: OverlayFocus | null,
+  offsets?: ItemOffsets | null,
 ) {
   const f = tpl.fields;
   const lw = Math.max(1.5, 2 * scale * (localScale(H, 105, 148) / 6));
@@ -57,7 +59,10 @@ export function drawOmrOverlay(
   ) => {
     const isFocus = focus && focus.field === field && focus.index === index;
     const st = status ?? (value ? "ok" : "blank");
-    cells.forEach(([x, y], o) => {
+    const [ox, oy] = offsets?.[field]?.[index] ?? [0, 0];
+    cells.forEach(([x0, y0], o) => {
+      const x = x0 + ox;
+      const y = y0 + oy;
       const p = applyH(H, x, y);
       const rad = r * localScale(H, x, y) * scale;
       const chosen = value !== null && options[o] === value;
@@ -80,8 +85,8 @@ export function drawOmrOverlay(
       ctx.stroke();
     });
     if (isFocus) {
-      const a = applyH(H, cells[0][0] - r * 2.2, cells[0][1] - r * 1.6);
-      const b = applyH(H, cells[cells.length - 1][0] + r * 1.6, cells[cells.length - 1][1] + r * 1.6);
+      const a = applyH(H, cells[0][0] + ox - r * 2.2, cells[0][1] + oy - r * 1.6);
+      const b = applyH(H, cells[cells.length - 1][0] + ox + r * 1.6, cells[cells.length - 1][1] + oy + r * 1.6);
       ctx.strokeStyle = COLORS.focus;
       ctx.lineWidth = lw * 1.2;
       ctx.strokeRect(a.x * scale, a.y * scale, (b.x - a.x) * scale, (b.y - a.y) * scale);

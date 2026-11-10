@@ -18,6 +18,7 @@ export function toStoredOmr(scan: ScanResult, image: { w: number; h: number }): 
     kode_items: d.kode_items.map(strip),
     kuisioner: d.kuisioner.map(strip),
     soal: d.soal.map(strip),
+    align: scan.offsets,
     ms: scan.ms,
     captured_at: new Date().toISOString(),
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 200) : undefined,

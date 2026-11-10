@@ -34,6 +34,8 @@ describe("OMR LJK v2 - foto sintetis", () => {
       let soalBenar = 0;
       let soalSalahBaca = 0;
       let soalDitandai = 0;
+      let soalYakin = 0;
+      let soalTerisi = 0;
       t.soal.forEach((exp: string, i: number) => {
         const it = d.soal[i];
         if (exp === "MULTI") {
@@ -42,7 +44,11 @@ describe("OMR LJK v2 - foto sintetis", () => {
           return;
         }
         const e = exp.replace("?", "") || null;
-        if (it.value === e) soalBenar++;
+        if (it.value === e) {
+          soalBenar++;
+          if (e && it.status === "ok") soalYakin++;
+          if (e) soalTerisi++;
+        }
         else if (it.status !== "ok") soalDitandai++;
         else soalSalahBaca++;
       });
@@ -60,7 +66,7 @@ describe("OMR LJK v2 - foto sintetis", () => {
       });
       const q = res.quality!;
       rows.push(
-        `${name.padEnd(24)} nim:${nimOk ? "OK" : "X " + d.nim.value} kode:${kodeOk ? "OK" : "X"} soal ${soalBenar}/75 (salah-baca-tanpa-flag ${soalSalahBaca}, flag ${soalDitandai}) kuis ${kuisBenar}/15 | px/mm ${q.pxPerMm} sharp ${q.sharpness} ang ${q.minAngle}-${q.maxAngle} ${q.issues.join(";")} | ${res.ms}ms`,
+        `${name.padEnd(24)} nim:${nimOk ? "OK" : "X " + d.nim.value} kode:${kodeOk ? "OK" : "X"} soal ${soalBenar}/75 yakin ${soalYakin}/${soalTerisi} (salah ${soalSalahBaca}, flag ${soalDitandai}) align ${res.alignAnchors}@${res.alignRms} kuis ${kuisBenar}/15 | px/mm ${q.pxPerMm} sharp ${q.sharpness} ang ${q.minAngle}-${q.maxAngle} ${q.issues.join(";")} | ${res.ms}ms`,
       );
       // Syarat lulus: tidak boleh ada salah baca diam-diam untuk arsiran.
       if (t.style === "fill") {

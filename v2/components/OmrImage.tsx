@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { cornersToH } from "@/lib/omr/markers";
 import { drawOmrOverlay, type OverlayFocus, type OverlayStatuses, type OverlayValues } from "@/lib/omr/overlay";
 import { TEMPLATE } from "@/lib/omr/scan";
+import type { ItemOffsets } from "@/lib/omr/align";
 import type { Corners } from "@/lib/omr/types";
 
 /**
@@ -18,6 +19,7 @@ export default function OmrImage({
   statuses,
   focus,
   showOverlay = true,
+  offsets,
 }: {
   src?: string;
   sourceCanvas?: HTMLCanvasElement;
@@ -26,6 +28,7 @@ export default function OmrImage({
   statuses: OverlayStatuses;
   focus?: OverlayFocus | null;
   showOverlay?: boolean;
+  offsets?: ItemOffsets | null;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<CanvasImageSource | null>(sourceCanvas ?? null);
@@ -58,9 +61,9 @@ export default function OmrImage({
     ctx.drawImage(img, 0, 0, c.width, c.height);
     if (showOverlay) {
       const H = cornersToH(TEMPLATE, corners);
-      if (H) drawOmrOverlay(ctx, H, TEMPLATE, values, statuses, scale, focus);
+      if (H) drawOmrOverlay(ctx, H, TEMPLATE, values, statuses, scale, focus, offsets);
     }
-  }, [img, dims, corners, values, statuses, focus, showOverlay]);
+  }, [img, dims, corners, values, statuses, focus, showOverlay, offsets]);
 
   if (err) return <div className="flex aspect-[3/4] items-center justify-center rounded-xl bg-soft text-sm text-muted">{err}</div>;
   if (!dims) return <div className="aspect-[3/4] animate-pulse rounded-xl bg-soft" />;

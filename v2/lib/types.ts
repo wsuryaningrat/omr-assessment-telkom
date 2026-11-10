@@ -82,6 +82,8 @@ export interface StoredOmr {
   kode_items?: StoredItem[];
   kuisioner: StoredItem[];
   soal: StoredItem[];
+  /** Geseran lokal per nomor (mm) dari penyelarasan bubble — agar overlay pas dengan foto. */
+  align?: Record<"nim" | "kode_soal" | "kuisioner" | "soal", [number, number][]>;
   ms: number;
   captured_at: string;
   user_agent?: string;

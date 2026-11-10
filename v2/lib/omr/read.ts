@@ -1,5 +1,6 @@
 import { applyH, localScale } from "./homography";
 import { bilinear, percentile } from "./image";
+import type { ItemOffsets } from "./align";
 import type { Gray, Homography, Template } from "./types";
 
 export type FieldName = keyof Template["fields"];
@@ -21,19 +22,6 @@ for (const rr of [1.32, 1.5]) for (let i = 0; i < 24; i++) {
   const a = (i / 24) * Math.PI * 2;
   RING.push([Math.cos(a) * rr, Math.sin(a) * rr]);
 }
-
-// Grid cakupan: hampir seluruh isi bulatan (85% jari-jari, di dalam garis cetak).
-const COVER: [number, number][] = [];
-for (let i = -8; i <= 8; i++)
-  for (let j = -8; j <= 8; j++) {
-    const x = i / 8;
-    const y = j / 8;
-    if (x * x + y * y <= 1) COVER.push([x * 0.85, y * 0.85]);
-  }
-/** Tingkat kegelapan piksel (1 - v/putih) untuk menghitung cakupan; dipilih per lembar di decode. */
-export const PIX_LEVELS = [0.12, 0.16, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
-/** Cakupan mentah tiap bubble: cover[field][item][opsi][k] = proporsi area dgn kegelapan >= PIX_LEVELS[k]. */
-export type RawCover = Record<FieldName, number[][][]>;
 
 /** Ambang "tinta pekat" relatif terhadap putih lokal. */
 const INK_LEVEL = 0.68;
@@ -68,58 +56,29 @@ export function bubbleDarkness(g: Gray, H: Homography, cx: number, cy: number, r
   return ink < MIN_INK_FRAC ? d * SMUDGE_WEIGHT : d;
 }
 
-/** Proporsi area bulatan yang tertutup tinta, untuk tiap tingkat di PIX_LEVELS. */
-export function bubbleCoverage(g: Gray, H: Homography, cx: number, cy: number, r: number): number[] {
-  const ring: number[] = [];
-  for (const [dx, dy] of RING) {
-    const p = applyH(H, cx + dx * r, cy + dy * r);
-    const v = bilinear(g, p.x, p.y);
-    if (!Number.isNaN(v)) ring.push(v);
-  }
-  const white = ring.length >= 8 ? percentile(ring, 75) : NaN;
-  if (!(white > 0)) return PIX_LEVELS.map(() => 0);
-  const cnt = PIX_LEVELS.map(() => 0);
-  let n = 0;
-  for (const [dx, dy] of COVER) {
-    const p = applyH(H, cx + dx * r, cy + dy * r);
-    const v = bilinear(g, p.x, p.y);
-    if (Number.isNaN(v)) continue;
-    n++;
-    const dark = 1 - v / white;
-    for (let k = 0; k < PIX_LEVELS.length; k++) if (dark >= PIX_LEVELS[k]) cnt[k]++;
-  }
-  return cnt.map((c) => (n ? c / n : 0));
-}
-
-/** Baca kegelapan + cakupan semua bubble. */
-export function readSheetFull(g: Gray, H: Homography, tpl: Template): { raw: RawRead; cover: RawCover } {
-  const raw = {} as RawRead;
-  const cover = {} as RawCover;
-  for (const name of FIELD_NAMES) {
-    const f = tpl.fields[name];
-    raw[name] = f.items.map((item) => item.cells.map(([x, y]) => bubbleDarkness(g, H, x, y, f.r)));
-    cover[name] = f.items.map((item) => item.cells.map(([x, y]) => bubbleCoverage(g, H, x, y, f.r)));
-  }
-  return { raw, cover };
-}
-
-/** Baca kegelapan semua bubble pada semua field. */
-export function readSheet(g: Gray, H: Homography, tpl: Template): RawRead {
+/** Baca kegelapan semua bubble pada semua field (dengan geseran lokal per nomor bila ada). */
+export function readSheet(g: Gray, H: Homography, tpl: Template, off?: ItemOffsets): RawRead {
   const out = {} as RawRead;
   for (const name of FIELD_NAMES) {
     const f = tpl.fields[name];
-    out[name] = f.items.map((item) => item.cells.map(([x, y]) => bubbleDarkness(g, H, x, y, f.r)));
+    out[name] = f.items.map((item, i) => {
+      const [dx, dy] = off?.[name][i] ?? [0, 0];
+      return item.cells.map(([x, y]) => bubbleDarkness(g, H, x + dx, y + dy, f.r));
+    });
   }
   return out;
 }
 
 /** Posisi piksel pusat bubble (untuk overlay). */
-export function bubbleCenters(H: Homography, tpl: Template) {
+export function bubbleCenters(H: Homography, tpl: Template, off?: ItemOffsets) {
   const out: { field: FieldName; item: number; opt: number; x: number; y: number; r: number }[] = [];
   for (const name of FIELD_NAMES) {
     const f = tpl.fields[name];
     f.items.forEach((item, i) =>
-      item.cells.forEach(([x, y], o) => {
+      item.cells.forEach(([x0, y0], o) => {
+        const [dx, dy] = off?.[name][i] ?? [0, 0];
+        const x = x0 + dx;
+        const y = y0 + dy;
         const p = applyH(H, x, y);
         out.push({ field: name, item: i, opt: o, x: p.x, y: p.y, r: f.r * localScale(H, x, y) });
       }),
