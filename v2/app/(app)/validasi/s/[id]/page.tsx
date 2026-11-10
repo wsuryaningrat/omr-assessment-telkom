@@ -36,6 +36,7 @@ export default async function ValidasiDetail(props: { params: Promise<{ id: stri
       takenNims={(others ?? []).map((o) => o.nim)}
       me={pengawas.email}
       kodeList={ujian?.kode_soal ?? []}
+      isAdmin={pengawas.role === "admin"}
     />
   );
 }

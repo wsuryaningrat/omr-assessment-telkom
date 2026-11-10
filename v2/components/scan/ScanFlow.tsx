@@ -68,7 +68,10 @@ export default function ScanFlow({
   pengawasEmail,
   kodeList,
   demo = false,
+  ulangNim,
 }: {
+  /** Upload ulang: kamera langsung dibuka; foto NIM ini otomatis menggantikan yang lama. */
+  ulangNim?: string;
   kelas: Kelas;
   /** Kode soal yang berlaku di ujian aktif. */
   kodeList: string[];
@@ -92,6 +95,10 @@ export default function ScanFlow({
   const [q, setQ] = useState("");
   const working = useRef(false);
   const autoCancelled = useRef(false);
+
+  useEffect(() => {
+    if (ulangNim) setCamera(true);
+  }, [ulangNim]);
 
   useEffect(() => {
     setAutoSave(readPref("ljk-autosave", true));
@@ -125,10 +132,10 @@ export default function ScanFlow({
         kodeFromOmr: kodeOk,
         soal: d.soal.map((i) => i.value),
         kuis: d.kuisioner.map((i) => i.value),
-        ganti: false,
+        ganti: !!ulangNim && m.exact?.nim === ulangNim,
       });
     },
-    [peserta, kodeList],
+    [peserta, kodeList, ulangNim],
   );
 
   const dup = review?.nim ? byNim.get(review.nim) : undefined;
@@ -388,7 +395,7 @@ export default function ScanFlow({
       {camera && (
         <CameraScanner
           title={kelas.id}
-          subtitle={`${done}/${peserta.length} terupload${demo ? " · DEMO" : ""}`}
+          subtitle={ulangNim ? `Upload ulang NIM ${ulangNim}` : `${done}/${peserta.length} terupload${demo ? " · DEMO" : ""}`}
           paused={!!review}
           onCapture={onCapture}
           onClose={() => {
@@ -772,20 +779,20 @@ function DetailReview({
           <section className="card space-y-4 p-4">
             <p className="text-xs text-muted">Koreksi jawaban tidak wajib di sini — semua LJK tetap melewati tahap validasi.</p>
             <AnswerGrid
-              title="Jawaban soal"
-              options={["A", "B", "C", "D"]}
-              values={review.soal}
-              original={d.soal.map((i) => i.value)}
-              statuses={soalStatus}
-              onChange={(i, v) => onChange({ ...review, soal: review.soal.map((x, j) => (j === i ? v : x)) })}
-            />
-            <AnswerGrid
               title="Kuisioner"
               options={["A", "B", "C", "D"]}
               values={review.kuis}
               original={d.kuisioner.map((i) => i.value)}
               statuses={d.kuisioner.map((i) => i.status)}
               onChange={(i, v) => onChange({ ...review, kuis: review.kuis.map((x, j) => (j === i ? v : x)) })}
+            />
+            <AnswerGrid
+              title="Jawaban soal"
+              options={["A", "B", "C", "D"]}
+              values={review.soal}
+              original={d.soal.map((i) => i.value)}
+              statuses={soalStatus}
+              onChange={(i, v) => onChange({ ...review, soal: review.soal.map((x, j) => (j === i ? v : x)) })}
             />
           </section>
           {error && <div className="rounded-lg bg-bad-bg p-3 text-sm text-bad">{error}</div>}

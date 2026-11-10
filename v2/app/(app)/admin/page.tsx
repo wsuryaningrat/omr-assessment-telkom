@@ -2,6 +2,7 @@ import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { TEMPLATE } from "@/lib/omr/scan";
 import { hapusKode, setPengawas, simpanKunci, tambahPengawas } from "./actions";
 import { asset } from "@/lib/basePath";
+import BatchSwitch from "@/components/BatchSwitch";
 
 export default async function AdminPage() {
   const { supabase, pengawas: me } = await requireAdmin();
@@ -18,6 +19,7 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
+      <BatchSwitch active={2} />
       <div>
         <h1 className="font-serif text-2xl font-bold">Admin</h1>
         <p className="text-sm text-muted">

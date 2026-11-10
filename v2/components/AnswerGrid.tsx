@@ -54,8 +54,11 @@ export default function AnswerGrid({
       {idx.length === 0 ? (
         <p className="rounded-lg bg-soft p-3 text-xs text-muted">Tidak ada yang ditandai.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-3">
-          {idx.map((i) => {
+        // Urutan seperti di LJK: blok 5 nomor ke bawah (1-5, 6-10, ...), blok berjajar ke samping.
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+          {Array.from({ length: Math.ceil(idx.length / 5) }, (_, b) => idx.slice(b * 5, b * 5 + 5)).map((block, bi) => (
+          <div key={bi} className="flex flex-col gap-1">
+          {block.map((i) => {
             const st = statuses?.[i] ?? "ok";
             const edited = original && original[i] !== values[i];
             return (
@@ -86,6 +89,8 @@ export default function AnswerGrid({
               </div>
             );
           })}
+          </div>
+          ))}
         </div>
       )}
     </div>

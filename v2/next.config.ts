@@ -11,6 +11,8 @@ const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 const frameAncestors = process.env.FRAME_ANCESTORS ?? "https://mathcenter.cswda.id https://*.cswda.id";
 
 const nextConfig: NextConfig = {
+  // standalone: server mandiri kecil untuk container di VPS (Dockerfile); Vercel tetap bisa membangunnya.
+  output: "standalone",
   basePath: basePath || undefined,
   serverExternalPackages: ["exceljs"],
   async headers() {

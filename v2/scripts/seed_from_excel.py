@@ -115,6 +115,7 @@ def main():
         f"insert into public.ujian(id, nama, template_version, kode_soal) values ({q(UJIAN_ID)}, {q(UJIAN_NAMA)}, {q(TEMPLATE_VERSION)}, {q(kodes)}::text[]) "
         "on conflict (id) do update set nama = excluded.nama, template_version = excluded.template_version, kode_soal = excluded.kode_soal;"
     )
+    kelas = [k for k in kelas if "-PJJ-" not in k["id"].upper()]  # kelas PJJ (online) tidak ikut profiling
     for k in kelas:
         L.append(
             "insert into public.kelas(id, ujian_id, prodi, kode_mk, dosen, ruangan, hari, waktu, jumlah_mahasiswa) values "

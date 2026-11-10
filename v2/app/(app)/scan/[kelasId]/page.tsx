@@ -3,8 +3,9 @@ import { getUjianAktif, requirePengawas } from "@/lib/auth";
 import ScanFlow from "@/components/scan/ScanFlow";
 import type { Kelas, Peserta } from "@/lib/types";
 
-export default async function ScanKelas(props: { params: Promise<{ kelasId: string }> }) {
+export default async function ScanKelas(props: { params: Promise<{ kelasId: string }>; searchParams: Promise<{ ulang?: string }> }) {
   const { kelasId } = await props.params;
+  const { ulang } = await props.searchParams;
   const id = decodeURIComponent(kelasId);
   const { supabase, pengawas } = await requirePengawas();
   const { data: kelas } = await supabase.from("kelas").select("id,ujian_id,prodi,ruangan,hari,waktu,dosen").eq("id", id).maybeSingle();
@@ -25,6 +26,7 @@ export default async function ScanKelas(props: { params: Promise<{ kelasId: stri
       existing={(subs ?? []) as { id: string; nim: string; kelas_id: string; uploaded_by: string; uploaded_at: string; status: string }[]}
       pengawasEmail={pengawas.email}
       kodeList={ujian?.kode_soal ?? []}
+      ulangNim={ulang && /^\d{12}$/.test(ulang) ? ulang : undefined}
     />
   );
 }

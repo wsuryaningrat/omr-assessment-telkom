@@ -33,15 +33,34 @@ export default async function Beranda() {
           {tot.up.toLocaleString("id-ID")} dari {tot.peserta.toLocaleString("id-ID")} LJK sudah terupload
           {tot.cek > 0 && ` · ${tot.cek} menunggu validasi`}.
         </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Link href="/scan" className="btn bg-white text-ink hover:bg-white/90">
-            ◉ Scan LJK
-          </Link>
-          <Link href="/validasi" className="btn bg-white/12 text-white hover:bg-white/20">
-            ✓ Validasi
-          </Link>
-        </div>
       </section>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link
+          href="/scan"
+          className="group flex items-center gap-4 rounded-[18px] bg-brand p-5 text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-dark hover:shadow-md active:scale-[0.99] md:p-6"
+        >
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-3xl">◉</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xl font-bold">Scan LJK</span>
+            <span className="block text-sm text-white/80">Pilih kelas, lalu foto LJK satu per satu</span>
+          </span>
+          <span className="text-2xl transition group-hover:translate-x-1">→</span>
+        </Link>
+        <Link
+          href="/validasi"
+          className="group flex items-center gap-4 rounded-[18px] border-2 border-ok bg-white p-5 text-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-ok-bg hover:shadow-md active:scale-[0.99] md:p-6"
+        >
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-ok text-3xl text-white">✓</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xl font-bold">Validasi</span>
+            <span className="block text-sm text-ink2">
+              {tot.cek > 0 ? <b className="text-warn">{tot.cek} LJK menunggu dicek</b> : "Cocokkan hasil baca dengan foto"}
+            </span>
+          </span>
+          <span className="text-2xl text-ok transition group-hover:translate-x-1">→</span>
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Peserta" value={tot.peserta} />

@@ -1,0 +1,11 @@
+node_modules
+.next
+.env*
+ljk/build
+ljk/__pycache__
+lib/omr/__fixtures__
+scripts
+supabase
+*.md
+Dockerfile
+.dockerignore

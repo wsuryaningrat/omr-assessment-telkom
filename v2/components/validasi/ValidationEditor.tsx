@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import SubmissionActions from "./SubmissionActions";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
@@ -21,7 +22,9 @@ export default function ValidationEditor({
   takenNims,
   me,
   kodeList,
+  isAdmin = false,
 }: {
+  isAdmin?: boolean;
   kodeList: string[];
   sub: Submission;
   photoUrl: string | null;
@@ -106,6 +109,9 @@ export default function ValidationEditor({
         <span className="text-xs text-muted">
           diupload {sub.uploaded_by} · {new Date(sub.uploaded_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}
         </span>
+        <div className="ml-auto">
+          <SubmissionActions id={sub.id} kelasId={sub.kelas_id} nim={sub.nim} isAdmin={isAdmin} />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
@@ -190,17 +196,6 @@ export default function ValidationEditor({
               </label>
             </div>
             <AnswerGrid
-              title="Jawaban soal"
-              options={["A", "B", "C", "D"]}
-              values={soal}
-              original={sub.jawaban}
-              statuses={soalStatus}
-              onlyFlagged={onlyFlagged}
-              readOnly={locked}
-              onFocus={(i) => setFocus({ field: "soal", index: i })}
-              onChange={(i, v) => setSoal((s) => s.map((x, j) => (j === i ? v : x)))}
-            />
-            <AnswerGrid
               title="Kuisioner"
               options={["A", "B", "C", "D"]}
               values={kuis}
@@ -210,6 +205,17 @@ export default function ValidationEditor({
               readOnly={locked}
               onFocus={(i) => setFocus({ field: "kuisioner", index: i })}
               onChange={(i, v) => setKuis((s) => s.map((x, j) => (j === i ? v : x)))}
+            />
+            <AnswerGrid
+              title="Jawaban soal"
+              options={["A", "B", "C", "D"]}
+              values={soal}
+              original={sub.jawaban}
+              statuses={soalStatus}
+              onlyFlagged={onlyFlagged}
+              readOnly={locked}
+              onFocus={(i) => setFocus({ field: "soal", index: i })}
+              onChange={(i, v) => setSoal((s) => s.map((x, j) => (j === i ? v : x)))}
             />
           </section>
 

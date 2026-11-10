@@ -37,6 +37,8 @@ export interface Progres {
   tervalidasi: number;
   perlu_validasi: number;
   perlu_cek: number;
+  terkirim_at?: string | null;
+  terkirim_jumlah?: number | null;
 }
 
 export interface Submission {
