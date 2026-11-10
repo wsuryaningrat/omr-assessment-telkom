@@ -201,8 +201,8 @@ TEXT_BLOCKS = [
         "align": "center",
         "lines": [
             {
-                "text": "Saat difoto, pastikan KEEMPAT kotak hitam di pojok terlihat jelas dan tidak tertutup jari/bayangan.",
-                "size": 6.0,
+                "text": "Kerjakan dengan jujur dan tenang — setiap jawabanmu membantu kami menyiapkan dukungan belajar yang tepat untukmu. Semangat!",
+                "size": 6.5,
                 "italic": True,
             }
         ],
@@ -327,8 +327,6 @@ def draw_pdf(fields, path, editable_text=True):
     o = ORIENTATION
     c.rect(X(o["x"]), Y(o["y"] + o["h"]), o["w"] * mm, o["h"] * mm, stroke=0, fill=1)
     draw_logos(c)
-    text(c, 66, 15.4, "Bagian ATAS lembar", size=6.0, color=GRAY_LABEL, align="center", italic=True)
-    text(c, 137, 15.4, TEMPLATE_VERSION, size=6.0, color=GRAY_LABEL, align="center")
 
     # Header (bingkai di latar, teks bisa diedit)
     frame(c, 12, 22, 94, 16)
