@@ -116,6 +116,7 @@ export default function ValidationEditor({
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div className="space-y-2 lg:sticky lg:top-20 lg:self-start">
+          <div className="photo-fit lg:w-full">
           {photoUrl ? (
             <OmrImage
               src={photoUrl}
@@ -128,6 +129,7 @@ export default function ValidationEditor({
           ) : (
             <div className="card p-6 text-sm text-muted">Foto tidak bisa dimuat.</div>
           )}
+          </div>
           <div className="flex items-center justify-between text-xs text-muted">
             <label className="flex items-center gap-1.5">
               <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} /> tampilkan overlay

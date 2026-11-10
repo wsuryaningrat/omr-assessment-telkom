@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-dvh pb-20 md:pb-0">
       <header className="sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur-md">
-        <div className="mx-auto max-w-6xl px-4 py-2.5">
+        <div className="mx-auto max-w-6xl px-3 py-2 sm:px-4 sm:py-2.5">
           <BrandBar>
             <div className="hidden text-right leading-tight sm:block">
               <div className="text-sm font-semibold">{pengawas.nama}</div>
@@ -24,8 +24,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <NavLinks isAdmin={isAdmin} variant="top" />
         </nav>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-5">{children}</main>
-      <footer className="mx-auto max-w-6xl px-4 pt-4 pb-8 text-center text-xs text-ink3">
+      <main className="mx-auto max-w-6xl px-3 py-3 sm:px-4 sm:py-5">{children}</main>
+      <footer className="mx-auto max-w-6xl px-4 pt-3 pb-6 text-center text-xs text-ink3">
         developed by WHS MathCenter CSWDA Telkom University
       </footer>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">

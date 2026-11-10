@@ -383,7 +383,7 @@ export default function CameraScanner({
 
       {/* Kontrol bawah atau panel hasil */}
       {sheet ? (
-        <div className="absolute inset-x-0 bottom-0 max-h-[78dvh] overflow-y-auto rounded-t-3xl bg-white text-ink shadow-2xl animate-sheet-up">{sheet}</div>
+        <div className="absolute inset-x-0 bottom-0 max-h-[62dvh] overflow-y-auto rounded-t-2xl bg-white text-ink shadow-2xl animate-sheet-up">{sheet}</div>
       ) : (
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-4 pt-10 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="mb-5 flex justify-center">

@@ -64,13 +64,13 @@ export default function ScanTable({ rows, isAdmin }: { rows: Progres[]; isAdmin:
         </div>
       )}
       <div className="card overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full sm:min-w-[720px] text-sm">
           <thead className="bg-soft text-left text-[11px] font-semibold tracking-wide text-ink3 uppercase">
             <tr>
               <th className="px-3 py-2.5">Kelas</th>
-              <th className="px-3 py-2.5">Jadwal</th>
+              <th className="hidden px-3 py-2.5 sm:table-cell">Jadwal</th>
               <th className="px-3 py-2.5">Progres</th>
-              <th className="px-3 py-2.5">Status</th>
+              <th className="hidden px-3 py-2.5 md:table-cell">Status</th>
               <th className="px-3 py-2.5 text-right">Aksi</th>
             </tr>
           </thead>
@@ -80,17 +80,20 @@ export default function ScanTable({ rows, isAdmin }: { rows: Progres[]; isAdmin:
               const vpct = r.total_peserta ? Math.round((r.tervalidasi / r.total_peserta) * 100) : 0;
               return (
                 <tr key={r.kelas_id} className="hover:bg-soft/60">
-                  <td className="px-3 py-2.5">
+                  <td className="px-2 py-2 sm:px-3 sm:py-2.5">
                     <Link href={`/scan/${encodeURIComponent(r.kelas_id)}`} className="font-semibold hover:text-brand">
                       {r.kelas_id}
                     </Link>
-                    <div className="text-xs text-ink3">{r.prodi}</div>
+                    <div className="text-xs text-ink3">
+                      {r.prodi}
+                      <span className="sm:hidden"> · {r.hari} {r.waktu}</span>
+                    </div>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-ink2">
+                  <td className="hidden px-3 py-2.5 text-xs text-ink2 sm:table-cell">
                     <div className="font-semibold text-ink">{r.hari}</div>
                     {r.waktu} · {r.ruangan}
                   </td>
-                  <td className="w-40 px-3 py-2.5">
+                  <td className="px-2 py-2 sm:w-40 sm:px-3 sm:py-2.5">
                     <div className="mb-1 text-xs tabular-nums">
                       <b>{r.terupload}</b>
                       <span className="text-ink3">/{r.total_peserta}</span>
@@ -99,8 +102,18 @@ export default function ScanTable({ rows, isAdmin }: { rows: Progres[]; isAdmin:
                       <div className="absolute inset-y-0 left-0 bg-warn/60" style={{ width: `${pct}%` }} />
                       <div className="absolute inset-y-0 left-0 bg-ok" style={{ width: `${vpct}%` }} />
                     </div>
+                    <div className="mt-1.5 flex flex-wrap gap-1 md:hidden">
+                      {r.terupload === 0 && <span className="pill bg-soft text-ink3">belum mulai</span>}
+                      {r.perlu_validasi > 0 && <span className="pill bg-warn-bg text-warn">{r.perlu_validasi} perlu validasi</span>}
+                      {r.tervalidasi > 0 && <span className="pill bg-ok-bg text-ok">{r.tervalidasi} valid</span>}
+                      {r.terkirim_at && (
+                        <span className="pill bg-info-bg text-info" title={new Date(r.terkirim_at).toLocaleString("id-ID")}>
+                          terkirim {r.terkirim_jumlah}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className="hidden px-3 py-2.5 md:table-cell">
                     <div className="flex flex-wrap gap-1">
                       {r.terupload === 0 && <span className="pill bg-soft text-ink3">belum mulai</span>}
                       {r.perlu_validasi > 0 && <span className="pill bg-warn-bg text-warn">{r.perlu_validasi} perlu validasi</span>}
@@ -112,8 +125,8 @@ export default function ScanTable({ rows, isAdmin }: { rows: Progres[]; isAdmin:
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex justify-end gap-1">
+                  <td className="px-2 py-2 sm:px-3 sm:py-2.5">
+                    <div className="ml-auto flex w-[68px] flex-wrap justify-end gap-1 sm:w-auto sm:flex-nowrap">
                       <IconLink href={`/scan/${encodeURIComponent(r.kelas_id)}`} a="scan" />
                       <IconBtn a="validasi" disabled={r.perlu_validasi === 0} busy={busy === `validasi:${r.kelas_id}`} onClick={() => run("validasi", r)} />
                       <IconBtn a="batal" disabled={r.tervalidasi === 0} busy={busy === `batal:${r.kelas_id}`} onClick={() => run("batal", r)} />
@@ -144,7 +157,7 @@ export default function ScanTable({ rows, isAdmin }: { rows: Progres[]; isAdmin:
 function IconLink({ href, a }: { href: string; a: "scan" }) {
   const c = ICON[a];
   return (
-    <Link href={href} title={c.label} aria-label={c.label} className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold transition ${c.cls}`}>
+    <Link href={href} title={c.label} aria-label={c.label} className={`flex h-7 w-7 items-center sm:h-8 sm:w-8 justify-center rounded-lg text-sm font-bold transition ${c.cls}`}>
       {c.icon}
     </Link>
   );
@@ -159,7 +172,7 @@ function IconBtn({ a, onClick, disabled, busy }: { a: Act; onClick: () => void; 
       disabled={disabled || busy}
       title={c.label}
       aria-label={c.label}
-      className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-30 ${c.cls}`}
+      className={`flex h-7 w-7 items-center sm:h-8 sm:w-8 justify-center rounded-lg text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-30 ${c.cls}`}
     >
       {busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : c.icon}
     </button>

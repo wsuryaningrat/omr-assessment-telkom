@@ -146,3 +146,34 @@ export async function hapusSubmission(id: string): Promise<Result> {
   revalidatePath(`/validasi/${encodeURIComponent(sub.kelas_id)}`);
   return { ok: true, msg: "LJK dihapus." };
 }
+
+/**
+ * Tandai "Hadir" di spreadsheet kehadiran Pendikar (tab = kelas) untuk semua mahasiswa kelas ini yang
+ * LJK-nya sudah terscan & terdaftar di kelas. Dipanggil setelah tiap upload; idempoten, dan sekaligus
+ * menyusulkan LJK yang terscan sebelum fitur ini ada. Penulisan dikumpulkan oleh API v1 (batch).
+ */
+export async function tandaiHadir(kelasId: string): Promise<Result> {
+  const { supabase } = await requirePengawas();
+  const api = process.env.V1_API_URL;
+  const token = process.env.V2_SYNC_TOKEN;
+  if (!api || !token) return { ok: false, msg: "Sinkron kehadiran belum aktif di server ini." };
+  const [{ data: subs, error }, { data: peserta }] = await Promise.all([
+    supabase.from("submissions").select("nim").eq("kelas_id", kelasId).in("status", ["perlu_validasi", "valid"]),
+    supabase.from("peserta").select("nim").eq("kelas_id", kelasId),
+  ]);
+  if (error) return { ok: false, msg: error.message };
+  const terdaftar = new Set((peserta ?? []).map((p) => p.nim as string));
+  const nims = [...new Set((subs ?? []).map((s) => s.nim as string))].filter((n) => terdaftar.has(n));
+  try {
+    const res = await fetch(`${api}/api/v2/hadir`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-v2-token": token },
+      body: JSON.stringify({ kelas_id: kelasId, nims }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return { ok: false, msg: `Sinkron kehadiran gagal (${res.status})` };
+  } catch (e) {
+    return { ok: false, msg: `Sinkron kehadiran gagal: ${(e as Error).message}` };
+  }
+  return { ok: true, msg: `${nims.length} mahasiswa diantrekan sebagai hadir.` };
+}

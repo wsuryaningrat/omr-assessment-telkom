@@ -1,5 +1,6 @@
 "use client";
 
+import { tandaiHadir } from "@/app/(app)/scan/actions";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
@@ -267,6 +268,8 @@ export default function ScanFlow({
         next.review.capture.canvas.height = 0;
         setQueue((qq) => qq.map((i) => (i.key === next.key ? { ...i, status: "ok", error: undefined } : i)));
         setExisting((prev) => prev.map((e) => (e.id === next.key ? { ...e, id } : e)));
+        // tandai hadir di spreadsheet kehadiran (latar belakang; kegagalan tidak mengganggu scan)
+        if (!demo) tandaiHadir(kelas.id).catch(() => {});
       })
       .catch((e: Error) => {
         feedback("error");
@@ -277,7 +280,7 @@ export default function ScanFlow({
         working.current = false;
         setQueue((qq) => [...qq]); // picu pemeriksaan item berikutnya
       });
-  }, [queue, upload]);
+  }, [queue, upload, demo, kelas.id]);
 
   const retry = (key: string) => {
     const it = queue.find((i) => i.key === key);
@@ -437,7 +440,7 @@ export default function ScanFlow({
 
       {/* Kepala kelas */}
       <section className="card overflow-hidden">
-        <div className="hero-band px-5 py-5 text-white">
+        <div className="hero-band px-4 py-3 text-white sm:px-5 sm:py-5">
           {demo ? (
             <span className="pill bg-amber-300 text-ink">MODE DEMO — tidak tersimpan</span>
           ) : (
@@ -447,7 +450,7 @@ export default function ScanFlow({
           )}
           <div className="mt-1 flex items-end justify-between gap-3">
             <div className="min-w-0">
-              <h1 className="font-serif truncate text-2xl font-bold">{kelas.id}</h1>
+              <h1 className="font-serif truncate text-xl font-bold sm:text-2xl">{kelas.id}</h1>
               <p className="text-sm text-white/75">
                 {kelas.prodi} · {kelas.hari} {kelas.waktu} · {kelas.ruangan}
               </p>
@@ -460,12 +463,12 @@ export default function ScanFlow({
               <div className="text-xs text-white/70">terupload</div>
             </div>
           </div>
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/20">
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/20">
             <div className="h-full rounded-full bg-white transition-all" style={{ width: `${pct}%` }} />
           </div>
         </div>
-        <div className="space-y-3 p-4">
-          <button onClick={() => setCamera(true)} className="btn-primary w-full py-4 text-base">
+        <div className="space-y-2.5 p-3 sm:p-4">
+          <button onClick={() => setCamera(true)} className="btn-primary w-full py-3.5 text-base">
             <span className="text-lg">◉</span> {queue.length ? "Lanjutkan scan" : "Mulai scan LJK"}
           </button>
           {queue.length > 0 && (
@@ -522,7 +525,7 @@ export default function ScanFlow({
             const here = e && e.kelas_id === kelas.id;
             const qi = queue.find((i) => i.review.nim === p.nim);
             return (
-              <li key={p.nim} className="flex items-center gap-3 px-4 py-2.5">
+              <li key={p.nim} className="flex items-center gap-3 px-3 py-2 sm:px-4 sm:py-2.5">
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs ${here ? "bg-ok text-white" : "bg-soft text-ink3"}`}
                 >
@@ -596,37 +599,42 @@ function ResultSheet({
   const showPicker = pickNim || !review.nim || review.nimSource !== "omr";
 
   return (
-    <div onPointerDown={onTouch} className="pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <div className="mx-auto mt-2 mb-1 h-1 w-10 rounded-full bg-line" />
-      {/* status */}
-      <div className={`mx-4 mt-2 flex items-center gap-3 rounded-2xl px-4 py-3 ${ok ? "bg-ok-bg" : "bg-warn-bg"}`}>
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-bold text-white ${ok ? "bg-ok" : "bg-warn"}`}>
-          {ok ? "✓" : "!"}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className={`text-sm font-bold ${ok ? "text-ok" : "text-warn"}`}>{ok ? "Terbaca jelas — siap disimpan" : "Perlu dicek sebelum disimpan"}</div>
-          <div className="truncate text-xs text-ink2">{ok ? `${review.capture.scan.ms} ms · ${review.capture.scan.quality?.pxPerMm} px/mm` : blockers.join(" · ")}</div>
-        </div>
-      </div>
-
-      <div className="space-y-3 px-4 pt-3">
-        {/* mahasiswa */}
-        <div className="rounded-2xl border border-line p-3">
-          <div className="mb-1 flex items-center justify-between text-[11px] font-semibold tracking-wide text-ink3 uppercase">
-            <span>Mahasiswa</span>
-            <span className="font-mono normal-case">terbaca {review.nimRead}</span>
+    <div onPointerDown={onTouch} className="pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="mx-auto mt-1.5 mb-1 h-1 w-10 rounded-full bg-line" />
+      <div className="space-y-2 px-3 pt-1">
+        {/* status + kode + ringkasan dalam satu baris */}
+        <div className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${ok ? "bg-ok-bg" : "bg-warn-bg"}`}>
+          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${ok ? "bg-ok" : "bg-warn"}`}>
+            {ok ? "✓" : "!"}
+          </span>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className={`truncate text-[13px] font-bold ${ok ? "text-ok" : "text-warn"}`}>{ok ? "Terbaca jelas" : "Perlu dicek"}</div>
+            <div className="truncate text-[11px] text-ink2">{ok ? `terisi ${75 - kosong} · ragu ${ragu} · ganda ${multi}` : blockers.join(" · ")}</div>
           </div>
+          <div className="shrink-0 text-right leading-tight">
+            <div className="text-[9px] font-semibold tracking-wide text-ink3 uppercase">Kode</div>
+            <div className={`font-mono text-lg font-bold tracking-wider ${review.kode ? "" : "text-warn"}`}>{review.kode ?? "???"}</div>
+          </div>
+        </div>
+
+        {/* mahasiswa */}
+        <div className="rounded-xl border border-line px-2.5 py-2">
           {review.nim && !pickNim ? (
-            <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold">{student?.nama ?? "(di luar daftar kelas)"}</div>
-                <div className="font-mono text-xs text-muted">{review.nim}</div>
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="truncate text-sm font-semibold">{student?.nama ?? "(di luar daftar kelas)"}</div>
+                <div className="truncate font-mono text-[11px] text-muted">
+                  {review.nim}
+                  {review.nimRead !== review.nim ? ` · terbaca ${review.nimRead}` : ""}
+                </div>
               </div>
-              <button className="shrink-0 text-xs font-semibold text-brand" onClick={() => setPickNim(true)}>
+              <button className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-brand" onClick={() => setPickNim(true)}>
                 Ganti
               </button>
             </div>
-          ) : null}
+          ) : (
+            <div className="mb-1 text-[11px] font-semibold text-ink3">Pilih mahasiswa · terbaca <span className="font-mono">{review.nimRead}</span></div>
+          )}
           {showPicker && (pickNim || !review.nim) && (
             <div className="mt-1">
               <StudentPicker
@@ -642,54 +650,40 @@ function ResultSheet({
             </div>
           )}
           {dup && (
-            <label className="mt-2 flex items-start gap-2 rounded-xl bg-bad-bg p-2.5 text-xs text-ink">
+            <label className="mt-1.5 flex items-start gap-2 rounded-lg bg-bad-bg p-2 text-xs text-ink">
               <input type="checkbox" className="mt-0.5" checked={review.ganti} onChange={(e) => onChange({ ...review, ganti: e.target.checked })} />
               <span>
-                Sudah ada LJK untuk NIM ini ({dup.status === "valid" ? "sudah divalidasi" : "menunggu validasi"}
-                {dup.kelas_id !== kelasId ? `, kelas ${dup.kelas_id}` : ""}). <b>Ganti dengan foto ini?</b>
+                Sudah ada LJK NIM ini ({dup.status === "valid" ? "tervalidasi" : "menunggu validasi"}
+                {dup.kelas_id !== kelasId ? `, kelas ${dup.kelas_id}` : ""}). <b>Ganti?</b>
               </span>
             </label>
           )}
         </div>
 
-        {/* kode soal + ringkasan */}
-        <div className="grid grid-cols-[auto_1fr] gap-3">
-          <div className="rounded-2xl border border-line p-3">
-            <div className="mb-1 text-[11px] font-semibold tracking-wide text-ink3 uppercase">Kode soal</div>
-            <div className={`font-mono text-2xl font-bold tracking-widest ${review.kode ? "" : "text-warn"}`}>{review.kode ?? "???"}</div>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <Mini label="terisi" value={`${75 - kosong}`} />
-            <Mini label="ragu" value={String(ragu)} tone={ragu ? "warn" : undefined} />
-            <Mini label="ganda" value={String(multi)} tone={multi ? "bad" : undefined} />
-          </div>
-        </div>
-
         {!review.kodeFromOmr && (
-          <div className="rounded-2xl border border-warn-line bg-warn-bg/40 p-3">
-            <div className="mb-2 text-xs text-ink2">
-              Kode soal terbaca <b className="font-mono">{d.kode_items.map((i) => i.value ?? "?").join("")}</b> — pilih kode yang benar sesuai LJK:
+          <div className="rounded-xl border border-warn-line bg-warn-bg/40 p-2">
+            <div className="mb-1.5 text-xs text-ink2">
+              Kode terbaca <b className="font-mono">{d.kode_items.map((i) => i.value ?? "?").join("")}</b> — pilih yang benar:
             </div>
             <KodePicker kodeList={kodeList} value={review.kode} read={d.kode_soal.value} onChange={(k) => onChange({ ...review, kode: k })} />
           </div>
         )}
 
-        <button onClick={onDetail} className="w-full text-center text-xs font-semibold text-brand">
-          Lihat foto &amp; jawaban →
-        </button>
-        {error && <div className="rounded-xl bg-bad-bg p-3 text-sm text-bad">{error}</div>}
+        {error && <div className="rounded-lg bg-bad-bg p-2 text-xs text-bad">{error}</div>}
 
-        <div className="flex gap-2 pt-1">
-          <button className="btn-ghost flex-1 py-3.5" onClick={onRetake}>
-            ↺ Ulang
+        <div className="flex gap-2">
+          <button className="btn-ghost px-3 py-3" onClick={onRetake} aria-label="Foto ulang">
+            ↺
           </button>
-          <button className="btn-primary relative flex-[2.2] overflow-hidden py-3.5 text-base" onClick={onSave} disabled={!ok}>
+          <button className="btn-ghost flex-1 px-2 py-3 text-xs" onClick={onDetail}>
+            Foto &amp; jawaban
+          </button>
+          <button className="btn-primary relative flex-[2] overflow-hidden py-3 text-[15px]" onClick={onSave} disabled={!ok}>
             {countdown !== null && <span className="absolute inset-y-0 left-0 bg-white/25" style={{ width: `${Math.round(countdown * 100)}%` }} />}
-            <span className="relative">{countdown !== null ? "Menyimpan otomatis…" : "Simpan & lanjut"}</span>
+            <span className="relative">{countdown !== null ? "Menyimpan…" : "Simpan & lanjut"}</span>
           </button>
         </div>
-        {/* tinggi tetap supaya tombol tidak bergeser saat hitung mundur dibatalkan */}
-        <p className={`h-4 text-center text-[11px] text-muted ${countdown !== null ? "" : "invisible"}`}>Sentuh panel untuk membatalkan simpan otomatis</p>
+        {countdown !== null && <p className="text-center text-[10px] text-muted">Sentuh panel untuk membatalkan simpan otomatis</p>}
       </div>
     </div>
   );
@@ -738,8 +732,8 @@ function DetailReview({
           </div>
         </div>
       </div>
-      <div className="mx-auto grid max-w-5xl gap-4 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div className="md:sticky md:top-20 md:self-start">
+      <div className="mx-auto grid max-w-5xl gap-3 p-3 md:gap-4 md:p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div className="photo-fit md:sticky md:top-20 md:w-full md:self-start">
           <OmrImage
             sourceCanvas={review.capture.canvas}
             corners={review.capture.scan.corners!}
@@ -865,15 +859,6 @@ function QueuePanel({
           ))}
         </ul>
       </div>
-    </div>
-  );
-}
-
-function Mini({ label, value, tone }: { label: string; value: string; tone?: "warn" | "bad" }) {
-  return (
-    <div className="flex flex-col justify-center rounded-2xl bg-soft p-2">
-      <div className={`text-xl font-bold tabular-nums ${tone === "warn" ? "text-warn" : tone === "bad" ? "text-bad" : ""}`}>{value}</div>
-      <div className="text-[10px] font-semibold tracking-wide text-ink3 uppercase">{label}</div>
     </div>
   );
 }
