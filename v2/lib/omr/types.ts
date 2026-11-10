@@ -50,6 +50,8 @@ export interface ItemResult {
   status: ItemStatus;
   /** Skor kegelapan relatif per opsi (0..1, sudah dikurangi baseline kertas). */
   scores: number[];
+  /** Cakupan tinta tiap opsi (0..1), bila dihitung. */
+  cover?: number[];
   /** Keyakinan 0..1 (selisih opsi terkuat vs kedua). */
   conf: number;
 }
@@ -62,7 +64,7 @@ export interface DecodedSheet {
   kode_items: ItemResult[];
   kuisioner: ItemResult[];
   soal: ItemResult[];
-  stats: { baseline: number; peak: number; threshold: number };
+  stats: { baseline: number; peak: number; threshold: number; pixLevel?: number };
 }
 
 export interface QualityReport {

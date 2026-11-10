@@ -3,7 +3,7 @@ import { scaleH } from "./homography";
 import { downscaleGray, rgbaToGray } from "./image";
 import { cornersToH, detectSheet, refineCorners, scaleCorners } from "./markers";
 import { assessQuality } from "./quality";
-import { readSheet, type RawRead } from "./read";
+import { readSheetFull, type RawRead } from "./read";
 import templateJson from "./template.json";
 import type { Corners, DecodedSheet, Gray, Homography, QualityReport, SheetDetection, Template } from "./types";
 
@@ -45,8 +45,8 @@ export function scanGray(full: Gray, tpl: Template = TEMPLATE): ScanResult {
   const corners = refineCorners(full, approx, Math.max(6, markerPx));
   const H = cornersToH(tpl, corners) ?? Happrox;
   const quality = assessQuality(full, H, corners, tpl);
-  const raw = readSheet(full, H, tpl);
-  const decoded = decodeSheet(raw, tpl);
+  const { raw, cover } = readSheetFull(full, H, tpl);
+  const decoded = decodeSheet(raw, tpl, cover);
   return {
     ok: true,
     detection: det,
