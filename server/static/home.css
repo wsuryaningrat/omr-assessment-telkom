@@ -1,0 +1,24 @@
+/* Tema terang untuk beranda & panduan (dipakai bersama style.css untuk header/menu/tombol). */
+:root{
+  --cream:#FBF8F4; --rose:#FDECEF; --rose-l:#F7C9D3; --peach:#FFF1E4; --mint:#E7F6EE; --sky:#EAF2FD; --lilac:#F2EEFB;
+  --red:#BA0C2F; --red-d:#9A0A27; --ink:#1F2430; --ink2:#5A6170; --ink3:#9AA0AC; --line:#ECE7E1;
+}
+body.lite{background:var(--cream);color:var(--ink)}
+body.lite header{background:rgba(255,255,255,.86);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom-color:var(--line)}
+.serif{font-family:Georgia,"Source Serif Pro","Times New Roman",serif}
+.wrapx{max-width:1080px;margin:0 auto;padding:0 18px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--red);background:#fff;border:1px solid var(--rose-l);padding:6px 12px;border-radius:999px}
+.eyebrow::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red)}
+.btn.r{background:var(--red);border-color:var(--red);color:#fff;box-shadow:0 6px 18px rgba(186,12,47,.18)}.btn.r:hover{background:var(--red-d)}
+.btn.lg{height:50px;padding:0 22px;font-size:15px;border-radius:12px}
+.kick{font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--red)}
+.ttl{font-size:clamp(24px,4vw,34px);line-height:1.15;letter-spacing:-.01em;margin:8px 0 10px}
+.sub{color:var(--ink2);font-size:15.5px;max-width:62ch;margin:0}
+.card2{background:#fff;border:1px solid var(--line);border-radius:18px}
+.ico{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;flex:none}
+.ico svg{width:22px;height:22px}
+.t-rose{background:var(--rose);color:var(--red)} .t-mint{background:var(--mint);color:#0F7A50}
+.t-sky{background:var(--sky);color:#1D5FD6} .t-peach{background:var(--peach);color:#B5560B} .t-lilac{background:var(--lilac);color:#6941C6}
+.rv{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}.rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}*{animation:none!important}}
+footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:44px 16px 32px}

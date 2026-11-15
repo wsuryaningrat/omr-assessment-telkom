@@ -4,57 +4,59 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light">
-<title>Math Center — Peningkatan Literasi Numerik</title>
-<meta name="description" content="Program peningkatan literasi numerik mahasiswa baru Telkom University oleh Math Center CSWDA: deteksi dini, data untuk keputusan, dan treatment tepat sasaran.">
+<title>Math Center — Profiling Literasi Numerasi</title>
+<meta name="description" content="Profiling Literasi Numerasi mahasiswa Telkom University oleh Math Center CSWDA: memetakan kemampuan numerasi sejak awal agar dukungan belajar tepat sasaran.">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/home.css">
 <style>
-:root{--plum:#6B2D45;--plum-d:#1E1420;--sage:#C9D6CF}
-.serif{font-family:Georgia,"Source Serif Pro","Times New Roman",serif}
-.home{max-width:1120px;margin:0 auto;padding:0 16px}
-.hero{position:relative;overflow:hidden;margin:16px 0 0;border-radius:24px;padding:clamp(28px,6vw,64px);color:#fff;background:radial-gradient(1200px 500px at 90% -10%,#B23A62 0,transparent 60%),radial-gradient(800px 400px at -10% 110%,#BA0C2F 0,transparent 55%),var(--plum-d)}
-.hero .eyebrow{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;background:rgba(255,255,255,.12);padding:6px 12px;border-radius:999px}
-.hero h2{font-size:clamp(30px,6vw,56px);line-height:1.08;margin:18px 0 14px;letter-spacing:-.01em;max-width:16ch}
-.hero h2 em{font-style:normal;background:linear-gradient(90deg,#FFB3C7,#FFD9A8);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{font-size:clamp(15px,2vw,19px);max-width:56ch;color:rgba(255,255,255,.82);margin:0 0 26px}
-.hero .cta{display:flex;gap:10px;flex-wrap:wrap}
-.hero .cta a{text-decoration:none}
-.hero .btn{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
-.hero .btn.w{background:#fff;color:var(--plum-d);border-color:#fff}
-.hero .orb{position:absolute;right:-60px;bottom:-60px;width:260px;height:260px;border-radius:50%;border:2px dashed rgba(255,255,255,.2);animation:spin 40s linear infinite}
-.hero .sym{position:absolute;right:6%;top:14%;display:grid;grid-template-columns:repeat(3,52px);gap:10px;opacity:.9}
-.hero .sym span{display:grid;place-items:center;height:52px;border-radius:14px;background:rgba(255,255,255,.1);font:700 22px Georgia,serif;animation:bob 4s ease-in-out infinite}
-.hero .sym span:nth-child(2n){animation-delay:-1.3s}.hero .sym span:nth-child(3n){animation-delay:-2.6s}
-@keyframes bob{50%{transform:translateY(-8px)}}
-@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:820px){.hero .sym{display:none}}
-.sec{padding:56px 0 8px}
-.kick{font-size:13px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:var(--plum)}
-.sec h3.t{font-size:clamp(24px,4vw,38px);line-height:1.15;margin:8px 0 26px;letter-spacing:-.01em}
-.g2{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
-.g4{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}
-.bg{background:#F7F7F5;border:1px solid var(--line);border-radius:16px;padding:24px 26px;transition:transform .2s,box-shadow .2s,border-color .2s}
-.bg:hover{transform:translateY(-4px);box-shadow:0 12px 28px rgba(30,20,32,.1);border-color:var(--sage)}
-.bg .n{font:700 34px Georgia,serif;color:var(--sage);transition:color .2s}
-.bg:hover .n{color:var(--plum)}
-.bg h4{font-size:18px;margin:10px 0 8px}
-.bg p{margin:0;color:var(--ink2);font-size:14.5px;line-height:1.55}
-.goal{background:var(--plum-d);color:#fff;border-radius:18px;padding:28px 22px;text-align:center;transition:transform .2s,background .2s}
-.goal:hover{transform:translateY(-6px) rotate(-.6deg);background:#2A1A2E}
-.goal .ic{width:64px;height:64px;border-radius:50%;background:var(--plum);display:grid;place-items:center;margin:0 auto 18px;transition:transform .3s}
-.goal:hover .ic{transform:scale(1.12) rotate(8deg)}
-.goal .ic svg{width:30px;height:30px;color:#fff}
-.goal h4{font-size:18px;margin:0 0 10px}
-.goal p{margin:0;font-size:14px;line-height:1.55;color:rgba(255,255,255,.78)}
-.tool{display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between;background:linear-gradient(120deg,#FDECEF,#fff);border:1px solid #F3C9D2;border-radius:18px;padding:22px 26px}
-.tool h4{margin:0 0 4px;font-size:18px}.tool p{margin:0;color:var(--ink2);font-size:14.5px;max-width:60ch}
-.tool a{text-decoration:none}
-.rv{opacity:0;transform:translateY(16px);transition:opacity .5s,transform .5s}.rv.in{opacity:1;transform:none}
-@media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.hero .orb,.hero .sym span{animation:none}}
-footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32px}
+.hero{position:relative;overflow:hidden;isolation:isolate;padding:clamp(36px,7vw,84px) 0 clamp(30px,5vw,60px)}
+.hero::before{content:"";position:absolute;inset:0;z-index:-1;background:
+  radial-gradient(520px 320px at 88% 18%,var(--rose) 0,transparent 70%),
+  radial-gradient(460px 300px at 70% 95%,var(--peach) 0,transparent 70%),
+  radial-gradient(380px 260px at 4% 8%,var(--sky) 0,transparent 70%)}
+.hgrid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:clamp(24px,5vw,64px);align-items:center}
+.hero h1{font-size:clamp(34px,6.2vw,60px);line-height:1.04;letter-spacing:-.02em;margin:18px 0 16px}
+.hero h1 em{font-style:italic;color:var(--red)}
+.hero p.lead{font-size:clamp(15.5px,1.9vw,18px);color:var(--ink2);max-width:46ch;margin:0 0 28px;line-height:1.6}
+.cta{display:flex;gap:10px;flex-wrap:wrap}
+.trust{display:flex;gap:18px;flex-wrap:wrap;margin-top:26px;font-size:13px;color:var(--ink2)}
+.trust span{display:inline-flex;align-items:center;gap:7px}
+.trust svg{width:16px;height:16px;color:#0F8F5F}
+/* visual */
+.vis{position:relative;max-width:420px;justify-self:center;width:100%}
+.hv-sheet{position:relative;border-radius:16px;overflow:hidden;background:#fff;border:1px solid var(--line);box-shadow:0 30px 60px rgba(31,36,48,.12),0 6px 16px rgba(31,36,48,.06);transform:rotate(-3deg);animation:float 7s ease-in-out infinite}
+.hv-sheet img{display:block;width:100%;height:auto}
+.scanline{position:absolute;left:0;right:0;height:22%;background:linear-gradient(180deg,transparent,rgba(16,185,129,.16) 70%,rgba(16,185,129,.55) 100%);border-bottom:2px solid rgba(16,185,129,.8);animation:scan 3.6s ease-in-out infinite}
+.hv-chip{position:absolute;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 13px;box-shadow:0 12px 28px rgba(31,36,48,.12);font-size:13px;line-height:1.25;white-space:nowrap;animation:bob 5s ease-in-out infinite}
+.hv-chip b{display:block;font-size:13.5px}.hv-chip small{color:var(--ink2);font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.hv-chip .hv-dot{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;flex:none}
+.hv-chip,.hv-sym{z-index:3}
+.c1{left:-26px;top:20%}.c2{right:-18px;top:46%;animation-delay:-1.6s}.c3{left:4%;bottom:-16px;animation-delay:-3.1s}
+.hv-sym{position:absolute;font:700 22px Georgia,serif;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;animation:bob 6s ease-in-out infinite}
+.s1{right:-8px;top:-14px}.s2{left:-36px;bottom:24%;animation-delay:-2s}
+@keyframes float{50%{transform:rotate(-3deg) translateY(-8px)}}
+@keyframes bob{50%{transform:translateY(-7px)}}
+@keyframes scan{0%{top:-22%}60%,100%{top:100%}}
+@media(max-width:520px){.hero .eyebrow{font-size:10.5px;letter-spacing:.08em}}
+@media(max-width:860px){.hgrid{grid-template-columns:1fr}.vis{max-width:300px;margin-top:8px}.c1{left:-14px}.c2{right:-12px}.s2{left:-14px}}
+/* tujuan */
+.sec{padding:clamp(40px,6vw,72px) 0 0}
+.g3{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));margin-top:22px}
+.goal{padding:24px;transition:transform .2s,box-shadow .2s,border-color .2s}
+.goal:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(31,36,48,.08);border-color:var(--rose-l)}
+.goal h3{font-size:17.5px;margin:16px 0 6px}
+.goal p{margin:0;color:var(--ink2);font-size:14.5px;line-height:1.6}
+/* pengawas */
+.band{margin-top:clamp(40px,6vw,72px);border-radius:26px;padding:clamp(24px,4vw,40px);background:linear-gradient(135deg,#fff 0,var(--rose) 100%);border:1px solid var(--rose-l);display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(20px,4vw,48px);align-items:center}
+@media(max-width:860px){.band{grid-template-columns:1fr}}
+.hsteps{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.hsteps li{display:flex;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.hsteps .n{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-weight:800;flex:none}
+.hsteps b{display:block;font-size:15px;color:var(--ink)}.hsteps span{font-size:13.5px;color:var(--ink2)}
 </style>
 </head>
-<body>
+<body class="lite">
 <header><div class="in">
   <div class="brand">
     <a href="/" title="Math Center"><img class="mc" src="/mathcenter-logo.png" alt="Math Center"></a>
@@ -68,55 +70,65 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32
   <div class="menu" x-data="{o:false}" @click.outside="o=false" @keydown.escape.window="o=false">
     <button class="btn sm menu-btn" @click="o=!o" :aria-expanded="o" aria-haspopup="menu" aria-label="Menu" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div class="menu-pop" x-show="o" x-cloak x-transition.opacity role="menu">
-      <a href="/ljk" role="menuitem">Evaluasi LJK</a>
-      <a href="/panduan" role="menuitem">Panduan Pengawas</a><a href="/ljk/admin" role="menuitem">Administrator</a>
+      <a href="/ljk" role="menuitem">Scan &amp; Validasi LJK</a>
+      <a href="/panduan" role="menuitem">Panduan Pengawas</a>
+      <a href="/ljk/admin" role="menuitem">Administrator</a>
     </div>
   </div>
 </div></header>
 
-<main class="home">
-  <section class="hero">
-    <div class="sym serif" aria-hidden="true"><span>+</span><span>÷</span><span>π</span><span>%</span><span>∑</span><span>×</span></div>
-    <div class="orb" aria-hidden="true"></div>
-    <span class="eyebrow">Math Center · CSWDA Telkom University</span>
-    <h2 class="serif">Peningkatan <em>Literasi Numerik</em> Mahasiswa Baru</h2>
-    <p>Program untuk memetakan kemampuan numerik setiap mahasiswa baru sejak minggu pertama, lalu mengarahkan dukungan yang tepat sebelum kesenjangan menumpuk di mata kuliah kuantitatif.</p>
-    <div class="cta">
-      <a class="btn w" href="#latar">Kenali programnya</a>
-      <a class="btn" href="/ljk">Buka Evaluasi LJK</a>
+<main>
+  <section class="hero"><div class="wrapx hgrid">
+    <div>
+      <span class="eyebrow">Math Center · CSWDA Telkom University</span>
+      <h1 class="serif">Profiling <em>Literasi Numerasi</em> Mahasiswa</h1>
+      <p class="lead">Kami memetakan kemampuan numerasi setiap mahasiswa sejak awal, supaya dukungan belajar datang tepat waktu dan tepat sasaran.</p>
+      <div class="cta">
+        <a class="btn r lg" href="/ljk">Masuk sebagai pengawas →</a>
+        <a class="btn lg" href="/panduan">Baca panduan</a>
+      </div>
+      <div class="trust">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>Cukup kamera HP</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>Hasil baca seketika</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>Divalidasi pengawas</span>
+      </div>
     </div>
-  </section>
+    <div class="vis" aria-hidden="true">
+      <span class="hv-sym s1 t-peach">π</span>
+      <span class="hv-sym s2 t-sky">∑</span>
+      <div class="hv-sheet"><img src="/panduan/v2/ljk-v2-kosong.jpg" alt="" width="910" height="1287"><div class="scanline"></div></div>
+      <div class="hv-chip c1"><span class="hv-dot t-mint">✓</span><span><b>NIM terbaca</b><small>1030 5260 0003</small></span></div>
+      <div class="hv-chip c2"><span class="hv-dot t-rose">#</span><span><b>Kode soal</b><small>192</small></span></div>
+      <div class="hv-chip c3"><span class="hv-dot t-sky">↑</span><span><b>Tersimpan</b><small>siap divalidasi</small></span></div>
+    </div>
+  </div></section>
 
-  <section class="sec rv" id="latar">
-    <div class="kick">Latar belakang</div>
-    <h3 class="t serif">Kesenjangan Numerasi Mahasiswa Baru Berisiko Menumpuk</h3>
-    <div class="g2">
-      <div class="bg"><div class="n">01</div><h4>Fondasi yang timpang</h4><p>Kemampuan matematika dasar lulusan SMA sangat beragam — sebagian besar belum siap mengikuti mata kuliah kuantitatif tingkat universitas.</p></div>
-      <div class="bg"><div class="n">02</div><h4>Risiko di mata kuliah gateway</h4><p>Kalkulus I, Statistika, dan mata kuliah kuantitatif dasar lain adalah titik gagal/mengulang terbesar di tahun pertama — kelemahan numerasi di sini bersifat menumpuk ke semester berikutnya.</p></div>
-      <div class="bg"><div class="n">03</div><h4>Kebutuhan berbeda per rumpun ilmu</h4><p>STEM butuh fondasi aljabar &amp; kalkulus yang kuat; SHAPE butuh penalaran kuantitatif kontekstual (baca data, statistik sosial) — satu solusi generik tidak cukup.</p></div>
-      <div class="bg"><div class="n">04</div><h4>Belum ada deteksi dini sistematis</h4><p>Saat ini belum ada mekanisme terstruktur untuk mengetahui level kemampuan numerik tiap mahasiswa baru sejak awal, sehingga dukungan sulit ditargetkan secara tepat.</p></div>
-    </div>
-  </section>
+  <div class="wrapx">
+    <section class="sec rv">
+      <div class="kick">Tujuan program</div>
+      <h2 class="ttl serif">Data yang jelas untuk dukungan yang tepat</h2>
+      <p class="sub">Kemampuan numerasi lulusan SMA sangat beragam, dan kesenjangan kecil di awal bisa menumpuk di mata kuliah kuantitatif seperti Kalkulus dan Statistika.</p>
+      <div class="g3">
+        <div class="card2 goal"><span class="ico t-rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span><h3>Deteksi dini</h3><p>Mengetahui level numerasi tiap mahasiswa sejak minggu-minggu pertama kuliah.</p></div>
+        <div class="card2 goal"><span class="ico t-sky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><h3>Data untuk keputusan</h3><p>Peta kemampuan per kelas, program studi, dan fakultas sebagai dasar alokasi pendampingan.</p></div>
+        <div class="card2 goal"><span class="ico t-mint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></span><h3>Dukungan tepat sasaran</h3><p>Mengarahkan mahasiswa ke bentuk dukungan yang sesuai level dan rumpun ilmunya.</p></div>
+      </div>
+    </section>
 
-  <section class="sec rv" id="tujuan">
-    <div class="kick">Tujuan</div>
-    <h3 class="t serif">Apa yang Ingin Dicapai Program Ini</h3>
-    <div class="g4">
-      <div class="goal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></div><h4>Deteksi Dini</h4><p>Memetakan level kemampuan numerik setiap mahasiswa baru sejak minggu pertama, sebelum masuk mata kuliah kuantitatif inti.</p></div>
-      <div class="goal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div><h4>Data untuk Keputusan</h4><p>Menyediakan basis data objektif (bukan asumsi) untuk alokasi sumber daya pendampingan per fakultas.</p></div>
-      <div class="goal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg></div><h4>Treatment Tepat Sasaran</h4><p>Mengarahkan mahasiswa ke bentuk dukungan yang sesuai level &amp; rumpun ilmunya — bukan remedial generik untuk semua.</p></div>
-      <div class="goal"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg></div><h4>Menurunkan Risiko Gagal</h4><p>Mengurangi tingkat gagal/mengulang di mata kuliah gateway (Kalkulus I, Statistika) yang selama ini jadi titik drop-out terbesar.</p></div>
-    </div>
-  </section>
-
-  <section class="sec rv">
-    <div class="kick">Alat pendukung</div>
-    <h3 class="t serif">Dari Lembar Jawaban ke Peta Kemampuan</h3>
-    <div class="tool">
-      <div><h4>Evaluasi LJK</h4><p>Pengawas masuk dengan Google, memilih kelas, lalu memotret LJK satu per satu dengan kamera HP. Hasil baca tampil seketika, tersimpan otomatis, lalu divalidasi untuk profiling per kelas, fakultas, dan program studi.</p></div>
-      <a class="btn p" href="/ljk">Buka Evaluasi LJK →</a>
-    </div>
-  </section>
+    <section class="band rv">
+      <div>
+        <div class="kick">Untuk pengawas</div>
+        <h2 class="ttl serif">Tiga langkah setelah ujian</h2>
+        <p class="sub" style="margin-bottom:20px">Semua dikerjakan di browser HP, tanpa memasang aplikasi.</p>
+        <div class="cta"><a class="btn r" href="/ljk">Buka aplikasi</a><a class="btn" href="/panduan">Panduan lengkap</a></div>
+      </div>
+      <ol class="hsteps">
+        <li><span class="n t-rose">1</span><span><b>Masuk &amp; pilih kelas</b><span>Login dengan Gmail pengawas yang terdaftar.</span></span></li>
+        <li><span class="n t-peach">2</span><span><b>Foto LJK satu per satu</b><span>Kamera memotret otomatis saat 4 kotak hitam terlihat.</span></span></li>
+        <li><span class="n t-mint">3</span><span><b>Validasi</b><span>Cocokkan hasil baca dengan foto, lalu tandai valid.</span></span></li>
+      </ol>
+    </section>
+  </div>
 </main>
 
 <footer class="f">developed by WHS MathCenter CSWDA Telkom University</footer>
@@ -124,7 +136,7 @@ footer.f{text-align:center;color:var(--ink3);font-size:12px;padding:48px 16px 32
 <script>
 (function(){var els=document.querySelectorAll('.rv');
 if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return}
-var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.1});
 els.forEach(function(e){io.observe(e)})})();
 </script>
 </body>
