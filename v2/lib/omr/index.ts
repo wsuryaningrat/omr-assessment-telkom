@@ -10,3 +10,4 @@ export { assessQuality, pageOutline, QUALITY_LIMITS } from "./quality";
 export { scanGray, scanRgba, detectFrame, TEMPLATE, DETECT_MAX_SIDE } from "./scan";
 export type { ScanResult } from "./scan";
 export { matchNim } from "./nim";
+export { WAJIB_ISI, withWajib } from "./wajib";

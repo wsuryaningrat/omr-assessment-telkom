@@ -1,6 +1,7 @@
 import { percentile } from "./image";
 import { FIELD_NAMES, type RawRead } from "./read";
 import type { DecodedSheet, ItemResult, ItemStatus, Template } from "./types";
+import { withWajib } from "./wajib";
 
 /**
  * Ubah kegelapan mentah menjadi jawaban.
@@ -54,8 +55,15 @@ export function decodeSheet(raw: RawRead, tpl: Template): DecodedSheet {
     nim: { value: nimValue, items: nimItems },
     kode_soal: combineDigits(kodeItems, "kode"),
     kode_items: kodeItems,
-    kuisioner: raw.kuisioner.map((sc, i) => decodeItem(sc, f.kuisioner.options, f.kuisioner.items[i].id, i + 1)),
-    soal: raw.soal.map((sc, i) => decodeItem(sc, f.soal.options, f.soal.items[i].id, i + 1)),
+    // nomor wajib (kuisioner 1-8, soal 1-50) yang kosong -> "ragu" agar dicek validator
+    kuisioner: withWajib(
+      raw.kuisioner.map((sc, i) => decodeItem(sc, f.kuisioner.options, f.kuisioner.items[i].id, i + 1)),
+      "kuisioner",
+    ),
+    soal: withWajib(
+      raw.soal.map((sc, i) => decodeItem(sc, f.soal.options, f.soal.items[i].id, i + 1)),
+      "soal",
+    ),
     stats: {
       baseline: Math.round(baseline * 1000) / 1000,
       peak: Math.round(peak * 1000) / 1000,

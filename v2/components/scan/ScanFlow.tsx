@@ -12,6 +12,17 @@ import { countOmrFlags, nimToDigits, toStoredOmr } from "@/lib/omr/store";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { Kelas, Peserta } from "@/lib/types";
 import CameraScanner, { feedback, setSoundEnabled, soundEnabled, type Capture } from "./CameraScanner";
+import Pager, { usePaged } from "@/components/Pager";
+
+/** Filter status mahasiswa di halaman kelas. */
+const FILTERS = [
+  ["belum", "Belum"],
+  ["perlu", "Perlu validasi"],
+  ["valid", "Valid"],
+  ["ditolak", "Ditolak"],
+  ["semua", "Semua"],
+] as const;
+type Filter = (typeof FILTERS)[number][0];
 
 interface Existing {
   id: string;
@@ -66,6 +77,7 @@ export default function ScanFlow({
   kelas,
   peserta,
   existing: initialExisting,
+  ditolak = [],
   pengawasEmail,
   kodeList,
   demo = false,
@@ -78,6 +90,8 @@ export default function ScanFlow({
   kodeList: string[];
   peserta: Peserta[];
   existing: Existing[];
+  /** LJK kelas ini yang ditolak dan belum diganti foto baru. */
+  ditolak?: { id: string; nim: string }[];
   pengawasEmail: string;
   /** Mode demo: tidak upload / simpan ke database. */
   demo?: boolean;
@@ -92,7 +106,7 @@ export default function ScanFlow({
   const [sound, setSound] = useState(true);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [showQueue, setShowQueue] = useState(false);
-  const [filter, setFilter] = useState<"belum" | "sudah" | "semua">("belum");
+  const [filter, setFilter] = useState<Filter>("belum");
   const [q, setQ] = useState("");
   const working = useRef(false);
   const autoCancelled = useRef(false);
@@ -109,6 +123,7 @@ export default function ScanFlow({
   const byNim = useMemo(() => new Map(existing.map((e) => [e.nim, e])), [existing]);
   const uploadedHere = useMemo(() => new Set(existing.filter((e) => e.kelas_id === kelas.id).map((e) => e.nim)), [existing, kelas.id]);
   const pesertaByNim = useMemo(() => new Map(peserta.map((p) => [p.nim, p])), [peserta]);
+  const ditolakByNim = useMemo(() => new Map(ditolak.map((d) => [d.nim, d.id])), [ditolak]);
   const done = peserta.filter((p) => uploadedHere.has(p.nim)).length;
   const pending = queue.filter((i) => i.status === "antri" || i.status === "upload").length;
   const failed = queue.filter((i) => i.status === "gagal").length;
@@ -386,11 +401,15 @@ export default function ScanFlow({
 
   // ---------------------------------------------------------------- Halaman kelas
   const s = q.trim().toLowerCase();
-  const list = peserta.filter(
-    (p) =>
-      (!s || p.nama.toLowerCase().includes(s) || p.nim.includes(s)) &&
-      (filter === "semua" || (filter === "sudah" ? uploadedHere.has(p.nim) : !uploadedHere.has(p.nim))),
-  );
+  const statusOf = (nim: string): Exclude<Filter, "semua"> => {
+    const e = byNim.get(nim);
+    if (e && e.kelas_id === kelas.id) return e.status === "valid" ? "valid" : "perlu";
+    return ditolakByNim.has(nim) ? "ditolak" : "belum";
+  };
+  const fCount = { belum: 0, perlu: 0, valid: 0, ditolak: 0, semua: peserta.length };
+  for (const p of peserta) fCount[statusOf(p.nim)]++;
+  const list = peserta.filter((p) => (!s || p.nama.toLowerCase().includes(s) || p.nim.includes(s)) && (filter === "semua" || statusOf(p.nim) === filter));
+  const pg = usePaged(list, "scan-mahasiswa", `${s}|${filter}`);
   const pct = peserta.length ? Math.round((done / peserta.length) * 100) : 0;
 
   return (
@@ -499,20 +518,14 @@ export default function ScanFlow({
       {/* Daftar mahasiswa */}
       <section className="card overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
-          <div className="flex rounded-lg bg-soft p-0.5 text-xs font-semibold">
-            {(
-              [
-                ["belum", `Belum ${peserta.length - done}`],
-                ["sudah", `Sudah ${done}`],
-                ["semua", "Semua"],
-              ] as const
-            ).map(([k, label]) => (
+          <div className="-mx-1 flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-soft p-0.5 text-xs font-semibold">
+            {FILTERS.map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setFilter(k)}
-                className={`rounded-md px-3 py-1.5 ${filter === k ? "bg-white text-ink shadow-sm" : "text-ink2"}`}
+                className={`shrink-0 rounded-md px-2.5 py-1.5 ${filter === k ? "bg-white text-ink shadow-sm" : "text-ink2"}`}
               >
-                {label}
+                {label} <span className={`tabular-nums ${filter === k ? "text-ink3" : "text-ink3/80"}`}>{fCount[k]}</span>
               </button>
             ))}
           </div>
@@ -520,7 +533,7 @@ export default function ScanFlow({
         </div>
         <ul className="divide-y divide-line">
           {list.length === 0 && <li className="px-4 py-6 text-center text-sm text-muted">{filter === "belum" ? "Semua mahasiswa sudah terupload 🎉" : "Tidak ada."}</li>}
-          {list.map((p) => {
+          {pg.slice.map((p) => {
             const e = byNim.get(p.nim);
             const here = e && e.kelas_id === kelas.id;
             const qi = queue.find((i) => i.review.nim === p.nim);
@@ -539,19 +552,33 @@ export default function ScanFlow({
                   <span className="pill bg-info-bg text-info">mengupload…</span>
                 ) : qi?.status === "gagal" ? (
                   <span className="pill bg-bad-bg text-bad">gagal</span>
+                ) : here && e ? (
+                  <StatusPill href={demo || qi ? null : `/validasi/s/${e.id}`} cls={e.status === "valid" ? "bg-ok-bg text-ok" : "bg-warn-bg text-warn"}>
+                    {e.status === "valid" ? "valid" : "menunggu validasi"}
+                  </StatusPill>
+                ) : ditolakByNim.has(p.nim) ? (
+                  <StatusPill href={demo ? null : `/validasi/s/${ditolakByNim.get(p.nim)}`} cls="bg-bad-bg text-bad">
+                    ditolak · foto ulang
+                  </StatusPill>
                 ) : (
-                  e && (
-                    <span className={`pill ${e.status === "valid" ? "bg-ok-bg text-ok" : "bg-warn-bg text-warn"}`}>
-                      {e.status === "valid" ? "valid" : "menunggu validasi"}
-                    </span>
-                  )
+                  e && <span className="pill bg-soft text-ink3">di kelas {e.kelas_id}</span>
                 )}
               </li>
             );
           })}
         </ul>
+        <Pager p={pg} className="border-t border-line px-4 py-2.5" />
       </section>
     </div>
+  );
+}
+
+function StatusPill({ href, cls, children }: { href: string | null; cls: string; children: React.ReactNode }) {
+  if (!href) return <span className={`pill ${cls}`}>{children}</span>;
+  return (
+    <Link href={href} className={`pill ${cls} hover:ring-1 hover:ring-current`} title="Buka halaman validasi LJK ini">
+      {children} ›
+    </Link>
   );
 }
 

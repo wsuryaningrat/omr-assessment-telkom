@@ -1,6 +1,7 @@
 import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { TEMPLATE } from "@/lib/omr/scan";
-import { hapusKode, setPengawas, simpanKunci, tambahPengawas } from "./actions";
+import { hapusKode, simpanKunci, tambahPengawas } from "./actions";
+import PengawasTable from "@/components/admin/PengawasTable";
 import { asset } from "@/lib/basePath";
 import BatchSwitch from "@/components/BatchSwitch";
 
@@ -43,46 +44,10 @@ export default async function AdminPage() {
             <button className="btn-primary">Tambah</button>
           </div>
         </form>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted uppercase">
-              <tr>
-                <th className="py-2">Nama</th>
-                <th className="py-2">Email</th>
-                <th className="py-2">Peran</th>
-                <th className="py-2 text-right">Upload</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {(pengawas ?? []).map((p) => (
-                <tr key={p.email} className={p.aktif ? "" : "opacity-50"}>
-                  <td className="py-2 pr-2">{p.nama}</td>
-                  <td className="py-2 pr-2 font-mono text-xs">{p.email}</td>
-                  <td className="py-2 pr-2">
-                    <span className={`pill ${p.role === "admin" ? "bg-brand-soft text-brand" : "bg-soft text-ink2"}`}>{p.role}</span>
-                    {!p.aktif && <span className="ml-1 pill bg-slate-200 text-ink2">nonaktif</span>}
-                  </td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{uploads.get(p.email) ?? 0}</td>
-                  <td className="py-2 text-right whitespace-nowrap">
-                    {p.email !== me.email && (
-                      <form action={setPengawas} className="inline-flex gap-1">
-                        <input type="hidden" name="email" value={p.email} />
-                        <input type="hidden" name="aktif" value={String(p.aktif)} />
-                        <button name="action" value="toggle" className="btn-ghost px-2 py-1 text-xs">
-                          {p.aktif ? "Nonaktifkan" : "Aktifkan"}
-                        </button>
-                        <button name="action" value={p.role === "admin" ? "demote" : "promote"} className="btn-ghost px-2 py-1 text-xs">
-                          {p.role === "admin" ? "Jadikan pengawas" : "Jadikan admin"}
-                        </button>
-                      </form>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <PengawasTable
+          me={me.email}
+          rows={(pengawas ?? []).map((p) => ({ email: p.email, nama: p.nama, role: p.role, aktif: p.aktif, upload: uploads.get(p.email) ?? 0 }))}
+        />
       </section>
 
       <section className="card p-4">

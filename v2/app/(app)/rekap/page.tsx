@@ -1,4 +1,4 @@
-import Link from "next/link";
+import RekapTable from "@/components/rekap/RekapTable";
 import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { loadRekap } from "@/lib/rekap";
 import { asset } from "@/lib/basePath";
@@ -54,44 +54,22 @@ export default async function RekapPage(props: { searchParams: Promise<{ kelas?:
         </select>
         <button className="btn-ghost">Terapkan</button>
       </form>
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-soft text-left text-xs text-muted uppercase">
-            <tr>
-              <th className="px-3 py-2">Kelas</th>
-              <th className="px-3 py-2">NIM</th>
-              <th className="px-3 py-2">Nama</th>
-              <th className="px-3 py-2">Kode</th>
-              <th className="px-3 py-2 text-right">B/S/K</th>
-              <th className="px-3 py-2 text-right">Nilai</th>
-              <th className="px-3 py-2">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {shown.map((r) => (
-              <tr key={r.submission_id} className="hover:bg-soft">
-                <td className="px-3 py-2 text-xs whitespace-nowrap">{r.kelas_id}</td>
-                <td className="px-3 py-2 font-mono text-xs">{r.nim}</td>
-                <td className="px-3 py-2">
-                  <Link href={`/validasi/s/${r.submission_id}`} className="hover:underline">
-                    {r.nama ?? <span className="text-warn">di luar daftar</span>}
-                  </Link>
-                </td>
-                <td className="px-3 py-2 font-mono">{r.kode_soal ?? "—"}</td>
-                <td className="px-3 py-2 text-right text-xs whitespace-nowrap tabular-nums">
-                  {r.total ? `${r.benar}/${r.salah}/${r.kosong}` : "—"}
-                </td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{r.nilai ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <span className={`pill ${r.status === "valid" ? "bg-ok-bg text-ok" : "bg-warn-bg text-warn"}`}>
-                    {r.status === "valid" ? "valid" : "menunggu"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <RekapTable
+        resetKey={`${kelas ?? ""}|${status ?? ""}`}
+        rows={shown.map((r) => ({
+          submission_id: r.submission_id,
+          kelas_id: r.kelas_id,
+          nim: r.nim,
+          nama: r.nama,
+          kode_soal: r.kode_soal,
+          benar: r.benar,
+          salah: r.salah,
+          kosong: r.kosong,
+          total: r.total,
+          nilai: r.nilai,
+          status: r.status,
+        }))}
+      />
     </div>
   );
 }

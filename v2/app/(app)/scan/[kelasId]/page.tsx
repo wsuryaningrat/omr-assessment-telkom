@@ -11,19 +11,22 @@ export default async function ScanKelas(props: { params: Promise<{ kelasId: stri
   const { data: kelas } = await supabase.from("kelas").select("id,ujian_id,prodi,ruangan,hari,waktu,dosen").eq("id", id).maybeSingle();
   if (!kelas) notFound();
   const ujian = await getUjianAktif(supabase);
-  const [{ data: peserta }, { data: subs }] = await Promise.all([
+  const [{ data: peserta }, { data: subs }, { data: tolak }] = await Promise.all([
     supabase.from("peserta").select("kelas_id,nim,nama,kelas_asal,status").eq("kelas_id", id).order("nama"),
     supabase
       .from("submissions")
       .select("id,nim,kelas_id,uploaded_by,uploaded_at,status")
       .eq("ujian_id", kelas.ujian_id)
       .in("status", ["perlu_validasi", "valid"]),
+    supabase.from("submissions").select("id,nim").eq("kelas_id", id).eq("status", "ditolak").order("uploaded_at", { ascending: false }),
   ]);
+  const ditolak = [...new Map((tolak ?? []).slice().reverse().map((t) => [t.nim, t])).values()];
   return (
     <ScanFlow
       kelas={kelas as Kelas}
       peserta={(peserta ?? []) as Peserta[]}
       existing={(subs ?? []) as { id: string; nim: string; kelas_id: string; uploaded_by: string; uploaded_at: string; status: string }[]}
+      ditolak={ditolak}
       pengawasEmail={pengawas.email}
       kodeList={ujian?.kode_soal ?? []}
       ulangNim={ulang && /^\d{12}$/.test(ulang) ? ulang : undefined}

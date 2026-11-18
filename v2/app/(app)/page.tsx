@@ -48,7 +48,7 @@ export default async function Beranda() {
           <span className="text-2xl transition group-hover:translate-x-1">→</span>
         </Link>
         <Link
-          href="/validasi"
+          href="/scan?status=perlu"
           className="group flex items-center gap-4 rounded-[18px] border-2 border-ok bg-white p-5 text-ink shadow-sm transition hover:-translate-y-0.5 hover:bg-ok-bg hover:shadow-md active:scale-[0.99] md:p-6"
         >
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-ok text-3xl text-white">✓</span>

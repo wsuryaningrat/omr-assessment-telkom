@@ -2,10 +2,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const LINKS = [
+const LINKS: { href: string; label: string; icon: string; admin?: boolean; also?: string }[] = [
   { href: "/", label: "Beranda", icon: "◧" },
-  { href: "/scan", label: "Scan LJK", icon: "◉" },
-  { href: "/validasi", label: "Validasi", icon: "✓" },
+  { href: "/scan", label: "Scan & Validasi", icon: "◉", also: "/validasi" },
   { href: "/rekap", label: "Rekap", icon: "▤", admin: true },
   { href: "/admin", label: "Admin", icon: "⚙", admin: true },
 ];
@@ -13,7 +12,8 @@ const LINKS = [
 export default function NavLinks({ isAdmin, variant }: { isAdmin: boolean; variant: "top" | "bottom" }) {
   const path = usePathname();
   const links = LINKS.filter((l) => !l.admin || isAdmin);
-  const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  const active = (href: string) =>
+    href === "/" ? path === "/" : path.startsWith(href) || LINKS.some((l) => l.href === href && l.also && path.startsWith(l.also));
   if (variant === "top") {
     return (
       <ul className="flex gap-1">

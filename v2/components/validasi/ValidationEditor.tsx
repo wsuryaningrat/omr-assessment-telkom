@@ -3,13 +3,14 @@
 import Link from "next/link";
 import SubmissionActions from "./SubmissionActions";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AnswerGrid from "@/components/AnswerGrid";
 import KodePicker from "@/components/KodePicker";
 import OmrImage from "@/components/OmrImage";
 import StudentPicker from "@/components/StudentPicker";
 import { nimToDigits } from "@/lib/omr/store";
 import type { OverlayFocus } from "@/lib/omr/overlay";
+import { withWajib } from "@/lib/omr/wajib";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { STATUS_LABEL, type Peserta, type Submission, type SubmissionStatus } from "@/lib/types";
 
@@ -19,6 +20,7 @@ export default function ValidationEditor({
   peserta,
   audit,
   nextId,
+  nav,
   takenNims,
   me,
   kodeList,
@@ -30,12 +32,19 @@ export default function ValidationEditor({
   photoUrl: string | null;
   peserta: Peserta[];
   audit: { at: string; actor: string; action: string; detail: Record<string, unknown> }[];
+  /** LJK perlu validasi berikutnya di kelas ini (untuk "Valid & berikutnya"). */
   nextId: string | null;
+  /** Navigasi sebelumnya/berikutnya mengikuti urutan daftar LJK kelas pada tab yang dibuka. */
+  nav?: { tab: string; tabLabel: string; pos: number; total: number; prevId: string | null; nextId: string | null };
   takenNims: string[];
   me: string;
 }) {
   const router = useRouter();
-  const omr = sub.omr;
+  // kosong pada nomor wajib dihitung "ragu" (juga untuk LJK lama yang tersimpan sebelum aturan ini)
+  const omr = useMemo(
+    () => ({ ...sub.omr, kuisioner: withWajib(sub.omr.kuisioner, "kuisioner"), soal: withWajib(sub.omr.soal, "soal") }),
+    [sub.omr],
+  );
   const [nim, setNim] = useState(sub.nim);
   const [nimSumber, setNimSumber] = useState(sub.nim_sumber);
   const [editNim, setEditNim] = useState(false);
@@ -87,17 +96,53 @@ export default function ValidationEditor({
       .eq("id", sub.id);
     setBusy(false);
     if (error) return setErr(error.message);
-    if (goNext && nextId) router.push(`/validasi/s/${nextId}`);
-    else if (goNext) router.push(`/validasi/${encodeURIComponent(sub.kelas_id)}`);
+    if (goNext && nextId) router.push(`/validasi/s/${nextId}?tab=menunggu`);
+    else if (goNext) router.push(`/validasi/${encodeURIComponent(sub.kelas_id)}?tab=${nav?.tab ?? "menunggu"}`);
     else router.refresh();
   };
+
+  const go = useCallback(
+    (target: string | null) => {
+      if (!target) return;
+      if (dirty && !window.confirm("Perubahan di LJK ini belum disimpan. Tetap pindah?")) return;
+      router.push(`/validasi/s/${target}${nav ? `?tab=${nav.tab}` : ""}`);
+    },
+    [dirty, nav, router],
+  );
+
+  // ← / → untuk pindah LJK (kecuali saat mengetik)
+  useEffect(() => {
+    if (!nav) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      if (e.key === "ArrowLeft") go(nav.prevId);
+      else if (e.key === "ArrowRight") go(nav.nextId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [nav, go]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href={`/validasi/${encodeURIComponent(sub.kelas_id)}`} className="text-xs font-semibold text-brand">
+        <Link href={`/validasi/${encodeURIComponent(sub.kelas_id)}${nav ? `?tab=${nav.tab}` : ""}`} className="text-xs font-semibold text-brand">
           ← {sub.kelas_id}
         </Link>
+        {nav && nav.total > 0 && (
+          <div className="flex items-center gap-1">
+            <NavBtn onClick={() => go(nav.prevId)} disabled={!nav.prevId} title="LJK sebelumnya (←)">
+              ‹ Sebelumnya
+            </NavBtn>
+            <span className="px-1.5 text-xs text-muted tabular-nums" title={`Urutan di tab ${nav.tabLabel}`}>
+              {nav.pos > 0 ? `${nav.pos}/${nav.total}` : `–/${nav.total}`}
+            </span>
+            <NavBtn onClick={() => go(nav.nextId)} disabled={!nav.nextId} title="LJK berikutnya (→)">
+              Berikutnya ›
+            </NavBtn>
+          </div>
+        )}
         <span
           className={`pill ${
             sub.status === "valid" ? "bg-ok-bg text-ok" : sub.status === "perlu_validasi" ? "bg-warn-bg text-warn" : "bg-slate-200 text-ink2"
@@ -236,6 +281,16 @@ export default function ValidationEditor({
           {err && <div className="rounded-lg bg-bad-bg p-3 text-sm text-bad">{err}</div>}
           {!locked && (
             <div className="sticky bottom-16 z-10 flex flex-wrap gap-2 rounded-xl border border-line bg-white p-3 shadow-sm md:bottom-2">
+              {nav && nav.total > 0 && (
+                <div className="flex gap-1">
+                  <NavBtn onClick={() => go(nav.prevId)} disabled={!nav.prevId} title="LJK sebelumnya (←)" big>
+                    ‹
+                  </NavBtn>
+                  <NavBtn onClick={() => go(nav.nextId)} disabled={!nav.nextId} title="LJK berikutnya (→)" big>
+                    ›
+                  </NavBtn>
+                </div>
+              )}
               <button className="btn-ghost text-bad" disabled={busy} onClick={() => save("ditolak", true)}>
                 Tolak
               </button>
@@ -263,6 +318,35 @@ export default function ValidationEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+function NavBtn({
+  children,
+  onClick,
+  disabled,
+  title,
+  big,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  title: string;
+  big?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className={`rounded-lg bg-white font-semibold text-ink2 ring-1 ring-line transition hover:ring-ink3 disabled:opacity-30 ${
+        big ? "h-10 w-10 text-lg" : "px-2.5 py-1 text-xs"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

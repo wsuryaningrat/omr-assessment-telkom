@@ -54,7 +54,7 @@ v2/
 
 ### 1. Supabase
 1. Buat project baru di supabase.com (region Singapore).
-2. **SQL Editor →** jalankan `supabase/migrations/0001_init.sql`, lalu `0002_kode_soal_digit.sql`.
+2. **SQL Editor →** jalankan berurutan `supabase/migrations/0001_init.sql`, `0002_kode_soal_digit.sql`, `0003_kirim_sheet_tanpa_pjj.sql`, `0004_flags_kosong_wajib.sql`.
 3. Buat seed dari Excel (file hasilnya berisi data pribadi, **jangan di-commit**):
    ```bash
    python v2/scripts/seed_from_excel.py \
