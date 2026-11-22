@@ -2,16 +2,20 @@ import { getUjianAktif, requireAdmin } from "@/lib/auth";
 import { TEMPLATE } from "@/lib/omr/scan";
 import { hapusKode, simpanKunci, tambahPengawas } from "./actions";
 import PengawasTable from "@/components/admin/PengawasTable";
+import BacaUlangSemua from "@/components/admin/BacaUlangSemua";
 import { asset } from "@/lib/basePath";
 import BatchSwitch from "@/components/BatchSwitch";
 
 export default async function AdminPage() {
   const { supabase, pengawas: me } = await requireAdmin();
   const ujian = await getUjianAktif(supabase);
-  const [{ data: pengawas }, { data: kunci }, { data: counts }] = await Promise.all([
+  const [{ data: pengawas }, { data: kunci }, { data: counts }, { count: belumValid }] = await Promise.all([
     supabase.from("pengawas").select("email,nama,role,aktif,keterangan").order("role").order("nama"),
     ujian ? supabase.from("kunci").select("kode_soal,jawaban,updated_by,updated_at").eq("ujian_id", ujian.id) : Promise.resolve({ data: [] }),
     supabase.from("submissions").select("uploaded_by").in("status", ["perlu_validasi", "valid"]),
+    ujian
+      ? supabase.from("submissions").select("id", { count: "exact", head: true }).eq("ujian_id", ujian.id).eq("status", "perlu_validasi")
+      : Promise.resolve({ count: 0 }),
   ]);
   const uploads = new Map<string, number>();
   (counts ?? []).forEach((c) => uploads.set(c.uploaded_by, (uploads.get(c.uploaded_by) ?? 0) + 1));
@@ -30,6 +34,8 @@ export default async function AdminPage() {
           </a>
         </p>
       </div>
+
+      <BacaUlangSemua total={belumValid ?? 0} />
 
       <section className="card p-4">
         <h2 className="mb-1 font-semibold">Whitelist pengawas</h2>
