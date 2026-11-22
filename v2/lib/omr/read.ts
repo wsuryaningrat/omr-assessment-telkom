@@ -56,17 +56,75 @@ export function bubbleDarkness(g: Gray, H: Homography, cx: number, cy: number, r
   return ink < MIN_INK_FRAC ? d * SMUDGE_WEIGHT : d;
 }
 
-/** Baca kegelapan semua bubble pada semua field (dengan geseran lokal per nomor bila ada). */
-export function readSheet(g: Gray, H: Homography, tpl: Template, off?: ItemOffsets): RawRead {
-  const out = {} as RawRead;
+/** Ciri satu bubble: gelap rata-rata (tanpa pembobotan), proporsi piksel tinta pekat, tekstur (sebaran). */
+export interface BubbleFeat {
+  dark: number;
+  ink: number;
+  tex: number;
+}
+
+export function bubbleFeatures(g: Gray, H: Homography, cx: number, cy: number, r: number): BubbleFeat {
+  const inner: number[] = [];
+  for (const [dx, dy] of INNER) {
+    const p = applyH(H, cx + dx * r, cy + dy * r);
+    const v = bilinear(g, p.x, p.y);
+    if (!Number.isNaN(v)) inner.push(v);
+  }
+  const ring: number[] = [];
+  for (const [dx, dy] of RING) {
+    const p = applyH(H, cx + dx * r, cy + dy * r);
+    const v = bilinear(g, p.x, p.y);
+    if (!Number.isNaN(v)) ring.push(v);
+  }
+  const n = inner.length;
+  if (n === 0 || ring.length < 8) return { dark: NaN, ink: NaN, tex: NaN };
+  const white = percentile(ring, 75);
+  if (!(white > 0)) return { dark: NaN, ink: NaN, tex: NaN };
+  const mean = inner.reduce((a, b) => a + b, 0) / n;
+  const sd = Math.sqrt(inner.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+  return {
+    dark: Math.max(0, Math.min(1, 1 - mean / white)),
+    ink: inner.filter((v) => v < white * INK_LEVEL).length / n,
+    tex: sd / white,
+  };
+}
+
+export function readFeatures(g: Gray, H: Homography, tpl: Template, off?: ItemOffsets): Record<FieldName, BubbleFeat[][]> {
+  const out = {} as Record<FieldName, BubbleFeat[][]>;
   for (const name of FIELD_NAMES) {
     const f = tpl.fields[name];
     out[name] = f.items.map((item, i) => {
       const [dx, dy] = off?.[name][i] ?? [0, 0];
-      return item.cells.map(([x, y]) => bubbleDarkness(g, H, x + dx, y + dy, f.r));
+      return item.cells.map(([x, y]) => bubbleFeatures(g, H, x + dx, y + dy, f.r));
     });
   }
   return out;
+}
+
+/** Kegelapan efektif dari ciri bubble (sama dengan bubbleDarkness). */
+export const effectiveDarkness = (f: BubbleFeat) => (Number.isNaN(f.dark) ? NaN : f.ink < MIN_INK_FRAC ? f.dark * SMUDGE_WEIGHT : f.dark);
+
+/**
+ * Baca semua bubble pada semua field (dengan geseran lokal per nomor bila ada).
+ * `raw` = kegelapan efektif (bekas hapusan/bayangan dibobot turun), `dark` = kegelapan apa adanya dan
+ * `tex` = tekstur (sebaran) — keduanya dipakai decode untuk menerima arsiran pensil tipis yang berdiri sendiri.
+ */
+export function readSheetFull(g: Gray, H: Homography, tpl: Template, off?: ItemOffsets): { raw: RawRead; dark: RawRead; tex: RawRead } {
+  const feat = readFeatures(g, H, tpl, off);
+  const raw = {} as RawRead;
+  const dark = {} as RawRead;
+  const tex = {} as RawRead;
+  for (const name of FIELD_NAMES) {
+    raw[name] = feat[name].map((row) => row.map(effectiveDarkness));
+    dark[name] = feat[name].map((row) => row.map((f) => f.dark));
+    tex[name] = feat[name].map((row) => row.map((f) => f.tex));
+  }
+  return { raw, dark, tex };
+}
+
+/** Kegelapan efektif semua bubble. */
+export function readSheet(g: Gray, H: Homography, tpl: Template, off?: ItemOffsets): RawRead {
+  return readSheetFull(g, H, tpl, off).raw;
 }
 
 /** Posisi piksel pusat bubble (untuk overlay). */

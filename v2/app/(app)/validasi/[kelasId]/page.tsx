@@ -2,9 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePengawas } from "@/lib/auth";
 import LjkTable from "@/components/validasi/LjkTable";
+import BacaUlang from "@/components/validasi/BacaUlang";
 import type { SubmissionStatus } from "@/lib/types";
 import { TABS } from "@/lib/validasi";
-
 
 export default async function ValidasiKelas(props: { params: Promise<{ kelasId: string }>; searchParams: Promise<{ tab?: string }> }) {
   const { kelasId } = await props.params;
@@ -14,7 +14,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
   const { data: kelas } = await supabase.from("kelas").select("id,prodi,hari,waktu,ruangan").eq("id", id).maybeSingle();
   if (!kelas) notFound();
   const t = TABS.find((x) => x.key === tab) ?? TABS[0];
-  const [{ data: subs }, { data: peserta }, { data: active }] = await Promise.all([
+  const [{ data: subs }, { data: peserta }, { data: active }, { count: ditandai }] = await Promise.all([
     supabase
       .from("submissions")
       .select("id,nim,nim_sumber,kode_soal,flags,status,uploaded_by,uploaded_at,validated_by")
@@ -24,6 +24,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
       .order("uploaded_at"),
     supabase.from("peserta").select("nim,nama").eq("kelas_id", id).order("nama"),
     supabase.from("submissions").select("nim").eq("kelas_id", id).in("status", ["perlu_validasi", "valid"]),
+    supabase.from("submissions").select("id", { count: "exact", head: true }).eq("kelas_id", id).eq("status", "perlu_validasi").gt("flags", 0),
   ]);
   const nama = new Map((peserta ?? []).map((p) => [p.nim, p.nama]));
   const uploaded = new Set((active ?? []).map((s) => s.nim));
@@ -45,6 +46,7 @@ export default async function ValidasiKelas(props: { params: Promise<{ kelasId: 
           {kelas.prodi} · {kelas.hari} {kelas.waktu} · {kelas.ruangan}
         </p>
       </div>
+      <BacaUlang kelasId={kelas.id} jumlah={ditandai ?? 0} />
       <div className="flex flex-wrap gap-2 text-sm">
         {TABS.map((x) => (
           <Link

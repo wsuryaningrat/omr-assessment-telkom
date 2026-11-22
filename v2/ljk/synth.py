@@ -8,6 +8,7 @@ benda gelap di sekitar kertas, fotokopi pucat, dan lembar terbalik 180 derajat.
 """
 import json
 import os
+import sys
 import random
 
 import cv2
@@ -56,6 +57,32 @@ def pencil_fill(img, cx, cy, r, rng, strength=1.0, partial=1.0):
     m = mask > 0
     for ch in range(3):
         img[..., ch][m] = np.minimum(img[..., ch][m], tone[m]).astype(np.uint8)
+
+
+def pencil_light(img, cx, cy, r, rng, very=False):
+    """Arsiran pensil TIPIS (temuan lapangan): goresan abu-abu berbintik, kertas putih masih tembus
+    di sela goresan. Rata-rata gelap ~0.12-0.35, hampir tidak ada piksel "tinta pekat"."""
+    R = int(r * 1.6) + 2
+    x0, y0 = int(cx) - R, int(cy) - R
+    patch = img[y0:y0 + 2 * R, x0:x0 + 2 * R]
+    h, w = patch.shape[:2]
+    mask = np.zeros((h, w), np.uint8)
+    rx = r * rng.uniform(0.8, 1.15)
+    ry = r * rng.uniform(0.75, 1.1)
+    ox, oy = rng.uniform(-0.25, 0.25) * r, rng.uniform(-0.25, 0.25) * r
+    cv2.ellipse(mask, (int(cx - x0 + ox), int(cy - y0 + oy)), (int(rx), int(ry)), rng.uniform(0, 180), 0, 360, 255, -1)
+    m = mask > 0
+    mu = rng.uniform(180, 205) if very else rng.uniform(135, 185)
+    dens = rng.uniform(0.45, 0.7) if very else rng.uniform(0.55, 0.9)
+    # goresan searah (pensil digosok bolak-balik) + bintik kertas
+    yy, xx = np.mgrid[0:h, 0:w]
+    ang = rng.uniform(0, np.pi)
+    stripes = (np.sin((xx * np.cos(ang) + yy * np.sin(ang)) * rng.uniform(0.6, 1.1)) + 1) / 2
+    hit = (rng.random((h, w)) < dens * (0.55 + 0.45 * stripes)) & m
+    tone = np.clip(rng.normal(mu, 22, (h, w)), 60, 250)
+    for ch in range(3):
+        c = patch[..., ch]
+        c[hit] = np.minimum(c[hit], tone[hit]).astype(np.uint8)
 
 
 def pencil_x(img, cx, cy, r, rng):
@@ -122,6 +149,19 @@ def fill_sheet(img, tpl, rng, style="fill"):
                 if kind < 0.30:  # arsiran tipis / setengah
                     pencil_fill(img, *mm(item["cells"][o]), r, rng, strength=0.45, partial=0.6)
                     ans.append("ABCD"[o] + "?")
+                    continue
+            if style == "tipis":
+                kind = rng.random()
+                if kind < 0.45:
+                    pencil_light(img, *mm(item["cells"][o]), r, rng)
+                    ans.append("ABCD"[o])
+                    if rng.random() < 0.08:  # bekas hapusan di opsi lain
+                        o2 = (o + 1 + int(rng.integers(0, 3))) % 4
+                        erased_smudge(img, *mm(item["cells"][o2]), r, rng)
+                    continue
+                if kind < 0.55:
+                    pencil_light(img, *mm(item["cells"][o]), r, rng, very=True)
+                    ans.append("ABCD"[o])
                     continue
             if style == "x":
                 pencil_x(img, *mm(item["cells"][o]), r, rng)
@@ -257,16 +297,26 @@ CASES = [
     ("19_melengkung_kuat_arsir_meleset", dict(tilt=0.05, bend=0.010, messy=True), "fill"),
     ("20_melengkung_wa_arsir_meleset", dict(out_size=(1080, 1920), jpeg=72, tilt=0.03, fill_frac=0.82, bend=0.008, messy=True), "fill"),
     ("21_melengkung_sangat_kuat", dict(tilt=0.04, bend=0.016, messy=True), "fill"),
+    # arsiran pensil tipis/berbintik (temuan lapangan 22 Nov: banyak jawaban jelas terbaca "ragu")
+    ("22_pensil_tipis", dict(tilt=0.03, bend=0.004), "tipis"),
+    ("23_pensil_tipis_wa", dict(out_size=(1080, 1920), jpeg=70, tilt=0.03, fill_frac=0.82, bend=0.006, blur=1.2), "tipis"),
+    ("24_pensil_tipis_bayangan", dict(tilt=0.04, shadow=0.45, bend=0.006, messy=True), "tipis"),
 ]
 
 
 def main():
+    """Tanpa argumen: buat ulang semua kasus. Dengan argumen: hanya kasus yang namanya diawali prefiks itu
+    (mis. `python synth.py 22 23 24`), truth.json lain tetap."""
+    only = [a for a in sys.argv[1:]]
     os.makedirs(OUT, exist_ok=True)
     tpl = json.load(open(TPL))
     blank = render_blank()
     blank_word = render_blank(WORD_RENDER) if os.path.exists(WORD_RENDER) else None
-    truth_all = {}
+    truth_path = os.path.join(OUT, "truth.json")
+    truth_all = json.load(open(truth_path)) if only and os.path.exists(truth_path) else {}
     for i, (name, kw, style) in enumerate(CASES):
+        if only and not any(name.startswith(o) for o in only):
+            continue
         rng = np.random.default_rng(1000 + i)
         kw = dict(kw)
         src = kw.pop("blank", None)
@@ -286,6 +336,9 @@ def main():
         truth["style"] = style
         truth_all[name] = truth
         print(name, photo.shape)
+    if only:
+        json.dump(truth_all, open(truth_path, "w"), indent=1)
+        return
     # Kasus negatif: foto tanpa LJK
     rng = np.random.default_rng(7)
     neg = np.full((1600, 1200, 3), 120, np.uint8)

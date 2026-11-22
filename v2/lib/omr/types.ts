@@ -62,7 +62,7 @@ export interface DecodedSheet {
   kode_items: ItemResult[];
   kuisioner: ItemResult[];
   soal: ItemResult[];
-  stats: { baseline: number; peak: number; threshold: number; alignAnchors?: number; alignRms?: number };
+  stats: { baseline: number; peak: number; threshold: number; light?: number; alignAnchors?: number; alignRms?: number };
 }
 
 export interface QualityReport {

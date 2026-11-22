@@ -36,6 +36,8 @@ describe("OMR LJK v2 - foto sintetis", () => {
       let soalDitandai = 0;
       let soalYakin = 0;
       let soalTerisi = 0;
+      let salahOpsi = 0; // nomor berisi terbaca opsi lain dengan status ok (paling berbahaya)
+      let hapusanTerbaca = 0; // nomor kosong (sering ada bekas hapusan) terbaca sebagai jawaban
       t.soal.forEach((exp: string, i: number) => {
         const it = d.soal[i];
         if (exp === "MULTI") {
@@ -50,7 +52,11 @@ describe("OMR LJK v2 - foto sintetis", () => {
           if (e) soalTerisi++;
         }
         else if (it.status !== "ok") soalDitandai++;
-        else soalSalahBaca++;
+        else {
+          soalSalahBaca++;
+          if (e) salahOpsi++;
+          else hapusanTerbaca++;
+        }
       });
       let kuisBenar = 0;
       let kuisSalah = 0;
@@ -66,7 +72,7 @@ describe("OMR LJK v2 - foto sintetis", () => {
       });
       const q = res.quality!;
       rows.push(
-        `${name.padEnd(24)} nim:${nimOk ? "OK" : "X " + d.nim.value} kode:${kodeOk ? "OK" : "X"} soal ${soalBenar}/75 yakin ${soalYakin}/${soalTerisi} (salah ${soalSalahBaca}, flag ${soalDitandai}) align ${res.alignAnchors}@${res.alignRms} kuis ${kuisBenar}/15 | px/mm ${q.pxPerMm} sharp ${q.sharpness} ang ${q.minAngle}-${q.maxAngle} ${q.issues.join(";")} | ${res.ms}ms`,
+        `${name.padEnd(24)} nim:${nimOk ? "OK" : "X " + d.nim.value} kode:${kodeOk ? "OK" : "X"} soal ${soalBenar}/75 yakin ${soalYakin}/${soalTerisi} (salah ${soalSalahBaca}${hapusanTerbaca ? ` [hapusan ${hapusanTerbaca}]` : ""}, flag ${soalDitandai}) align ${res.alignAnchors}@${res.alignRms} kuis ${kuisBenar}/15 | px/mm ${q.pxPerMm} sharp ${q.sharpness} ang ${q.minAngle}-${q.maxAngle} ${q.issues.join(";")} | ${res.ms}ms`,
       );
       // Syarat lulus: tidak boleh ada salah baca diam-diam untuk arsiran.
       if (t.style === "fill") {
@@ -75,6 +81,14 @@ describe("OMR LJK v2 - foto sintetis", () => {
         expect(soalSalahBaca).toBe(0);
         expect(kuisSalah).toBe(0);
         expect(soalBenar).toBeGreaterThanOrEqual(72);
+      } else if (t.style === "tipis") {
+        // arsiran pensil tipis harus terbaca yakin; bekas hapusan tebal yang berdiri sendiri boleh lolos sedikit
+        expect(nimOk).toBe(true);
+        expect(kodeOk).toBe(true);
+        expect(salahOpsi).toBe(0);
+        expect(kuisSalah).toBe(0);
+        expect(soalYakin).toBeGreaterThanOrEqual(Math.floor(0.9 * soalTerisi));
+        expect(hapusanTerbaca).toBeLessThanOrEqual(6);
       } else if (t.style === "mixed") {
         expect(nimOk).toBe(true);
         expect(soalSalahBaca).toBe(0);
