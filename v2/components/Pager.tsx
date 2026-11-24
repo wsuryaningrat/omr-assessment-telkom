@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export const PAGE_SIZES = [10, 15, 25, 50, 100];
+export const PAGE_SIZES = [10, 15, 20, 25, 50, 100];
 export const DEFAULT_PAGE_SIZE = 15;
 
 /**
  * Paginasi sisi klien. Ukuran halaman disimpan per tabel (`key`) di localStorage.
  * `resetOn` — ubah nilainya (mis. teks pencarian / filter) untuk kembali ke halaman 1.
+ * `defaultSize` — ukuran awal bila pengguna belum pernah memilih ukuran untuk tabel ini.
  */
-export function usePaged<T>(items: T[], key: string, resetOn: unknown = null) {
-  const [size, setSizeState] = useState(DEFAULT_PAGE_SIZE);
+export function usePaged<T>(items: T[], key: string, resetOn: unknown = null, defaultSize = DEFAULT_PAGE_SIZE) {
+  const [size, setSizeState] = useState(defaultSize);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export function usePaged<T>(items: T[], key: string, resetOn: unknown = null) {
   const slice = useMemo(() => items.slice((cur - 1) * size, cur * size), [items, cur, size]);
 
   const setSize = (n: number) => {
-    const v = Math.max(1, Math.min(1000, Math.round(n) || DEFAULT_PAGE_SIZE));
+    const v = Math.max(1, Math.min(1000, Math.round(n) || defaultSize));
     setSizeState(v);
     setPage(1);
     try {
